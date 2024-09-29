@@ -1,0 +1,10 @@
+[package]
+name = "path_facts"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+faccess = "0.2.4"
+indoc = "2.0.5"
+pretty_assertions = "1.4.1"
+tempfile = "3.12.0"

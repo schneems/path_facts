@@ -1,10 +1,9 @@
 use std::{
     fmt::Display,
-    fs::Metadata,
     path::{Path, PathBuf},
 };
 
-use abs_path::AbsPath;
+use abs_path::{AbsPath, AbsPathError};
 use canonical_path::CanonicalPath;
 use faccess::{AccessMode, PathExt};
 use resolved_metadata::{ResolvedMetadata, ResolvedType};
@@ -19,6 +18,7 @@ mod style;
 #[derive(Debug, Clone)]
 pub(crate) struct DirOk {
     pub(crate) absolute: AbsPath,
+    #[allow(dead_code)]
     pub(crate) canonical: CanonicalPath,
     pub(crate) entries: Vec<AbsPath>,
     pub(crate) read: bool,
@@ -48,23 +48,6 @@ impl DirOk {
     pub(crate) fn has_entry(&self, path: &AbsPath) -> bool {
         self.entries.contains(path)
     }
-
-    // Must have read perms because we read the entries
-    pub(crate) fn permission_caveats(&self) -> Option<String> {
-        match (self.write, self.execute) {
-            (true, true) => None,
-            (true, false) => {
-                Some("✅ read, ✅ write, ❌ execute (Cannot read metadata)".to_string())
-            }
-            (false, true) => {
-                Some("✅ read, ❌ write, ✅ execute (Cannot modify entries)".to_string())
-            }
-            (false, false) => Some(
-                "✅ read, ❌ write, ❌ execute (Cannot modify entries or read metadata)"
-                    .to_string(),
-            ),
-        }
-    }
 }
 
 struct HappyPath {
@@ -83,6 +66,7 @@ enum UnhappyPath {
     ParentProblem {
         absolute: AbsPath,
         parent: AbsPath,
+        #[allow(dead_code)]
         error: std::io::Error,
     },
     DoesNotExist {
@@ -123,11 +107,24 @@ impl Display for PathFacts {
         match &self.state {
             Ok(happy) => {
                 writeln!(f, "exists `{}`", self.path.display())?;
+                if self.path.is_relative() {
+                    writeln!(
+                        f,
+                        "{}",
+                        style::bullet(format!("Absolute: {absolute}", absolute = happy.absolute))
+                    )?;
+                }
+
                 if let Some(target) = &happy.symlink_target {
                     writeln!(
                         f,
                         "{}",
-                        style::bullet(format!("Symlink target: `{}`", target))
+                        style::bullet(format!("Canonical: {}", happy.canonical))
+                    )?;
+                    writeln!(
+                        f,
+                        "{}",
+                        style::bullet(format!("Symlink target: {}", target))
                     )?;
                 }
                 writeln!(
@@ -149,12 +146,75 @@ impl Display for PathFacts {
                     }))
                 )?;
             }
-            Err(UnhappyPath::AbsPathError(error)) => todo!(),
-            Err(UnhappyPath::IsRoot(_)) => todo!(),
-            Err(UnhappyPath::ParentProblem { .. }) => todo!(),
+
+            Err(UnhappyPath::AbsPathError(AbsPathError::PathIsEmpty(path))) => {
+                writeln!(f, "path `{}` is empty", path.display())?;
+            }
+            Err(UnhappyPath::AbsPathError(AbsPathError::CannotReadCWD(path, error))) => {
+                writeln!(f, "`{}`", path.display())?;
+                writeln!(
+                    f,
+                    "{}",
+                    style::bullet(format!("Cannot read current working directory: {}", error))
+                )?;
+            }
+            Err(UnhappyPath::IsRoot(absolute)) => {
+                writeln!(f, "is root {absolute}")?;
+            }
+            Err(UnhappyPath::ParentProblem {
+                absolute,
+                parent,
+                error: _,
+            }) => {
+                writeln!(f, "cannot access `{}`", self.path.display())?;
+                if self.path.is_relative() {
+                    writeln!(f, "{}", style::bullet(format!("Absolute: `{absolute}`",)))?;
+                }
+
+                let mut prior_dir = parent.clone();
+                let mut prior_state = state(parent.as_ref());
+                while let Err(UnhappyPath::ParentProblem {
+                    absolute: _,
+                    parent,
+                    error: _,
+                }) = prior_state
+                {
+                    prior_dir = parent;
+                    prior_state = state(prior_dir.as_ref());
+                }
+                match &prior_state {
+                    Ok(HappyPath {
+                        resolved_type: ResolvedType::File,
+                        ..
+                    }) => {
+                        writeln!(f, "{}", style::bullet("Prior path is not a directory"))?;
+                        writeln!(
+                            f,
+                            "{}",
+                            style::bullet(format!(
+                                "Prior path {}",
+                                PathFacts::new(prior_dir.as_ref())
+                            ))
+                        )?
+                    }
+                    _ => {
+                        writeln!(
+                            f,
+                            "{}",
+                            style::bullet(format!(
+                                "Prior directory {}",
+                                PathFacts::new(prior_dir.as_ref())
+                            ))
+                        )?;
+                    }
+                }
+            }
             Err(UnhappyPath::DoesNotExist { absolute, parent }) => {
-                //
                 writeln!(f, "does not exist `{}`", self.path.display())?;
+                if self.path.is_relative() {
+                    writeln!(f, "{}", style::bullet(format!("Absolute: `{absolute}`",)))?;
+                }
+
                 writeln!(
                     f,
                     "{}",
@@ -176,9 +236,96 @@ impl Display for PathFacts {
                 absolute,
                 parent,
                 error,
-            }) => todo!(),
-            Err(UnhappyPath::CannotMetadata { .. }) => todo!(),
-            Err(UnhappyPath::CannotReadLink { .. }) => todo!(),
+            }) => {
+                if parent.has_entry(absolute) {
+                    writeln!(f, "exists `{}`", self.path.display())?;
+                } else {
+                    writeln!(f, "does not exist `{}`", self.path.display())?;
+                }
+                if self.path.is_relative() {
+                    writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
+                }
+                writeln!(
+                    f,
+                    "{}",
+                    style::bullet(format!("Cannot canonicalize due to error `{error}`",))
+                )?;
+                writeln!(
+                    f,
+                    "{}",
+                    style::bullet(style::fmt_dir(parent, |entry| {
+                        if entry == absolute {
+                            Some("(exists)".to_string())
+                        } else {
+                            None
+                        }
+                    }))
+                )?;
+            }
+            Err(UnhappyPath::CannotMetadata {
+                absolute,
+                canonical,
+                parent,
+                error,
+            }) => {
+                if parent.has_entry(absolute) {
+                    writeln!(f, "exists `{}`", self.path.display())?;
+                } else {
+                    writeln!(f, "does not exist `{}`", self.path.display())?;
+                }
+                if self.path.is_relative() {
+                    writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
+                }
+                writeln!(f, "{}", style::bullet(format!("Canonical: {canonical}",)))?;
+                writeln!(
+                    f,
+                    "{}",
+                    style::bullet(format!("Cannot read metadata due to error `{error}`",))
+                )?;
+                writeln!(
+                    f,
+                    "{}",
+                    style::bullet(style::fmt_dir(parent, |entry| {
+                        if entry == absolute {
+                            Some("(exists)".to_string())
+                        } else {
+                            None
+                        }
+                    }))
+                )?;
+            }
+            Err(UnhappyPath::CannotReadLink {
+                absolute,
+                canonical,
+                parent,
+                error,
+            }) => {
+                if parent.has_entry(absolute) {
+                    writeln!(f, "exists `{}`", self.path.display())?;
+                } else {
+                    writeln!(f, "does not exist `{}`", self.path.display())?;
+                }
+                if self.path.is_relative() {
+                    writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
+                }
+                writeln!(f, "{}", style::bullet(format!("Canonical: {canonical}",)))?;
+                writeln!(
+                    f,
+                    "{}",
+                    style::bullet(format!("Cannot readlink due to error `{error}`",))
+                )?;
+                writeln!(
+                    f,
+                    "{}",
+                    style::bullet(style::fmt_dir(parent, |entry| {
+                        if entry == absolute {
+                            Some("(exists)".to_string())
+                        } else {
+                            None
+                        }
+                    }))
+                )?;
+            }
         }
 
         Ok(())
@@ -259,6 +406,73 @@ mod tests {
     use super::*;
     #[allow(unused_imports)]
     use pretty_assertions::{assert_eq, assert_ne};
+
+    #[test]
+    fn test_prior_dir_problem_is_file() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let path = tempdir
+            .path()
+            .join("a")
+            .join("b")
+            .join("c")
+            .join("does_not_exist.txt");
+
+        std::fs::write(tempdir.path().join("a"), "").unwrap();
+        let expected = formatdoc! {"
+            cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
+             - Prior path is not a directory
+             - Prior path exists `/path/to/directory/a`
+                - `/path/to/directory`
+                    └── `a` (file: ✅ read, ✅ write, ❌ execute)
+        "}
+        .replace(
+            "/path/to/directory",
+            format!("{}", tempdir.path().display()).as_str(),
+        );
+        let facts = PathFacts::new(path);
+
+        println!("{:?}", expected.trim());
+        println!("{:?}", format!("{facts}").trim());
+        assert_eq!(expected.trim(), format!("{facts}").trim());
+    }
+
+    #[test]
+    fn test_prior_dir_problem_does_not_exist() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let path = tempdir
+            .path()
+            .join("a")
+            .join("b")
+            .join("c")
+            .join("does_not_exist.txt");
+        let expected = formatdoc! {"
+            cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
+             - Prior directory does not exist `/path/to/directory/a`
+                - Missing `a` from parent directory:
+                  `/path/to/directory`
+                     └── (empty)
+        "}
+        .replace(
+            "/path/to/directory",
+            format!("{}", tempdir.path().display()).as_str(),
+        );
+        let facts = PathFacts::new(path);
+
+        println!("{:?}", expected.trim());
+        println!("{:?}", format!("{facts}").trim());
+        assert_eq!(expected.trim(), format!("{facts}").trim());
+    }
+
+    #[test]
+    fn test_empty_path() {
+        let path = Path::new("");
+
+        let expected = formatdoc! {"
+            path `` is empty
+        "};
+        let facts = PathFacts::new(path);
+        assert_eq!(expected.trim(), format!("{facts}").trim());
+    }
 
     #[test]
     fn test_file_exists_is_file() {

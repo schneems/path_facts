@@ -1,5 +1,5 @@
 use crate::{abs_path::AbsPath, DirOk};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub(crate) fn bullet(contents: impl AsRef<str>) -> String {
     prefix_first_rest_lines(" - ", "   ", contents.as_ref())
@@ -89,7 +89,7 @@ where
 }
 
 /// Formats a vec of filenames
-pub(crate) fn fmt_dir_entries_annotate<F>(entries: &Vec<AbsPath>, annotate: F) -> String
+pub(crate) fn fmt_dir_entries_annotate<F>(entries: &[AbsPath], annotate: F) -> String
 where
     F: Fn(&AbsPath) -> Option<String>,
 {

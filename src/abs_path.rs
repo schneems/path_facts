@@ -10,25 +10,9 @@
 //! must be readable.
 //!
 use std::{
-    ffi::OsStr,
     fmt::{Display, Formatter},
     path::{Path, PathBuf},
 };
-
-#[derive(Debug)]
-pub(crate) enum AbsPathError {
-    PathIsEmpty(PathBuf),
-    CannotReadCWD(PathBuf, std::io::Error),
-}
-
-impl AbsPathError {
-    pub(crate) fn path(&self) -> &Path {
-        match self {
-            AbsPathError::PathIsEmpty(path) => path.as_ref(),
-            AbsPathError::CannotReadCWD(path, _) => path.as_ref(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AbsPath(PathBuf);
@@ -63,7 +47,7 @@ impl AbsPath {
     /// Errors if path is not a directory or is not readable
     pub(crate) fn read_dir(&self) -> Result<Vec<AbsPath>, std::io::Error> {
         std::fs::read_dir(&self.0)?
-            .map(|entry| entry.map(|e| e.path()).map(|path| AbsPath(path)))
+            .map(|entry| entry.map(|e| e.path()).map(AbsPath))
             .collect::<Result<Vec<AbsPath>, std::io::Error>>()
     }
 
@@ -84,6 +68,7 @@ impl AbsPath {
         }
     }
 
+    #[allow(dead_code)]
     // Returns the last parent path
     pub(crate) fn root(&self) -> Self {
         self.each_parent().last().unwrap_or_else(|| self.clone())
@@ -108,7 +93,7 @@ impl AsRef<Path> for AbsPath {
 pub(crate) fn try_readlink(absolute: &AbsPath) -> Result<Option<AbsPath>, std::io::Error> {
     let path = absolute.as_ref();
     if path.is_symlink() {
-        std::fs::read_link(&path)
+        std::fs::read_link(path)
             .map(|target| {
                 if target.is_relative() {
                     AbsPath(absolute.as_ref().join(target))
@@ -135,6 +120,22 @@ impl Iterator for AbsParentDirs {
             Some(current)
         } else {
             None
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum AbsPathError {
+    PathIsEmpty(PathBuf),
+    CannotReadCWD(PathBuf, std::io::Error),
+}
+
+impl AbsPathError {
+    #[allow(dead_code)]
+    pub(crate) fn path(&self) -> &Path {
+        match self {
+            AbsPathError::PathIsEmpty(path) => path.as_ref(),
+            AbsPathError::CannotReadCWD(path, _) => path.as_ref(),
         }
     }
 }

@@ -1,3 +1,4 @@
+#![doc = include_str!("../README.md")]
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
@@ -168,7 +169,7 @@ impl Display for PathFacts {
             }) => {
                 writeln!(f, "cannot access `{}`", self.path.display())?;
                 if self.path.is_relative() {
-                    writeln!(f, "{}", style::bullet(format!("Absolute: `{absolute}`",)))?;
+                    writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
                 }
 
                 let mut prior_dir = parent.clone();
@@ -212,7 +213,7 @@ impl Display for PathFacts {
             Err(UnhappyPath::DoesNotExist { absolute, parent }) => {
                 writeln!(f, "does not exist `{}`", self.path.display())?;
                 if self.path.is_relative() {
-                    writeln!(f, "{}", style::bullet(format!("Absolute: `{absolute}`",)))?;
+                    writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
                 }
 
                 writeln!(
@@ -456,8 +457,8 @@ mod tests {
             "/path/to/directory",
             format!("{}", tempdir.path().display()).as_str(),
         );
-        let facts = PathFacts::new(path);
 
+        let facts = PathFacts::new(path);
         println!("{:?}", expected.trim());
         println!("{:?}", format!("{facts}").trim());
         assert_eq!(expected.trim(), format!("{facts}").trim());

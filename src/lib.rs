@@ -99,12 +99,12 @@ enum UnhappyPath {
 
 pub struct PathFacts {
     path: PathBuf,
-    state: Result<HappyPath, UnhappyPath>,
+    state: Result<HappyPath, Box<UnhappyPath>>,
 }
 
 impl Display for PathFacts {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.state {
+        match self.state.as_ref().map_err(|e| &**e) {
             Ok(happy) => {
                 writeln!(f, "exists `{}`", self.path.display())?;
                 if self.path.is_relative() {
@@ -177,9 +177,9 @@ impl Display for PathFacts {
                     absolute: _,
                     parent,
                     error: _,
-                }) = prior_state
+                }) = prior_state.as_ref().map_err(|e| &**e)
                 {
-                    prior_dir = parent;
+                    prior_dir = parent.clone();
                     prior_state = state(prior_dir.as_ref());
                 }
                 match &prior_state {
@@ -332,7 +332,7 @@ impl Display for PathFacts {
     }
 }
 
-fn state(path: &Path) -> Result<HappyPath, UnhappyPath> {
+fn state(path: &Path) -> Result<HappyPath, Box<UnhappyPath>> {
     let absolute = AbsPath::new(path).map_err(UnhappyPath::AbsPathError)?;
     let abs_parent = absolute
         .parent()

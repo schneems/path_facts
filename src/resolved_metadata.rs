@@ -7,6 +7,7 @@
 use std::{fmt::Display, fs::Metadata, path::Path};
 
 /// Indicates the path is a file or directory or it's a valid simlink to a file or directory
+#[derive(Debug)]
 pub(crate) enum ResolvedType {
     File,
     Dir,

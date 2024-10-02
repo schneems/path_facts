@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# We use `faccess` to check **effective** permisisons on disk (includes inherited values)
 faccess = "0.2.4"
 indoc = "2.0.5"
 pretty_assertions = "1.4.1"

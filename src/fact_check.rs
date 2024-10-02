@@ -1,8 +1,6 @@
 //! A place to validate intuitions about paths. Tests
 //! check std::fs behavior in addition to asserting interfaces
 //! in this library.
-//!
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -24,7 +22,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn test_dir_without_execute() {
-        use crate::{abs_path::AbsPath, DirOk};
+        use crate::{abs_path::AbsPath, happy_path::DirOk};
 
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();

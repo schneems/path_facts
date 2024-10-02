@@ -1,12 +1,10 @@
-use std::path::Path;
-
-use faccess::{AccessMode, PathExt};
-
 use crate::{
     abs_path::{self, AbsPath},
     canonical_path::CanonicalPath,
     resolved_metadata::{ResolvedMetadata, ResolvedType},
 };
+use faccess::{AccessMode, PathExt};
+use std::path::Path;
 
 #[derive(Debug)]
 pub(crate) struct HappyPath {

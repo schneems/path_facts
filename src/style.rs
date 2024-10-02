@@ -1,4 +1,4 @@
-use crate::{abs_path::AbsPath, DirOk};
+use crate::{abs_path::AbsPath, happy_path::DirOk};
 use std::path::Path;
 
 pub(crate) fn bullet(contents: impl AsRef<str>) -> String {

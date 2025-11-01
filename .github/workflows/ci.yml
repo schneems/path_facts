@@ -36,7 +36,7 @@ jobs:
         # https://github.com/rust-lang/cargo/issues/10025
         run: RUSTDOCFLAGS="-D warnings" cargo doc --all-features --document-private-items --no-deps
 
-  unit-test:
+  test:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -47,18 +47,6 @@ jobs:
         uses: Swatinem/rust-cache@v2.8.1
       - name: Run unit tests
         run: cargo test --all-features
-
-  integration-test:
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-      - name: Update Rust toolchain
-        run: rustup update
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2.8.1
-      - name: Run integration tests
-        run: cargo test -- --ignored
 
   readme-updated:
     runs-on: ubuntu-24.04

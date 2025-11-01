@@ -24,10 +24,10 @@ When you could be seeing this?
 
 ```rust
 cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
-- Prior path is not a directory
-- Prior path exists `/path/to/directory/a`
-   - `/path/to/directory`
-       └── `a` file [✅ read, ✅ write, ❌ execute]
+ - Prior path is not a directory
+ - Prior path exists `/path/to/directory/a`
+    - `/path/to/directory`
+        └── `a` file [✅ read, ✅ write, ❌ execute]
 ```
 
 Then start using path facts today!
@@ -56,7 +56,6 @@ std::fs::read_to_string(&path)
     .unwrap();
 ```
 
-
 For an operation with multiple paths you can use multiple PATH FACTS structs. For example:
 
 ```rust
@@ -73,7 +72,7 @@ std::fs::rename(&from, to).map_err(|error| formatdoc! {"
     ",
     from.display(),
     to.display(),
-    from_facts = PathFacts::new(&from).to_string().trim(),
+    from_facts = PathFacts::new(&from),
     to_facts = PathFacts::new(&to)
 });
 ```

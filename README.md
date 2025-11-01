@@ -22,12 +22,12 @@ No such file or directory
 
 When you could be seeing this?
 
-```text
+```rust
 cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
 - Prior path is not a directory
 - Prior path exists `/path/to/directory/a`
-- `/path/to/directory`
-└── `a` file [✅ read, ✅ write, ❌ execute]
+   - `/path/to/directory`
+       └── `a` file [✅ read, ✅ write, ❌ execute]
 ```
 
 Then start using path facts today!
@@ -55,6 +55,7 @@ std::fs::read_to_string(&path)
     .map_err(|error| format!("{error}. {}", PathFacts::new(&path)))
     .unwrap();
 ```
+
 
 For an operation with multiple paths you can use multiple PATH FACTS structs. For example:
 

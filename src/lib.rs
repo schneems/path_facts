@@ -119,6 +119,11 @@
 //! # assert_eq!(expected.trim(), result.unwrap_err().to_string().trim());
 //! ```
 //!
+//! ## Async support
+//!
+//! This library uses syncronous file system calls. If you're using this library in an async context,
+//! you'll want to use an async wrapper like [`tokio::task::block_in_place`](https://docs.rs/tokio/latest/tokio/task/fn.block_in_place.html).
+//!
 //! ## Actual path facts
 //!
 //! Here are a few facts about paths that some people might find interesting. If you're staring at

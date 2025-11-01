@@ -1,7 +1,7 @@
 use crate::abs_path::AbsPathError;
 use crate::happy_path::{state, HappyPath, UnhappyPath};
 use crate::resolved_metadata::ResolvedType;
-use crate::style::{self, append_if, conditional_perms};
+use crate::style::{self, conditional_perms};
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
@@ -53,12 +53,10 @@ impl Display for PathFacts {
                     style::bullet(style::fmt_dir(&happy.parent, |entry| {
                         if entry == &happy.absolute {
                             Some(format!(
-                                "({file_type}{permissions})",
+                                "{file_type} [{permissions}]",
                                 file_type = happy.resolved_type,
-                                permissions = append_if(
-                                    ": ",
+                                permissions =
                                     conditional_perms(happy.read, happy.write, happy.execute)
-                                )
                             ))
                         } else {
                             None
@@ -275,7 +273,7 @@ mod tests {
              - Prior path is not a directory
              - Prior path exists `/path/to/directory/a`
                 - `/path/to/directory`
-                    └── `a` (file: ✅ read, ✅ write, ❌ execute)
+                    └── `a` file [✅ read, ✅ write, ❌ execute]
         "}
         .replace(
             "/path/to/directory",
@@ -335,7 +333,7 @@ mod tests {
         let expected = formatdoc! {"
             exists `/path/to/directory/exists.txt`
              - `/path/to/directory`
-                 └── `exists.txt` (file: ✅ read, ✅ write, ❌ execute)
+                 └── `exists.txt` file [✅ read, ✅ write, ❌ execute]
         "}
         .replace(
             "/path/to/directory",

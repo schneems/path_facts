@@ -186,15 +186,41 @@
 //!
 //! ## Why not path recommendations instead of path facts?
 //!
-//! Initial efforts on this library were geared towards giving concrete recommendations such as telling people to `mkdir -p <directory>` or running a specific `chmod` command. That could still be a worthwhile effort, but that requires that we know both the facts on disk as well as the intent of the programmer.
+//! Initial efforts on this library were geared towards giving concrete recommendations such as telling
+//! people to `mkdir -p <directory>` or running a specific `chmod` command. That could still be a
+//! worthwhile effort, but that requires that we know both the facts on disk as well as the intent of
+//! the programmer.
 //!
-//! To explain: Suggestions and recommendations are better the more true they are. If an error message says "please try again" and trying again doesn't fix it, but the message continues to assert "please try again," it's not so much a valid suggestion but more wishful thinking on the error message author. If a path doesn't exist, that's usually bad, so we suggest you create it via the `touch` command. Except if you're trying to create a file, then that path not existing is good, and suggesting that you create it would introduce an error where none existed before. So, any suggestions must be context-aware and task-aware.
+//! To explain: Suggestions and recommendations are better the more true they are. If an error message
+//! says "please try again" and trying again doesn't fix it, but the message continues to assert "please
+//! try again," it's not so much a valid suggestion but more wishful thinking on the error message
+//! author. If a path doesn't exist, that's usually bad, so we suggest you create it via the `touch`
+//! command. Except if you're trying to create a file, then that path not existing is good, and
+//! suggesting that you create it would introduce an error where none existed before. So, any suggestions
+//! must be context-aware and task-aware.
 //!
-//! Complicating things further: implementation details matter when determining the disk's state **should** be. For example, Rust's [std::fs::rename](https://doc.rust-lang.org/std/fs/fn.rename.html) function will error if the "to" path exists unless it's on Unix and it's a directory that is empty and the "from" path is also a directory. But on Windows, the "to" path cannot be a directory. That's a lot of caveats to consider!
+//! Complicating things further: implementation details matter when determining the disk's state
+//! **should** be. For example, Rust's [std::fs::rename](https://doc.rust-lang.org/std/fs/fn.rename.html)
+//! function will error if the "to" path exists unless it's on Unix and it's a directory that is empty
+//! and the "from" path is also a directory. But on Windows, the "to" path cannot be a directory.
+//! That's a lot of caveats to consider!
 //!
-//! Effectively, the only way to deliver truly accurate recommendations for some operations would be to reverse engineer them. That's fine in moderation. We do that a little here, traversing directories in a parent chain to see which one doesn't exist. However, if your implementation is overly coupled to internally described logic, it can be difficult to maintain it if the reference implementation changes without warning. Then suddenly, previously valid suggestions are no longer true!
+//! Effectively, the only way to deliver truly accurate recommendations for some operations would be
+//! to reverse engineer them. That's fine in moderation. We do that a little here, traversing directories
+//! in a parent chain to see which one doesn't exist. However, if your implementation is overly coupled
+//! to internally described logic, it can be difficult to maintain it if the reference implementation
+//! changes without warning. Then suddenly, previously valid suggestions are no longer true!
 //!
-//! There are some ways around this inside-out implementation-coupling problem. For example, [synax_suggest](https://github.com/ruby/syntax_suggest) tries to know as little as possible about Ruby grammar and parsing. It tells the user things that are true, such as "if you take these lines of code together, they're invalid Ruby." Then it presents that truthy information in a way the user can consume and actualize. It's not always a perfect result, but it's correct enough to be helpful more often than it's harmful. A more scholarly way to frame this would be looking at it through the lens of [soundeness versus completeness and precision](https://cacm.acm.org/blogcacm/soundness-and-completeness-defined-with-precision/). We aim for "more precise" i.e., "it reports fewer non-errors." It also means we could possibly stop at some point earlier than "completely reverse-engineer rust stdlib behavior" and somewhere further than "simply state the facts". However, we're here. We have the facts, we might as well show those.
+//! There are some ways around this inside-out implementation-coupling problem. For example,
+//! [synax_suggest](https://github.com/ruby/syntax_suggest) tries to know as little as possible about
+//! Ruby grammar and parsing. It tells the user things that are true, such as "if you take these lines of
+//! code together, they're invalid Ruby." Then it presents that truthy information in a way the user can
+//! consume and actualize. It's not always a perfect result, but it's correct enough to be helpful more
+//! often than it's harmful. A more scholarly way to frame this would be looking at it through the lens
+//! of [soundeness versus completeness and precision](https://cacm.acm.org/blogcacm/soundness-and-completeness-defined-with-precision/).
+//! We aim for "more precise" i.e., "it reports fewer non-errors." It also means we could possibly stop
+//! at some point earlier than "completely reverse-engineer rust stdlib behavior" and somewhere further
+//! than "simply state the facts". However, we're here. We have the facts, we might as well show those.
 mod abs_path;
 mod canonical_path;
 mod fact_check;

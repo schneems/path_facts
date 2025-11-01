@@ -81,7 +81,7 @@ Here are a few facts about paths that some people might find interesting. If you
 - Fact: Making an infinitely recursive structure of paths using symlinks is possible. (FYI, this is why we don't try to follow broken symlinks to completion)
 - Fact: Permissions of a path depend not just on the permissions of the specific file/directory but also on other things, such as inherited permissions from parent directories.
   - This means that to know the "effective" permissions of a file, you need to know the permissions of all its parent directories (we use the `faccess` crate for this)
-  - More permissions info at https://www.redhat.com/sysadmin/linux-file-permissions-explained and https://www.redhat.com/sysadmin/suid-sgid-sticky-bit
+  - More permissions info at <https://www.redhat.com/sysadmin/linux-file-permissions-explained> and <https://www.redhat.com/sysadmin/suid-sgid-sticky-bit>
 - Fact: Different operating systems have different permissions models. Even on Linux, there are additional ways to restrict file capabilities, such as Access Control Lists (ACLs).
   - This library is OS independent but prioritizes posix systems (Linux, Mac) and, to a lesser degree, Windows.
 - Fact: The first paths were made by animals. Source: [top 10 facts about ~~paths~~ roads](https://www.funkidslive.com/learn/top-10-facts/top-ten-facts-about-roads/)

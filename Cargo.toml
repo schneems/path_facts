@@ -8,6 +8,6 @@ edition = "2021"
 faccess = "0.2.4"
 
 [dev-dependencies]
-indoc = "2.0.5"
-tempfile = "3.12.0"
+indoc = "2.0.7"
+tempfile = "3.23.0"
 pretty_assertions = "1.4.1"

@@ -22,7 +22,7 @@ No such file or directory
 
 When you could be seeing this?
 
-```rust
+```text
 cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
  - Prior path is not a directory
  - Prior path exists `/path/to/directory/a`

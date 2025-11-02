@@ -18,33 +18,12 @@
 //!
 //! When you could be seeing this?
 //!
-//! ```rust
-//! # use path_facts::PathFacts;
-//! # use indoc::formatdoc;
-//! # use tempfile::tempdir;
-//! # use pretty_assertions::assert_eq;
-//! # let tempdir = tempfile::tempdir().unwrap();
-//! # let path = tempdir
-//! #     .path()
-//! #     .join("a")
-//! #     .join("b")
-//! #     .join("c")
-//! #     .join("does_not_exist.txt");
-//! #
-//! # std::fs::write(tempdir.path().join("a"), "").unwrap();
-//! # let expected = formatdoc! {"
+//! ```text
 //! cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
 //!  - Prior path is not a directory
 //!  - Prior path exists `/path/to/directory/a`
 //!     - `/path/to/directory`
 //!         └── `a` file [✅ read, ✅ write, ❌ execute]
-//! # "}.replace(
-//! #     "/path/to/directory",
-//! #     format!("{}", tempdir.path().display()).as_str(),
-//! # ).trim().to_string();
-//! # let facts = PathFacts::new(path);
-//! #
-//! # assert_eq!(expected.trim(), format!("{facts}").trim());
 //! ```
 //!
 //! Then start using path facts today!

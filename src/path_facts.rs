@@ -268,14 +268,8 @@ mod tests {
             .join("does_not_exist.txt");
 
         std::fs::write(tempdir.path().join("a"), "").unwrap();
-        let expected = formatdoc! {"
-            cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
-             - Prior path is not a directory
-             - Prior path exists `/path/to/directory/a`
-                - `/path/to/directory`
-                    └── `a` file [✅ read, ✅ write, ❌ execute]
-        "}
-        .replace(
+
+        let expected = include_str!("output/file_does_not_exist.txt").replace(
             "/path/to/directory",
             format!("{}", tempdir.path().display()).as_str(),
         );
@@ -284,6 +278,11 @@ mod tests {
         println!("{:?}", expected.trim());
         println!("{:?}", format!("{facts}").trim());
         assert_eq!(expected.trim(), format!("{facts}").trim());
+
+        assert!(
+            include_str!("../README.md").contains(include_str!("output/file_does_not_exist.txt")),
+            "Readme missing correct example output. Update the module docs and re-run `cargo rdme`"
+        );
     }
 
     #[test]

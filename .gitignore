@@ -1,1 +1,5 @@
 /target
+
+# Insta snapshot files that trigger during test runs
+*.pending-snap
+*.snap.new

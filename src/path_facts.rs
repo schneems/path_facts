@@ -251,11 +251,7 @@ impl Display for PathFacts {
 
 #[cfg(test)]
 mod tests {
-    use indoc::formatdoc;
-
     use super::*;
-    #[allow(unused_imports)]
-    use pretty_assertions::{assert_eq, assert_ne};
 
     #[test]
     fn test_prior_dir_problem_is_file() {
@@ -269,19 +265,25 @@ mod tests {
 
         std::fs::write(tempdir.path().join("a"), "").unwrap();
 
-        let expected = include_str!("output/file_does_not_exist.txt").replace(
-            "/path/to/directory",
-            format!("{}", tempdir.path().display()).as_str(),
-        );
-        let facts = PathFacts::new(path);
+        insta::with_settings!({prepend_module_to_snapshot => false}, {
+            insta::assert_snapshot!(
+                "prior_dir_problem_is_file",
+                PathFacts::new(path)
+                .to_string()
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory")
+            );
+        });
 
-        println!("{:?}", expected.trim());
-        println!("{:?}", format!("{facts}").trim());
-        assert_eq!(expected.trim(), format!("{facts}").trim());
-
+        // Verify README doesn't need to be updated
         assert!(
-            include_str!("../README.md").contains(include_str!("output/file_does_not_exist.txt")),
-            "Readme missing correct example output. Update the module docs and re-run `cargo rdme`"
+            include_str!("../README.md").contains(
+                include_str!("snapshots/prior_dir_problem_is_file.snap")
+                    .split("---")
+                    .nth(2)
+                    .expect("Snapshot should have YAML frontmatter")
+                    .trim()
+            ),
+            "README missing correct example output. Update the module docs and re-run `cargo rdme`"
         );
     }
 
@@ -294,33 +296,26 @@ mod tests {
             .join("b")
             .join("c")
             .join("does_not_exist.txt");
-        let expected = formatdoc! {"
+
+        insta::assert_snapshot!(
+            PathFacts::new(path)
+                .to_string()
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory"),
+            @r"
             cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
              - Prior directory does not exist `/path/to/directory/a`
                 - Missing `a` from parent directory:
                   `/path/to/directory`
                      └── (empty)
-        "}
-        .replace(
-            "/path/to/directory",
-            format!("{}", tempdir.path().display()).as_str(),
-        );
-
-        let facts = PathFacts::new(path);
-        println!("{:?}", expected.trim());
-        println!("{:?}", format!("{facts}").trim());
-        assert_eq!(expected.trim(), format!("{facts}").trim());
+            ")
     }
 
     #[test]
     fn test_empty_path() {
-        let path = Path::new("");
-
-        let expected = formatdoc! {"
-            path `` is empty
-        "};
-        let facts = PathFacts::new(path);
-        assert_eq!(expected.trim(), format!("{facts}").trim());
+        insta::assert_snapshot!(
+            PathFacts::new(Path::new("")),
+            @"path `` is empty"
+        )
     }
 
     #[test]
@@ -329,34 +324,63 @@ mod tests {
         let path = tempdir.path().join("exists.txt");
         std::fs::write(&path, "").unwrap();
 
-        let expected = formatdoc! {"
+        insta::assert_snapshot!(
+            PathFacts::new(path)
+                .to_string()
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory"),
+            @r"
             exists `/path/to/directory/exists.txt`
              - `/path/to/directory`
                  └── `exists.txt` file [✅ read, ✅ write, ❌ execute]
-        "}
-        .replace(
-            "/path/to/directory",
-            format!("{}", tempdir.path().display()).as_str(),
-        );
-        let facts = PathFacts::new(path);
-        assert_eq!(expected.trim(), format!("{facts}").trim());
+            ")
     }
 
     #[test]
     fn test_parent_exists_missing_file() {
         let tempdir = tempfile::tempdir().unwrap();
-        let path = tempdir.path().join("does_not_exist.txt");
-        let expected = formatdoc! {"
+        insta::assert_snapshot!(
+            PathFacts::new(tempdir.path().join("does_not_exist.txt"))
+                .to_string()
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory"),
+            @r"
             does not exist `/path/to/directory/does_not_exist.txt`
              - Missing `does_not_exist.txt` from parent directory:
                `/path/to/directory`
                   └── (empty)
-        "}
-        .replace(
-            "/path/to/directory",
-            format!("{}", tempdir.path().display()).as_str(),
-        );
-        let facts = PathFacts::new(path);
-        assert_eq!(expected.trim(), format!("{facts}").trim());
+            ")
+    }
+
+    #[test]
+    fn test_rename_two_missing_paths() {
+        use indoc::formatdoc;
+
+        let tempdir = tempfile::tempdir().unwrap();
+        std::env::set_current_dir(tempdir.path()).unwrap();
+
+        let from = std::path::Path::new("doesnotexist.txt");
+        let to = std::path::Path::new("also_does_not_exist.txt");
+
+        let result = std::fs::rename(from, to).map_err(|_error| {
+            formatdoc! {"
+            cannot rename from `{}` to `{}` due to: {{error}}.
+
+            From path {from_facts}
+            To path {to_facts}
+            ",
+                from.display(),
+                to.display(),
+                from_facts = PathFacts::new(from),
+                to_facts = PathFacts::new(to)
+            }
+        });
+
+        insta::with_settings!({prepend_module_to_snapshot => false}, {
+            insta::assert_snapshot!(
+                "rename_two_missing_paths",
+                result.unwrap_err()
+                    .to_string()
+                    .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
+            );
+        });
     }
 }

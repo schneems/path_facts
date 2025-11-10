@@ -61,18 +61,6 @@ impl AbsPath {
 
         Some(AbsPath(parent.to_path_buf()))
     }
-
-    pub(crate) fn each_parent(&self) -> AbsParentDirs {
-        AbsParentDirs {
-            current: self.parent(),
-        }
-    }
-
-    #[allow(dead_code)]
-    // Returns the last parent path
-    pub(crate) fn root(&self) -> Self {
-        self.each_parent().last().unwrap_or_else(|| self.clone())
-    }
 }
 
 impl Display for AbsPath {
@@ -107,35 +95,8 @@ pub(crate) fn try_readlink(absolute: &AbsPath) -> Result<Option<AbsPath>, std::i
     }
 }
 
-pub(crate) struct AbsParentDirs {
-    current: Option<AbsPath>,
-}
-
-impl Iterator for AbsParentDirs {
-    type Item = AbsPath;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(current) = self.current.take() {
-            self.current = current.parent();
-            Some(current)
-        } else {
-            None
-        }
-    }
-}
-
 #[derive(Debug)]
 pub(crate) enum AbsPathError {
     PathIsEmpty(PathBuf),
     CannotReadCWD(PathBuf, std::io::Error),
-}
-
-impl AbsPathError {
-    #[allow(dead_code)]
-    pub(crate) fn path(&self) -> &Path {
-        match self {
-            AbsPathError::PathIsEmpty(path) => path.as_ref(),
-            AbsPathError::CannotReadCWD(path, _) => path.as_ref(),
-        }
-    }
 }

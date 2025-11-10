@@ -80,7 +80,7 @@ impl Display for PathFacts {
             Err(UnhappyPath::ParentProblem {
                 absolute,
                 parent,
-                error: _,
+                _error,
             }) => {
                 writeln!(f, "cannot access `{}`", self.path.display())?;
                 if self.path.is_relative() {
@@ -92,7 +92,7 @@ impl Display for PathFacts {
                 while let Err(UnhappyPath::ParentProblem {
                     absolute: _,
                     parent,
-                    error: _,
+                    _error,
                 }) = prior_state.as_ref().map_err(|e| &**e)
                 {
                     prior_dir = parent.clone();

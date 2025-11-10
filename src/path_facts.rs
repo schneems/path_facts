@@ -1,7 +1,7 @@
 use crate::abs_path::AbsPathError;
 use crate::happy_path::{state, HappyPath, UnhappyPath};
 use crate::resolved_metadata::ResolvedType;
-use crate::style::{self, conditional_perms};
+use crate::style::{self, permissions};
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
@@ -53,10 +53,9 @@ impl Display for PathFacts {
                     style::bullet(style::fmt_dir(&happy.parent, |entry| {
                         if entry == &happy.absolute {
                             Some(format!(
-                                "{file_type} [{permissions}]",
+                                "{file_type} {permissions}",
                                 file_type = happy.resolved_type,
-                                permissions =
-                                    conditional_perms(happy.read, happy.write, happy.execute)
+                                permissions = permissions(happy.read, happy.write, happy.execute)
                             ))
                         } else {
                             None
@@ -452,8 +451,8 @@ mod tests {
               - Canonical: `/path/to/canonical/target_dir`
               - Symlink target: `/path/to/directory/target_dir`
               - `/path/to/directory`
-                  ├── `link_to_dir` directory []
+                  ├── `link_to_dir` directory [✅ read, ✅ write, ✅ execute]
                   └── `target_dir`
-        ");
+             ");
     }
 }

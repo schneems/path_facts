@@ -46,9 +46,23 @@ impl AbsPath {
     ///
     /// Errors if path is not a directory or is not readable
     pub(crate) fn read_dir(&self) -> Result<Vec<AbsPath>, std::io::Error> {
-        std::fs::read_dir(&self.0)?
+        #[cfg_attr(not(test), allow(unused_mut))]
+        let mut entries: Vec<AbsPath> = std::fs::read_dir(&self.0)?
             .map(|entry| entry.map(|e| e.path()).map(AbsPath))
-            .collect::<Result<Vec<AbsPath>, std::io::Error>>()
+            .collect::<Result<Vec<AbsPath>, std::io::Error>>()?;
+
+        // Sort by filename for deterministic test output only
+        // In production, preserve the OS's native directory entry order
+        #[cfg(test)]
+        {
+            entries.sort_by(|a, b| {
+                let a_name = a.0.file_name().unwrap_or(a.0.as_os_str());
+                let b_name = b.0.file_name().unwrap_or(b.0.as_os_str());
+                a_name.cmp(b_name)
+            });
+        }
+
+        Ok(entries)
     }
 
     // pub(crate) fn path_ok(self) -> Result<HappyPath, HappyPathError> {

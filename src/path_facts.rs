@@ -428,8 +428,8 @@ mod tests {
               - Canonical: `/path/to/canonical/target.txt`
               - Symlink target: `/path/to/directory/target.txt`
               - `/path/to/directory`
-                  ├── `target.txt`
-                  └── `link_to_target.txt` file [✅ read, ✅ write, ❌ execute]
+                  ├── `link_to_target.txt` file [✅ read, ✅ write, ❌ execute]
+                  └── `target.txt`
         ");
     }
 
@@ -553,8 +553,8 @@ mod tests {
             exists `/path/to/directory/link1`
              - Cannot canonicalize due to error `{error}`
              - `/path/to/directory`
-                 ├── `link2`
-                 └── `link1` (exists)
+                 ├── `link1` (exists)
+                 └── `link2`
             "
         );
     }
@@ -578,8 +578,8 @@ mod tests {
              - Absolute: `/path/to/directory/link1`
              - Cannot canonicalize due to error `{error}`
              - `/path/to/directory`
-                 ├── `link2`
-                 └── `link1` (exists)
+                 ├── `link1` (exists)
+                 └── `link2`
             "
         );
     }

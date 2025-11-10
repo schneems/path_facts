@@ -195,3 +195,10 @@ Or via using env vars:
 ```term
 $ INSTA_UPDATE=always cargo test
 ```
+
+To run on linux:
+
+```
+$ docker build -f Dockerfile.test -t path_facts_test .
+$ docker run --rm path_facts_test
+```

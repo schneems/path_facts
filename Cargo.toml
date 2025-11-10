@@ -3,7 +3,7 @@
 [package]
 description = "You've subscribed to PATH FACTS: Tidy filesystem information to help debug unexpected errors."
 name = "path_facts"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2018"
 license = "MIT/Apache-2.0"
 readme = "README.md"

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.1
+
 - Fix: Always emit permissions for main file/directory [#9](https://github.com/schneems/path_facts/pull/9). Previously we skipped emitting permissions when RWX were all true, but it looked off in some scenarios:
 
 

@@ -402,4 +402,58 @@ mod tests {
                  └── `exists.txt` file [✅ read, ✅ write, ❌ execute]
             ")
     }
+
+    #[test]
+    fn test_symlink_to_file() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let target_file = tempdir.path().join("target.txt");
+        let symlink_path = tempdir.path().join("link_to_target.txt");
+
+        std::fs::write(&target_file, "content").unwrap();
+        std::os::unix::fs::symlink(&target_file, &symlink_path).unwrap();
+
+        let canonical = tempdir.path().canonicalize().unwrap();
+        let output = PathFacts::new(&symlink_path)
+            .to_string()
+            .replace(&canonical.display().to_string(), "/path/to/canonical")
+            .replace(&tempdir.path().display().to_string(), "/path/to/directory");
+
+        insta::assert_snapshot!(
+            output,
+            @r"
+             exists `/path/to/directory/link_to_target.txt`
+              - Canonical: `/path/to/canonical/target.txt`
+              - Symlink target: `/path/to/directory/target.txt`
+              - `/path/to/directory`
+                  ├── `target.txt`
+                  └── `link_to_target.txt` file [✅ read, ✅ write, ❌ execute]
+        ");
+    }
+
+    #[test]
+    fn test_symlink_to_directory() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let target_dir = tempdir.path().join("target_dir");
+        let symlink_path = tempdir.path().join("link_to_dir");
+
+        std::fs::create_dir(&target_dir).unwrap();
+        std::os::unix::fs::symlink(&target_dir, &symlink_path).unwrap();
+
+        let canonical = tempdir.path().canonicalize().unwrap();
+        let output = PathFacts::new(&symlink_path)
+            .to_string()
+            .replace(&canonical.display().to_string(), "/path/to/canonical")
+            .replace(&tempdir.path().display().to_string(), "/path/to/directory");
+
+        insta::assert_snapshot!(
+            output,
+            @r"
+             exists `/path/to/directory/link_to_dir`
+              - Canonical: `/path/to/canonical/target_dir`
+              - Symlink target: `/path/to/directory/target_dir`
+              - `/path/to/directory`
+                  ├── `link_to_dir` directory []
+                  └── `target_dir`
+        ");
+    }
 }

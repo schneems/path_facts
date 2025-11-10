@@ -131,6 +131,14 @@ impl Display for PathFacts {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
                 }
 
+                if !parent.write {
+                    writeln!(
+                        f,
+                        "{}",
+                        style::bullet("Parent directory is missing write permissions (cannot create, delete, or modify files)")
+                    )?;
+                }
+
                 writeln!(
                     f,
                     "{}",
@@ -140,13 +148,6 @@ impl Display for PathFacts {
                         dir = style::fmt_dir(parent, |_| { None },)
                     ))
                 )?;
-                if !parent.write {
-                    writeln!(
-                        f,
-                        "{}",
-                        style::bullet("Parent directory is missing write permissions (cannot create, delete, or modify files)")
-                    )?;
-                }
             }
             Err(UnhappyPath::CannotCanonicalize {
                 absolute,
@@ -524,10 +525,10 @@ mod tests {
                 .replace(&tempdir.path().display().to_string(), "/path/to/directory"),
             @r"
              does not exist `/path/to/directory/readonly_dir/does_not_exist.txt`
+              - Parent directory is missing write permissions (cannot create, delete, or modify files)
               - Missing `does_not_exist.txt` from parent directory:
                 `/path/to/directory/readonly_dir` [✅ read, ❌ write, ✅ execute]
                    └── (empty)
-              - Parent directory is missing write permissions (cannot create, delete, or modify files)
              "
         );
     }

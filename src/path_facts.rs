@@ -408,55 +408,77 @@ mod tests {
 
     #[test]
     fn test_symlink_to_file() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let target_file = tempdir.path().join("target.txt");
-        let symlink_path = tempdir.path().join("link_to_target.txt");
+        // Use two separate temp directories to guarantee different paths on all platforms
+        let target_tempdir = tempfile::tempdir().unwrap();
+        let link_tempdir = tempfile::tempdir().unwrap();
 
+        // Create target file in first tempdir
+        let target_file = target_tempdir.path().join("target.txt");
         std::fs::write(&target_file, "content").unwrap();
+
+        // Create symlink in second tempdir pointing to first tempdir
+        let symlink_path = link_tempdir.path().join("link_to_target.txt");
         std::os::unix::fs::symlink(&target_file, &symlink_path).unwrap();
 
-        let canonical = tempdir.path().canonicalize().unwrap();
+        let target_canonical = target_tempdir.path().canonicalize().unwrap();
+        let link_canonical = link_tempdir.path().canonicalize().unwrap();
+
         let output = PathFacts::new(&symlink_path)
             .to_string()
-            .replace(&canonical.display().to_string(), "/path/to/canonical")
-            .replace(&tempdir.path().display().to_string(), "/path/to/directory");
+            .replace(&target_canonical.display().to_string(), "/path/to/target")
+            .replace(
+                &target_tempdir.path().display().to_string(),
+                "/path/to/target",
+            )
+            .replace(&link_canonical.display().to_string(), "/path/to/link")
+            .replace(&link_tempdir.path().display().to_string(), "/path/to/link");
 
         insta::assert_snapshot!(
             output,
             @r"
-             exists `/path/to/directory/link_to_target.txt`
-              - Canonical: `/path/to/canonical/target.txt`
-              - Symlink target: `/path/to/directory/target.txt`
-              - `/path/to/directory`
-                  ├── `link_to_target.txt` file [✅ read, ✅ write, ❌ execute]
-                  └── `target.txt`
+             exists `/path/to/link/link_to_target.txt`
+              - Canonical: `/path/to/target/target.txt`
+              - Symlink target: `/path/to/target/target.txt`
+              - `/path/to/link`
+                  └── `link_to_target.txt` file [✅ read, ✅ write, ❌ execute]
         ");
     }
 
     #[test]
     fn test_symlink_to_directory() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let target_dir = tempdir.path().join("target_dir");
-        let symlink_path = tempdir.path().join("link_to_dir");
+        // Use two separate temp directories to guarantee different paths on all platforms
+        let target_tempdir = tempfile::tempdir().unwrap();
+        let link_tempdir = tempfile::tempdir().unwrap();
 
+        // Create target directory in first tempdir
+        let target_dir = target_tempdir.path().join("target_dir");
         std::fs::create_dir(&target_dir).unwrap();
+
+        // Create symlink in second tempdir pointing to first tempdir
+        let symlink_path = link_tempdir.path().join("link_to_dir");
         std::os::unix::fs::symlink(&target_dir, &symlink_path).unwrap();
 
-        let canonical = tempdir.path().canonicalize().unwrap();
+        let target_canonical = target_tempdir.path().canonicalize().unwrap();
+        let link_canonical = link_tempdir.path().canonicalize().unwrap();
+
         let output = PathFacts::new(&symlink_path)
             .to_string()
-            .replace(&canonical.display().to_string(), "/path/to/canonical")
-            .replace(&tempdir.path().display().to_string(), "/path/to/directory");
+            .replace(&target_canonical.display().to_string(), "/path/to/target")
+            .replace(
+                &target_tempdir.path().display().to_string(),
+                "/path/to/target",
+            )
+            .replace(&link_canonical.display().to_string(), "/path/to/link")
+            .replace(&link_tempdir.path().display().to_string(), "/path/to/link");
 
         insta::assert_snapshot!(
             output,
             @r"
-             exists `/path/to/directory/link_to_dir`
-              - Canonical: `/path/to/canonical/target_dir`
-              - Symlink target: `/path/to/directory/target_dir`
-              - `/path/to/directory`
-                  ├── `link_to_dir` directory [✅ read, ✅ write, ✅ execute]
-                  └── `target_dir`
+             exists `/path/to/link/link_to_dir`
+              - Canonical: `/path/to/target/target_dir`
+              - Symlink target: `/path/to/target/target_dir`
+              - `/path/to/link`
+                  └── `link_to_dir` directory [✅ read, ✅ write, ✅ execute]
         ");
     }
 

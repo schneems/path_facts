@@ -73,7 +73,11 @@ pub(crate) enum UnhappyPath {
         error: std::io::Error,
     },
     /// Path exists, but we cannot read the metadata
-    /// Can happen if we have read access on the parent dir but not execute access (to view permissions)
+    /// TOCTOU likely: Path exists and can be canonicalized, but we cannot read the metadata
+    ///
+    /// Usually this would cause a CannotCanonicalize error, but if there is a TOCTOU race condition
+    /// where the parent directory has read and execute access when the canonicalization is attempted,
+    /// but loses execute access before the metadata reading, then this error will occur.
     CannotMetadata {
         absolute: AbsPath,
         canonical: CanonicalPath,

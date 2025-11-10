@@ -630,4 +630,33 @@ mod tests {
             "
         );
     }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_cannot_canonicalize_no_execute_dir_with_file() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let no_exec_dir = tempdir.path().join("no_exec_dir");
+        std::fs::create_dir(&no_exec_dir).unwrap();
+
+        let file = no_exec_dir.join("file.txt");
+        std::fs::write(&file, "content").unwrap();
+
+        // Remove execute permission from directory (can read dir but not traverse)
+        let mut perms = std::fs::metadata(&no_exec_dir).unwrap().permissions();
+        perms.set_mode(0o644); // read + write, no execute
+        std::fs::set_permissions(&no_exec_dir, perms).unwrap();
+
+        insta::assert_snapshot!(
+            PathFacts::new(&file)
+                .to_string()
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory")
+                .replace(&std::fs::canonicalize(&file).unwrap_err().to_string(), "{error}"),
+            @r"
+            exists `/path/to/directory/no_exec_dir/file.txt`
+             - Cannot canonicalize due to error `{error}`
+             - `/path/to/directory/no_exec_dir` [✅ read, ✅ write, ❌ execute]
+                 └── `file.txt` (exists)
+            "
+        );
+    }
 }

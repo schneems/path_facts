@@ -453,6 +453,34 @@ mod tests {
               - `/path/to/directory`
                   ├── `link_to_dir` directory [✅ read, ✅ write, ✅ execute]
                   └── `target_dir`
-             ");
+        ");
+    }
+
+    #[test]
+    fn test_cannot_read_cwd() {
+        let temp = SetCurrentDirTempSafe::new();
+
+        // Remove the current working directory while we're still in it
+        std::fs::remove_dir(temp.path()).unwrap();
+
+        insta::assert_snapshot!(
+            PathFacts::new("relative_path.txt")
+                .to_string()
+                .replace(
+                    &std::fs::read_to_string(temp.path()).unwrap_err().to_string(),
+                    "{error}"
+                ),
+            @r"
+            `relative_path.txt`
+             - Cannot read current working directory: {error}
+            ");
+    }
+
+    #[test]
+    fn test_is_root() {
+        insta::assert_snapshot!(
+            PathFacts::new("/"),
+            @"is root `/`"
+        );
     }
 }

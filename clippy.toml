@@ -1,0 +1,3 @@
+disallowed-methods = [
+    { path = "std::env::set_current_dir", reason = "Changing the current directory is not allowed in this codebase" },
+]

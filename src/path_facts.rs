@@ -252,6 +252,7 @@ impl Display for PathFacts {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_help::SetCurrentDirTempSafe;
 
     #[test]
     fn test_prior_dir_problem_is_file() {
@@ -354,8 +355,7 @@ mod tests {
     fn test_rename_two_missing_paths() {
         use indoc::formatdoc;
 
-        let tempdir = tempfile::tempdir().unwrap();
-        std::env::set_current_dir(tempdir.path()).unwrap();
+        let temp = SetCurrentDirTempSafe::new();
 
         let from = std::path::Path::new("doesnotexist.txt");
         let to = std::path::Path::new("also_does_not_exist.txt");
@@ -379,7 +379,7 @@ mod tests {
                 "rename_two_missing_paths",
                 result.unwrap_err()
                     .to_string()
-                    .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
+                    .replace(&temp.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
             );
         });
     }

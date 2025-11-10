@@ -183,4 +183,7 @@ mod path_facts;
 mod resolved_metadata;
 mod style;
 
+#[cfg(test)]
+mod test_help;
+
 pub use path_facts::PathFacts;

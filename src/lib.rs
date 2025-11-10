@@ -48,23 +48,18 @@
 //!
 //! let path = std::path::Path::new("doesnotexist.txt");
 //! std::fs::read_to_string(&path)
-//!     .map_err(|error| format!("{error}. {}", PathFacts::new(&path)))
+//!     .map_err(|error| format!("{error}. Path {}", PathFacts::new(&path)))
 //!     .unwrap();
 //! ```
 //!
 //! For an operation with multiple paths you can use multiple PATH FACTS structs. For example:
 //!
-//! ```rust
-//! # use tempfile::tempdir;
-//! # use pretty_assertions::assert_eq;
-//! # let tempdir = tempfile::tempdir().unwrap();
-//! # std::env::set_current_dir(tempdir.path()).unwrap();
+//! ```rust,no_run
 //! use path_facts::PathFacts;
 //! use indoc::formatdoc;
 //!
 //! let from = std::path::Path::new("doesnotexist.txt");
 //! let to = std::path::Path::new("also_does_not_exist.txt");
-//! # let result =
 //! std::fs::rename(&from, to).map_err(|error| formatdoc! {"
 //!     cannot rename from `{}` to `{}` due to: {error}.
 //!
@@ -76,26 +71,6 @@
 //!     from_facts = PathFacts::new(&from),
 //!     to_facts = PathFacts::new(&to)
 //! });
-//! # let expected = formatdoc! {"
-//! #     cannot rename from `doesnotexist.txt` to `also_does_not_exist.txt` due to: No such file or directory (os error 2).
-//! #
-//! #     From path does not exist `doesnotexist.txt`
-//! #      - Absolute: `/path/to/directory/doesnotexist.txt`
-//! #      - Missing `doesnotexist.txt` from parent directory:
-//! #        `/path/to/directory`
-//! #           └── (empty)
-//! #
-//! #     To path does not exist `also_does_not_exist.txt`
-//! #      - Absolute: `/path/to/directory/also_does_not_exist.txt`
-//! #      - Missing `also_does_not_exist.txt` from parent directory:
-//! #        `/path/to/directory`
-//! #           └── (empty)
-//! #     "}.replace(
-//! #         "/path/to/directory",
-//! #         format!("{}", tempdir.path().canonicalize().unwrap().display()).as_str(),
-//! #     ).trim().to_string();
-//! #
-//! # assert_eq!(expected.trim(), result.unwrap_err().to_string().trim());
 //! ```
 //!
 //! ## Async support
@@ -207,5 +182,8 @@ mod happy_path;
 mod path_facts;
 mod resolved_metadata;
 mod style;
+
+#[cfg(test)]
+mod test_help;
 
 pub use path_facts::PathFacts;

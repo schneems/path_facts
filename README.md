@@ -52,7 +52,7 @@ use path_facts::PathFacts;
 
 let path = std::path::Path::new("doesnotexist.txt");
 std::fs::read_to_string(&path)
-    .map_err(|error| format!("{error}. {}", PathFacts::new(&path)))
+    .map_err(|error| format!("{error}. Path {}", PathFacts::new(&path)))
     .unwrap();
 ```
 
@@ -181,3 +181,24 @@ at some point earlier than "completely reverse-engineer rust stdlib behavior" an
 than "simply state the facts". However, we're here. We have the facts, we might as well show those.
 
 <!-- cargo-rdme end -->
+
+## Development
+
+Output style and contents are tested via snapshot testing using [insta](https://docs.rs/insta/latest/insta/). If the output changes and you want to update the snapshots, you can generate new pending output by running tests `cargo test` this will produce `*.pending-snap` files. These can be reviewed and accepted by using `cargo insta`:
+
+```term
+$ cargo insta review
+```
+
+Or via using env vars:
+
+```term
+$ INSTA_UPDATE=always cargo test
+```
+
+To run on linux:
+
+```
+$ docker build -f Dockerfile.test -t path_facts_test .
+$ docker run --rm path_facts_test
+```

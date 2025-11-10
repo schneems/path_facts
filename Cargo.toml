@@ -3,13 +3,14 @@
 [package]
 description = "You've subscribed to PATH FACTS: Tidy filesystem information to help debug unexpected errors."
 name = "path_facts"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2018"
 license = "MIT/Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/schneems/path_facts"
 documentation = "https://docs.rs/path_facts"
-rust-version = "1.79.0" # https://github.com/schneems/path_facts/issues/7
+# Rust MSRV: https://github.com/schneems/path_facts/issues/7
+rust-version = "1.79.0"
 
 [dependencies]
 # We use `faccess` to check **effective** permisisons on disk (includes inherited values)
@@ -18,4 +19,13 @@ faccess = "0.2.4"
 [dev-dependencies]
 indoc = "2.0.7"
 tempfile = "3.23.0"
-pretty_assertions = "1.4.1"
+insta = { version = "1.43.2", features = ["yaml"] }
+
+[profile.dev.package]
+insta.opt-level = 3
+similar.opt-level = 3
+
+# Allows the usage of cfg(coverage_nightly).
+# cargo-llvm-cov enables that config when instrumenting our code, so we can enable
+# the experimental coverage_attribute feature. To run use `cargo +nightly llvm-cov --locked --html && open target/llvm-cov/html/index.html`
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }

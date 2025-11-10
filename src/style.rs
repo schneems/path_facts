@@ -5,21 +5,17 @@ pub(crate) fn bullet(contents: impl AsRef<str>) -> String {
     prefix_first_rest_lines(" - ", "   ", contents.as_ref())
 }
 
-/// Shows permissions if any are disabled
-pub(crate) fn conditional_perms(read: bool, write: bool, execute: bool) -> String {
-    if read && write && execute {
-        "".to_string()
+/// Shows permissions
+pub(crate) fn permissions(read: bool, write: bool, execute: bool) -> String {
+    let mut perms = vec![];
+    perms.push(if read { "✅ read" } else { "❌ read" });
+    perms.push(if write { "✅ write" } else { "❌ write" });
+    perms.push(if execute {
+        "✅ execute"
     } else {
-        let mut perms = vec![];
-        perms.push(if read { "✅ read" } else { "❌ read" });
-        perms.push(if write { "✅ write" } else { "❌ write" });
-        perms.push(if execute {
-            "✅ execute"
-        } else {
-            "❌ execute"
-        });
-        perms.join(", ")
-    }
+        "❌ execute"
+    });
+    ["[", &perms.join(", "), "]"].join("").to_string()
 }
 
 /// Applies a prefix to the first line and a different prefix to the rest of the lines.
@@ -82,7 +78,14 @@ where
 {
     let entries = &dir.entries;
     let mut out = String::new();
-    let permissions = append_if(" ", conditional_perms(dir.read, dir.write, dir.execute));
+    let permissions = append_if(
+        " ",
+        if dir.read && dir.write && dir.execute {
+            "".to_string()
+        } else {
+            permissions(dir.read, dir.write, dir.execute)
+        },
+    );
     out.push_str(&format!("{path}{permissions}\n", path = dir.absolute));
     out.push_str(&fmt_dir_entries_annotate(entries, annotate));
     out

@@ -1,0 +1,24 @@
+# Use the same Ubuntu version as GitHub Actions
+FROM ubuntu:22.04
+
+# Install Rust and required dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user (similar to GitHub Actions)
+RUN useradd -m -s /bin/bash runner
+USER runner
+WORKDIR /home/runner/workspace
+
+# Install Rust as the non-root user
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/home/runner/.cargo/bin:${PATH}"
+
+# Copy project files
+COPY --chown=runner:runner . .
+
+# Build and run tests
+CMD ["cargo", "test", "--", "--nocapture"]
+

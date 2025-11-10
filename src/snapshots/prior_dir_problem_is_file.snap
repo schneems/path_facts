@@ -1,3 +1,7 @@
+---
+source: src/path_facts.rs
+expression: snapshot
+---
 cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
  - Prior path is not a directory
  - Prior path exists `/path/to/directory/a`

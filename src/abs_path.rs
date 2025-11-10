@@ -46,9 +46,23 @@ impl AbsPath {
     ///
     /// Errors if path is not a directory or is not readable
     pub(crate) fn read_dir(&self) -> Result<Vec<AbsPath>, std::io::Error> {
-        std::fs::read_dir(&self.0)?
+        #[cfg_attr(not(test), allow(unused_mut))]
+        let mut entries: Vec<AbsPath> = std::fs::read_dir(&self.0)?
             .map(|entry| entry.map(|e| e.path()).map(AbsPath))
-            .collect::<Result<Vec<AbsPath>, std::io::Error>>()
+            .collect::<Result<Vec<AbsPath>, std::io::Error>>()?;
+
+        // Sort by filename for deterministic test output only
+        // In production, preserve the OS's native directory entry order
+        #[cfg(test)]
+        {
+            entries.sort_by(|a, b| {
+                let a_name = a.0.file_name().unwrap_or(a.0.as_os_str());
+                let b_name = b.0.file_name().unwrap_or(b.0.as_os_str());
+                a_name.cmp(b_name)
+            });
+        }
+
+        Ok(entries)
     }
 
     // pub(crate) fn path_ok(self) -> Result<HappyPath, HappyPathError> {
@@ -60,18 +74,6 @@ impl AbsPath {
         let parent = self.0.parent()?;
 
         Some(AbsPath(parent.to_path_buf()))
-    }
-
-    pub(crate) fn each_parent(&self) -> AbsParentDirs {
-        AbsParentDirs {
-            current: self.parent(),
-        }
-    }
-
-    #[allow(dead_code)]
-    // Returns the last parent path
-    pub(crate) fn root(&self) -> Self {
-        self.each_parent().last().unwrap_or_else(|| self.clone())
     }
 }
 
@@ -107,35 +109,8 @@ pub(crate) fn try_readlink(absolute: &AbsPath) -> Result<Option<AbsPath>, std::i
     }
 }
 
-pub(crate) struct AbsParentDirs {
-    current: Option<AbsPath>,
-}
-
-impl Iterator for AbsParentDirs {
-    type Item = AbsPath;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(current) = self.current.take() {
-            self.current = current.parent();
-            Some(current)
-        } else {
-            None
-        }
-    }
-}
-
 #[derive(Debug)]
 pub(crate) enum AbsPathError {
     PathIsEmpty(PathBuf),
     CannotReadCWD(PathBuf, std::io::Error),
-}
-
-impl AbsPathError {
-    #[allow(dead_code)]
-    pub(crate) fn path(&self) -> &Path {
-        match self {
-            AbsPathError::PathIsEmpty(path) => path.as_ref(),
-            AbsPathError::CannotReadCWD(path, _) => path.as_ref(),
-        }
-    }
 }

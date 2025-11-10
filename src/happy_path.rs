@@ -21,8 +21,8 @@ pub(crate) struct HappyPath {
 #[derive(Debug, Clone)]
 pub(crate) struct DirOk {
     pub(crate) absolute: AbsPath,
-    #[allow(dead_code)]
-    pub(crate) canonical: CanonicalPath,
+    /// Not printed, the type signature ensures that we can canonicalize the path
+    pub(crate) _canonical: CanonicalPath,
     pub(crate) entries: Vec<AbsPath>,
     pub(crate) read: bool,
     pub(crate) write: bool,
@@ -40,7 +40,7 @@ impl DirOk {
 
         Ok(DirOk {
             absolute,
-            canonical,
+            _canonical: canonical,
             entries,
             read,
             write,
@@ -53,14 +53,16 @@ impl DirOk {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum UnhappyPath {
     AbsPathError(abs_path::AbsPathError),
     IsRoot(AbsPath),
     ParentProblem {
         absolute: AbsPath,
         parent: AbsPath,
-        #[allow(dead_code)]
-        error: std::io::Error,
+        /// Original error preventing us from creating a `DirOk` for the parent directory.
+        /// Not printed, we traverse prior directories to find the root cause
+        _error: std::io::Error,
     },
     DoesNotExist {
         absolute: AbsPath,
@@ -73,7 +75,11 @@ pub(crate) enum UnhappyPath {
         error: std::io::Error,
     },
     /// Path exists, but we cannot read the metadata
-    /// Can happen if we have read access on the parent dir but not execute access (to view permissions)
+    /// TOCTOU likely: Path exists and can be canonicalized, but we cannot read the metadata
+    ///
+    /// Usually this would cause a CannotCanonicalize error, but if there is a TOCTOU race condition
+    /// where the parent directory has read and execute access when the canonicalization is attempted,
+    /// but loses execute access before the metadata reading, then this error will occur.
     CannotMetadata {
         absolute: AbsPath,
         canonical: CanonicalPath,
@@ -98,7 +104,7 @@ pub(crate) fn state(path: &Path) -> Result<HappyPath, Box<UnhappyPath>> {
     let parent = DirOk::new(abs_parent.clone()).map_err(|error| UnhappyPath::ParentProblem {
         absolute: absolute.clone(),
         parent: abs_parent.clone(),
-        error,
+        _error: error,
     })?;
     let path_does_not_exist = !parent.has_entry(&absolute);
     let canonical = CanonicalPath::new(&absolute).map_err(|error| {

@@ -19,7 +19,6 @@ faccess = "0.2.4"
 [dev-dependencies]
 indoc = "2.0.7"
 tempfile = "3.23.0"
-pretty_assertions = "1.4.1"
 insta = { version = "1.43.2", features = ["yaml"] }
 
 [profile.dev.package]

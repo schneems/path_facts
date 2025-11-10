@@ -524,12 +524,110 @@ mod tests {
                 .to_string()
                 .replace(&tempdir.path().display().to_string(), "/path/to/directory"),
             @r"
-             does not exist `/path/to/directory/readonly_dir/does_not_exist.txt`
-              - Parent directory is missing write permissions (cannot create, delete, or modify files)
-              - Missing `does_not_exist.txt` from parent directory:
-                `/path/to/directory/readonly_dir` [✅ read, ❌ write, ✅ execute]
-                   └── (empty)
-             "
+            does not exist `/path/to/directory/readonly_dir/does_not_exist.txt`
+             - Parent directory is missing write permissions (cannot create, delete, or modify files)
+             - Missing `does_not_exist.txt` from parent directory:
+               `/path/to/directory/readonly_dir` [✅ read, ❌ write, ✅ execute]
+                  └── (empty)
+            "
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_cannot_canonicalize_circular_symlink_absolute() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let link1 = tempdir.path().join("link1");
+        let link2 = tempdir.path().join("link2");
+
+        // Create circular symlinks
+        std::os::unix::fs::symlink(&link2, &link1).unwrap();
+        std::os::unix::fs::symlink(&link1, &link2).unwrap();
+
+        insta::assert_snapshot!(
+            PathFacts::new(&link1)
+                .to_string()
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory")
+                .replace(&std::fs::canonicalize(&link1).unwrap_err().to_string(), "{error}"),
+            @r"
+            exists `/path/to/directory/link1`
+             - Cannot canonicalize due to error `{error}`
+             - `/path/to/directory`
+                 ├── `link2`
+                 └── `link1` (exists)
+            "
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_cannot_canonicalize_circular_symlink_relative() {
+        let temp = SetCurrentDirTempSafe::new();
+
+        // Create circular symlinks with relative paths
+        std::os::unix::fs::symlink("link2", "link1").unwrap();
+        std::os::unix::fs::symlink("link1", "link2").unwrap();
+
+        insta::assert_snapshot!(
+            PathFacts::new(Path::new("link1"))
+                .to_string()
+                .replace(&temp.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
+                .replace(&std::fs::canonicalize("link1").unwrap_err().to_string(), "{error}"),
+            @r"
+            exists `link1`
+             - Absolute: `/path/to/directory/link1`
+             - Cannot canonicalize due to error `{error}`
+             - `/path/to/directory`
+                 ├── `link2`
+                 └── `link1` (exists)
+            "
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_cannot_canonicalize_broken_symlink_absolute() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let broken_link = tempdir.path().join("broken_link");
+        let nonexistent = tempdir.path().join("does_not_exist");
+
+        // Create a symlink pointing to a non-existent target
+        std::os::unix::fs::symlink(&nonexistent, &broken_link).unwrap();
+
+        insta::assert_snapshot!(
+            PathFacts::new(&broken_link)
+                .to_string()
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory")
+                .replace(&std::fs::canonicalize(&broken_link).unwrap_err().to_string(), "{error}"),
+            @r"
+            exists `/path/to/directory/broken_link`
+             - Cannot canonicalize due to error `{error}`
+             - `/path/to/directory`
+                 └── `broken_link` (exists)
+            "
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_cannot_canonicalize_broken_symlink_relative() {
+        let temp = SetCurrentDirTempSafe::new();
+
+        // Create a symlink pointing to a non-existent target (relative path)
+        std::os::unix::fs::symlink("does_not_exist", "broken_link").unwrap();
+
+        insta::assert_snapshot!(
+            PathFacts::new(Path::new("broken_link"))
+                .to_string()
+                .replace(&temp.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
+                .replace(&std::fs::canonicalize("broken_link").unwrap_err().to_string(), "{error}"),
+            @r"
+            exists `broken_link`
+             - Absolute: `/path/to/directory/broken_link`
+             - Cannot canonicalize due to error `{error}`
+             - `/path/to/directory`
+                 └── `broken_link` (exists)
+            "
         );
     }
 }

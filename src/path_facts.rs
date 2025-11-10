@@ -254,6 +254,9 @@ mod tests {
     use super::*;
     use crate::test_help::SetCurrentDirTempSafe;
 
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+
     #[test]
     fn test_prior_dir_problem_is_file() {
         let tempdir = tempfile::tempdir().unwrap();
@@ -513,10 +516,7 @@ mod tests {
 
         // Remove write permissions from the directory
         let mut perms = std::fs::metadata(&readonly_dir).unwrap().permissions();
-        {
-            use std::os::unix::fs::PermissionsExt;
-            perms.set_mode(0o555); // read + execute, no write
-        }
+        perms.set_mode(0o555); // read + execute, no write
         std::fs::set_permissions(&readonly_dir, perms).unwrap();
 
         insta::assert_snapshot!(

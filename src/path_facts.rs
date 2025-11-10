@@ -483,4 +483,52 @@ mod tests {
             @"is root `/`"
         );
     }
+
+    #[test]
+    fn test_prior_dir_problem_relative_path() {
+        let temp = SetCurrentDirTempSafe::new();
+
+        insta::assert_snapshot!(
+            // Create a relative path where the parent directories don't exist
+            PathFacts::new(Path::new("a/b/c/does_not_exist.txt"))
+                .to_string()
+                .replace(&temp.path().canonicalize().unwrap().display().to_string(), "/path/to/directory"),
+            @r"
+            cannot access `a/b/c/does_not_exist.txt`
+             - Absolute: `/path/to/directory/a/b/c/does_not_exist.txt`
+             - Prior directory does not exist `/path/to/directory/a`
+                - Missing `a` from parent directory:
+                  `/path/to/directory`
+                     └── (empty)
+            ");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_parent_directory_missing_write_permissions() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let readonly_dir = tempdir.path().join("readonly_dir");
+        std::fs::create_dir(&readonly_dir).unwrap();
+
+        // Remove write permissions from the directory
+        let mut perms = std::fs::metadata(&readonly_dir).unwrap().permissions();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            perms.set_mode(0o555); // read + execute, no write
+        }
+        std::fs::set_permissions(&readonly_dir, perms).unwrap();
+
+        insta::assert_snapshot!(
+            PathFacts::new(readonly_dir.join("does_not_exist.txt"))
+                .to_string()
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory"),
+            @r"
+             does not exist `/path/to/directory/readonly_dir/does_not_exist.txt`
+              - Missing `does_not_exist.txt` from parent directory:
+                `/path/to/directory/readonly_dir` [✅ read, ❌ write, ✅ execute]
+                   └── (empty)
+              - Parent directory is missing write permissions (cannot create, delete, or modify files)
+             "
+        );
+    }
 }

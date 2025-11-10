@@ -383,4 +383,23 @@ mod tests {
             );
         });
     }
+
+    #[test]
+    fn test_relative_path_exists() {
+        let temp = SetCurrentDirTempSafe::new();
+
+        let path = Path::new("exists.txt");
+        std::fs::write(path, "").unwrap();
+
+        insta::assert_snapshot!(
+            PathFacts::new(path)
+                .to_string()
+                .replace(&temp.path().canonicalize().unwrap().display().to_string(), "/path/to/directory"),
+            @r"
+            exists `exists.txt`
+             - Absolute: `/path/to/directory/exists.txt`
+             - `/path/to/directory`
+                 └── `exists.txt` file [✅ read, ✅ write, ❌ execute]
+            ")
+    }
 }

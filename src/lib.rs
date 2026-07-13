@@ -9,6 +9,7 @@
 //! The purpose of path facts is to deliver maximum information about your system on disk in a tidy,
 //! easy-to-understand package. The idea is that it gives you enough information to debug an unexpected
 //! error without requiring you to run around calling `ls` and `cat` until you find the problem.
+//! This library powers the `debug` feature in [`fs-err`](https://crates.io/crates/fs-err).
 //!
 //! Tired of seeing this:
 //!
@@ -27,6 +28,11 @@
 //! ```
 //!
 //! Then start using path facts today!
+//!
+//! ```term
+//! $ cargo add fs-err --features debug
+//! $ cargo add fs-err --features tokio,debug_tokio
+//! ```
 //!
 //! ## No, but really. Why?
 //!
@@ -76,7 +82,7 @@
 //! ## Async support
 //!
 //! This library uses syncronous file system calls. If you're using this library in an async context,
-//! you'll want to use an async wrapper like [`tokio::task::block_in_place`](https://docs.rs/tokio/latest/tokio/task/fn.block_in_place.html).
+//! you'll want to use an async wrapper like [`tokio::task::spawn_blocking`](https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html).
 //!
 //! ## Actual path facts
 //!

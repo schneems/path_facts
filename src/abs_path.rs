@@ -1,14 +1,11 @@
-//! An absolute path may or may not exist on disk
+//! An absolute path that may or may not exist on disk
+//!
+//! Holding this type guarantees that the path is not empty and the program has permission to read CWD.
 //!
 //! A property of absolute paths is that recursively retrieving their parent paths will eventually
-//! lead to the root path.
+//! lead to the root path. The parent of an absolute path is also an absolute path [`AbsPath::parent`].
 //!
-//! We also ensure other properties, such as ReadDir of the parent of a file should
-//! return a `path()` that matches the file if it exists (i.e. it's the same representation).
-//!
-//! In order to turn a relative path into an absolute path, the current working directory
-//! must be readable.
-//!
+//! If the held path is a readable directory, all children are also absolute paths [`AbsPath::read_dir`].
 use std::{
     fmt::{Display, Formatter},
     path::{Path, PathBuf},
@@ -65,11 +62,7 @@ impl AbsPath {
         Ok(entries)
     }
 
-    // pub(crate) fn path_ok(self) -> Result<HappyPath, HappyPathError> {
-    //     HappyPath::new(self)
-    // }
-
-    // Similar semantics to Path::parent, but returning a None here would guarantee self is the root path
+    /// Similar semantics to [`Path::parent`], but returning a None here would guarantee self is the root path
     pub(crate) fn parent(&self) -> Option<Self> {
         let parent = self.0.parent()?;
 
@@ -90,7 +83,7 @@ impl AsRef<Path> for AbsPath {
 }
 
 /// Returns Err if `read_link` fails
-/// Returns Ok(None) if the path is not a symlink or if `fs::symlink_metadata` fails
+/// Returns Ok(None) if the path is not a symlink or if [`std::fs::symlink_metadata`] fails
 /// Otherwise returns Ok(Some(AbsPath)) with the target of the symlink
 pub(crate) fn try_readlink(absolute: &AbsPath) -> Result<Option<AbsPath>, std::io::Error> {
     let path = absolute.as_ref();

@@ -4,6 +4,8 @@
 //! It can still have other problems, such as being a file when it's
 //! expected to be a directory or not having correct permissions, but
 //! we can guarantee that all files involved exist.
+//!
+//! Built from a [`AbsPath`] so we know the program has access to CWD.
 use std::{
     fmt::Display,
     path::{Path, PathBuf},

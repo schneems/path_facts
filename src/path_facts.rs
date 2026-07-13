@@ -1,3 +1,4 @@
+//! Facts about paths
 use crate::abs_path::AbsPathError;
 use crate::happy_path::{state, HappyPath, UnhappyPath};
 use crate::resolved_metadata::ResolvedType;
@@ -9,7 +10,9 @@ use std::{
 
 /// Shows helpful facts about a path when `Display`ed.
 pub struct PathFacts {
+    /// Original input path
     path: PathBuf,
+    /// Detected state of the path
     state: Result<HappyPath, Box<UnhappyPath>>,
 }
 

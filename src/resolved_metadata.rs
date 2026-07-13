@@ -1,6 +1,6 @@
 //! Metadata wrapper for clarity and consistency
 //!
-//! A `std::fs::Metadata` struct can come from `std::fs::metadata` or `std::fs::symlink_metadata`.
+//! A [`std::fs::Metadata`] struct can come from [`std::fs::metadata`] or [`std::fs::symlink_metadata`].
 //! and depending on where it comes from it's predicate (boolean) methods can have different
 //! meanings.
 

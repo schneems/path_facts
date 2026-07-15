@@ -27,6 +27,14 @@ impl PathFacts {
 
 impl Display for PathFacts {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.fmt_individual_facts(f)?;
+        self.fmt_parent_facts(f)?;
+        Ok(())
+    }
+}
+
+impl PathFacts {
+    fn fmt_individual_facts(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.state.as_ref().map_err(|e| &**e) {
             Ok(happy) => {
                 writeln!(f, "exists `{}`", self.path.display())?;
@@ -50,107 +58,34 @@ impl Display for PathFacts {
                         style::bullet(format!("Symlink target: {}", target))
                     )?;
                 }
-                writeln!(
-                    f,
-                    "{}",
-                    style::bullet(style::fmt_dir(&happy.parent, |entry| {
-                        if entry == &happy.absolute {
-                            Some(format!(
-                                "{file_type} {permissions}",
-                                file_type = happy.resolved_type,
-                                permissions = permissions(happy.read, happy.write, happy.execute)
-                            ))
-                        } else {
-                            None
-                        }
-                    }))
-                )?;
             }
             Err(UnhappyPath::AbsPathError(AbsPathError::PathIsEmpty(path))) => {
                 writeln!(f, "path `{}` is empty", path.display())?;
             }
-            Err(UnhappyPath::AbsPathError(AbsPathError::CannotReadCWD(path, error))) => {
+            Err(UnhappyPath::AbsPathError(AbsPathError::CannotReadCWD(path, _))) => {
                 writeln!(f, "`{}`", path.display())?;
-                writeln!(
-                    f,
-                    "{}",
-                    style::bullet(format!("Cannot read current working directory: {}", error))
-                )?;
             }
             Err(UnhappyPath::IsRoot(absolute)) => {
                 writeln!(f, "is root {absolute}")?;
             }
             Err(UnhappyPath::ParentProblem {
                 absolute,
-                parent,
+                parent: _,
                 _error,
             }) => {
                 writeln!(f, "cannot access `{}`", self.path.display())?;
                 if self.path.is_relative() {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
                 }
-
-                let mut prior_dir = parent.clone();
-                let mut prior_state = state(parent.as_ref());
-                while let Err(UnhappyPath::ParentProblem {
-                    absolute: _,
-                    parent,
-                    _error,
-                }) = prior_state.as_ref().map_err(|e| &**e)
-                {
-                    prior_dir = parent.clone();
-                    prior_state = state(prior_dir.as_ref());
-                }
-                match &prior_state {
-                    Ok(HappyPath {
-                        resolved_type: ResolvedType::File,
-                        ..
-                    }) => {
-                        writeln!(f, "{}", style::bullet("Prior path is not a directory"))?;
-                        writeln!(
-                            f,
-                            "{}",
-                            style::bullet(format!(
-                                "Prior path {}",
-                                PathFacts::new(prior_dir.as_ref())
-                            ))
-                        )?
-                    }
-                    _ => {
-                        writeln!(
-                            f,
-                            "{}",
-                            style::bullet(format!(
-                                "Prior directory {}",
-                                PathFacts::new(prior_dir.as_ref())
-                            ))
-                        )?;
-                    }
-                }
             }
-            Err(UnhappyPath::DoesNotExist { absolute, parent }) => {
+            Err(UnhappyPath::DoesNotExist {
+                absolute,
+                parent: _,
+            }) => {
                 writeln!(f, "does not exist `{}`", self.path.display())?;
                 if self.path.is_relative() {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
                 }
-
-                if !parent.write {
-                    writeln!(
-                        f,
-                        "{}",
-                        style::bullet("Parent directory is missing write permissions (cannot create, delete, or modify files)")
-                    )?;
-                }
-
-                writeln!(
-                    f,
-                    "{}",
-                    style::bullet(format!(
-                        "Missing `{filename}` from parent directory:\n{dir}",
-                        filename = style::filename_or_path(&self.path),
-                        dir = style::fmt_dir(parent, |_| { None },)
-                    ))
-                )?;
             }
             Err(UnhappyPath::CannotCanonicalize {
                 absolute,
@@ -169,17 +104,6 @@ impl Display for PathFacts {
                     f,
                     "{}",
                     style::bullet(format!("Cannot canonicalize due to error `{error}`",))
-                )?;
-                writeln!(
-                    f,
-                    "{}",
-                    style::bullet(style::fmt_dir(parent, |entry| {
-                        if entry == absolute {
-                            Some("(exists)".to_string())
-                        } else {
-                            None
-                        }
-                    }))
                 )?;
             }
             Err(UnhappyPath::CannotMetadata {
@@ -202,17 +126,6 @@ impl Display for PathFacts {
                     "{}",
                     style::bullet(format!("Cannot read metadata due to error `{error}`",))
                 )?;
-                writeln!(
-                    f,
-                    "{}",
-                    style::bullet(style::fmt_dir(parent, |entry| {
-                        if entry == absolute {
-                            Some("(exists)".to_string())
-                        } else {
-                            None
-                        }
-                    }))
-                )?;
             }
             Err(UnhappyPath::CannotReadLink {
                 absolute,
@@ -234,17 +147,138 @@ impl Display for PathFacts {
                     "{}",
                     style::bullet(format!("Cannot readlink due to error `{error}`",))
                 )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn fmt_parent_facts(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.state.as_ref().map_err(|e| &**e) {
+            Ok(happy) => {
                 writeln!(
                     f,
                     "{}",
-                    style::bullet(style::fmt_dir(parent, |entry| {
-                        if entry == absolute {
-                            Some("(exists)".to_string())
+                    style::bullet(style::fmt_dir(&happy.parent, |entry| {
+                        if entry == &happy.absolute {
+                            Some(format!(
+                                "{file_type} {permissions}",
+                                file_type = happy.resolved_type,
+                                permissions = permissions(happy.read, happy.write, happy.execute)
+                            ))
                         } else {
                             None
                         }
                     }))
                 )?;
+            }
+            Err(UnhappyPath::AbsPathError(AbsPathError::PathIsEmpty(_))) => {}
+            Err(UnhappyPath::AbsPathError(AbsPathError::CannotReadCWD(_, error))) => {
+                writeln!(
+                    f,
+                    "{}",
+                    style::bullet(format!("Cannot read current working directory: {}", error))
+                )?;
+            }
+            Err(UnhappyPath::IsRoot(_)) => {}
+            Err(UnhappyPath::ParentProblem {
+                absolute: _,
+                parent,
+                _error,
+            }) => {
+                let mut prior_dir = parent.clone();
+                let mut prior_state = state(parent.as_ref());
+                while let Err(UnhappyPath::ParentProblem {
+                    absolute: _,
+                    parent,
+                    _error,
+                }) = prior_state.as_ref().map_err(|e| &**e)
+                {
+                    prior_dir = parent.clone();
+                    prior_state = state(prior_dir.as_ref());
+                }
+                match &prior_state {
+                    Ok(HappyPath {
+                        resolved_type: ResolvedType::File,
+                        ..
+                    }) => {
+                        writeln!(f, "{}", style::bullet("Prior path is not a directory"))?;
+                        writeln!(
+                            f,
+                            "{}",
+                            style::bullet(format!(
+                                "Prior path {}",
+                                PathFacts {
+                                    path: prior_dir.as_ref().to_owned(),
+                                    state: prior_state
+                                }
+                            ))
+                        )?
+                    }
+                    _ => {
+                        writeln!(
+                            f,
+                            "{}",
+                            style::bullet(format!(
+                                "Prior directory {}",
+                                PathFacts {
+                                    path: prior_dir.as_ref().to_owned(),
+                                    state: prior_state
+                                }
+                            ))
+                        )?;
+                    }
+                }
+            }
+            Err(UnhappyPath::DoesNotExist { absolute, parent })
+            | Err(UnhappyPath::CannotCanonicalize {
+                absolute,
+                parent,
+                error: _,
+            })
+            | Err(UnhappyPath::CannotMetadata {
+                absolute,
+                canonical: _,
+                parent,
+                error: _,
+            })
+            | Err(UnhappyPath::CannotReadLink {
+                absolute,
+                canonical: _,
+                parent,
+                error: _,
+            }) => {
+                if !parent.write {
+                    writeln!(
+                        f,
+                        "{}",
+                        style::bullet("Parent directory is missing write permissions (cannot create, delete, or modify files)")
+                    )?;
+                }
+
+                if parent.has_entry(absolute) {
+                    writeln!(
+                        f,
+                        "{}",
+                        style::bullet(style::fmt_dir(parent, |entry| {
+                            if entry == absolute {
+                                Some("(exists)".to_string())
+                            } else {
+                                None
+                            }
+                        }))
+                    )?;
+                } else {
+                    writeln!(
+                        f,
+                        "{}",
+                        style::bullet(format!(
+                            "Missing `{filename}` from parent directory:\n{dir}",
+                            filename = style::filename_or_path(&self.path),
+                            dir = style::fmt_dir(parent, |_| { None },)
+                        ))
+                    )?;
+                }
             }
         }
 

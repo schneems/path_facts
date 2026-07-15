@@ -34,7 +34,7 @@ impl Display for PathFacts {
 }
 
 impl PathFacts {
-    fn fmt_individual_facts(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt_individual_facts(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
         match self.state.as_ref().map_err(|e| &**e) {
             Ok(happy) => {
                 writeln!(f, "exists `{}`", self.path.display())?;
@@ -153,7 +153,7 @@ impl PathFacts {
         Ok(())
     }
 
-    fn fmt_parent_facts(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt_parent_facts(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
         match self.state.as_ref().map_err(|e| &**e) {
             Ok(happy) => {
                 writeln!(
@@ -202,17 +202,22 @@ impl PathFacts {
                         resolved_type: ResolvedType::File,
                         ..
                     }) => {
-                        writeln!(f, "{}", style::bullet("Prior path is not a directory"))?;
                         writeln!(
                             f,
                             "{}",
-                            style::bullet(format!(
-                                "Prior path {}",
-                                PathFacts {
-                                    path: prior_dir.as_ref().to_owned(),
-                                    state: prior_state
-                                }
-                            ))
+                            style::bullet(format!("Prior path is not a directory {prior_dir}"))
+                        )?;
+
+                        let mut parent_facts = String::new();
+                        PathFacts {
+                            path: prior_dir.as_ref().to_owned(),
+                            state: prior_state,
+                        }
+                        .fmt_parent_facts(&mut parent_facts)?;
+                        writeln!(
+                            f,
+                            "{}",
+                            style::prefix_first_rest_lines("   ", "   ", &parent_facts)
                         )?
                     }
                     _ => {

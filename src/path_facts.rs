@@ -34,7 +34,7 @@ impl Display for PathFacts {
 }
 
 impl PathFacts {
-    fn fmt_individual_facts(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+    pub(crate) fn fmt_individual_facts(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
         match self.state.as_ref().map_err(|e| &**e) {
             Ok(happy) => {
                 writeln!(f, "exists `{}`", self.path.display())?;
@@ -153,7 +153,7 @@ impl PathFacts {
         Ok(())
     }
 
-    fn fmt_parent_facts(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+    pub(crate) fn fmt_parent_facts(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
         match self.state.as_ref().map_err(|e| &**e) {
             Ok(happy) => {
                 writeln!(
@@ -217,7 +217,7 @@ impl PathFacts {
                         writeln!(
                             f,
                             "{}",
-                            style::prefix_first_rest_lines("   ", "   ", &parent_facts)
+                            style::prefix_first_rest_lines("   ", "   ", &parent_facts).trim_end()
                         )?
                     }
                     _ => {
@@ -291,12 +291,110 @@ impl PathFacts {
     }
 }
 
+pub struct FromToFacts {
+    from: PathFacts,
+    to: PathFacts,
+}
+
+impl FromToFacts {
+    pub fn new(from: PathBuf, to: PathBuf) -> Self {
+        Self {
+            from: PathFacts::new(from),
+            to: PathFacts::new(to),
+        }
+    }
+}
+
+impl Display for FromToFacts {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut from_parent = String::new();
+        let mut to_parent = String::new();
+        self.from.fmt_parent_facts(&mut from_parent)?;
+        self.to.fmt_parent_facts(&mut to_parent)?;
+
+        if from_parent == to_parent {
+            write!(f, "From path ")?;
+            self.from.fmt_individual_facts(f)?;
+
+            write!(f, "To path ")?;
+            self.to.fmt_individual_facts(f)?;
+            writeln!(f, "{}", from_parent)?;
+        } else {
+            write!(f, "From path ")?;
+            self.from.fmt_individual_facts(f)?;
+            writeln!(f, "{}", from_parent)?;
+
+            write!(f, "To path ")?;
+            self.to.fmt_individual_facts(f)?;
+            writeln!(f, "{}", to_parent)?;
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn test_to_from_prior_dir_problem_is_file() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let path = tempdir
+            .path()
+            .join("a")
+            .join("b")
+            .join("c")
+            .join("does_not_exist.txt");
+
+        std::fs::write(tempdir.path().join("a"), "").unwrap();
+
+        let mut to_path = path.clone();
+        to_path.set_file_name("also_does_not_exist.txt");
+
+        insta::with_settings!({prepend_module_to_snapshot => false}, {
+            insta::assert_snapshot!(
+                "from_to_prior_dir_problem_is_file",
+                FromToFacts::new(path, to_path)
+                .to_string()
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑"
+            );
+        });
+    }
+
+    #[test]
+    fn test_to_from_prior_dir_problem_is_not_shared() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let path = tempdir
+            .path()
+            .join("a")
+            .join("b")
+            .join("c")
+            .join("does_not_exist.txt");
+
+        std::fs::write(tempdir.path().join("a"), "").unwrap();
+
+        let to_path = tempdir
+            .path()
+            .join("x")
+            .join("y")
+            .join("z")
+            .join("also_does_not_exist.txt");
+
+        std::fs::write(tempdir.path().join("x"), "").unwrap();
+
+        insta::with_settings!({prepend_module_to_snapshot => false}, {
+            insta::assert_snapshot!(
+                "from_to_prior_dir_problem_is_file",
+                FromToFacts::new(path, to_path)
+                .to_string()
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑"
+            );
+        });
+    }
 
     #[test]
     fn test_prior_dir_problem_is_file() {

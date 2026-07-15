@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- Improve output when prior path is not a directory
+
+Before:
+
+```
+cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
+ - Prior path is not a directory `/path/to/directory/a`
+    - `/path/to/directory`
+        └── `a` file [✅ read, ✅ write, ❌ execute]
+```
+
+After:
+
+```
+cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
+ - Prior path is not a directory
+ - Prior path exists `/path/to/directory/a`
+    - `/path/to/directory`
+        └── `a` file [✅ read, ✅ write, ❌ execute]
+```
+
 ## 0.2.1
 
 - Fix: Always emit permissions for main file/directory [#9](https://github.com/schneems/path_facts/pull/9). Previously we skipped emitting permissions when RWX were all true, but it looked off in some scenarios:

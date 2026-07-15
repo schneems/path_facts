@@ -279,8 +279,10 @@ mod tests {
                 .replace(&tempdir.path().display().to_string(), "/path/to/directory")
             );
         });
+    }
 
-        // Verify README doesn't need to be updated
+    #[test]
+    fn verify_rdme_updated() {
         assert!(
             include_str!("../README.md").contains(
                 include_str!("snapshots/prior_dir_problem_is_file.snap")

@@ -188,7 +188,7 @@ mod path_facts;
 mod resolved_metadata;
 mod style;
 
-pub use path_facts::PathFacts;
+pub use path_facts::{FromToFacts, PathFacts};
 
 #[cfg(test)]
 mod tests {

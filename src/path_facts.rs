@@ -2,7 +2,7 @@
 use crate::abs_path::AbsPathError;
 use crate::happy_path::{state, HappyPath, UnhappyPath};
 use crate::resolved_metadata::ResolvedType;
-use crate::style::{self, permissions};
+use crate::style;
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
@@ -159,17 +159,7 @@ impl PathFacts {
                 writeln!(
                     f,
                     "{}",
-                    style::bullet(style::fmt_dir(&happy.parent, |entry| {
-                        if entry == &happy.absolute {
-                            Some(format!(
-                                "{file_type} {permissions}",
-                                file_type = happy.resolved_type,
-                                permissions = permissions(happy.read, happy.write, happy.execute)
-                            ))
-                        } else {
-                            None
-                        }
-                    }))
+                    style::bullet(style::list_dir_and_files(&happy.parent, &[happy]))
                 )?;
             }
             Err(UnhappyPath::AbsPathError(AbsPathError::PathIsEmpty(_))) => {}

@@ -1,4 +1,7 @@
-use crate::{abs_path::AbsPath, happy_path::DirOk};
+use crate::{
+    abs_path::AbsPath,
+    happy_path::{DirOk, HappyPath},
+};
 use std::path::Path;
 
 pub(crate) fn bullet(contents: impl AsRef<str>) -> String {
@@ -74,6 +77,24 @@ pub(crate) fn append_if(append: impl AsRef<str>, contents: impl AsRef<str>) -> S
     } else {
         format!("{append}{out}", append = append.as_ref())
     }
+}
+
+/// Shows files inside of a dir
+///
+/// Annotates selected files with their type (dir/file) and permissions.
+pub(crate) fn list_dir_and_files(dir: &DirOk, entries: &[&HappyPath]) -> String {
+    fmt_dir(dir, |entry| {
+        entries
+            .iter()
+            .find(|happy| happy.absolute == *entry)
+            .map(|happy| {
+                format!(
+                    "{} {}",
+                    happy.resolved_type,
+                    permissions(happy.read, happy.write, happy.execute)
+                )
+            })
+    })
 }
 
 pub(crate) fn fmt_dir<F>(dir: &DirOk, annotate: F) -> String

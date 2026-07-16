@@ -57,7 +57,11 @@ pub(crate) fn prefix_lines<F: Fn(usize, &str) -> String>(contents: &str, f: F) -
             .enumerate()
             .map(|(line_index, line)| {
                 let prefix = f(line_index, line);
-                prefix + line
+                if line == "\n" {
+                    prefix.trim_end().to_string() + line
+                } else {
+                    prefix + line
+                }
             })
             .collect()
     }
@@ -126,4 +130,22 @@ pub(crate) fn filename(path: &Path) -> Option<std::path::Display<'_>> {
 
 pub(crate) fn filename_or_path(path: &Path) -> std::path::Display<'_> {
     filename(path).unwrap_or_else(|| path.display())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prefix_empty_first_line_workd() {
+        assert_eq!(prefix_first_rest_lines(" - ", "   ", "\n\n"), " -\n\n",);
+    }
+
+    #[test]
+    fn prefix_does_not_indent_trailing_blank_line() {
+        assert_eq!(
+            prefix_first_rest_lines(" - ", "   ", "hello\n\n"),
+            " - hello\n\n",
+        );
+    }
 }

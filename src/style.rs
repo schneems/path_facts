@@ -79,7 +79,20 @@ pub(crate) fn append_if(append: impl AsRef<str>, contents: impl AsRef<str>) -> S
     }
 }
 
-/// Shows files inside of a dir
+/// Shows entries inside of a dir
+///
+/// If you can read the file type and permissions use [`list_dir_and_files`] otherwise
+/// this will highlight that a given entry exists.
+pub(crate) fn list_dir_file_exists(dir: &DirOk, entries: &[&AbsPath]) -> String {
+    fmt_dir(dir, |entry| {
+        entries
+            .iter()
+            .find(|path| **path == entry)
+            .map(|_| "(exists)".to_string())
+    })
+}
+
+/// Shows known good files inside of a dir
 ///
 /// Annotates selected files with their type (dir/file) and permissions.
 pub(crate) fn list_dir_and_files(dir: &DirOk, entries: &[&HappyPath]) -> String {

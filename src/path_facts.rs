@@ -255,13 +255,7 @@ impl PathFacts {
                     writeln!(
                         f,
                         "{}",
-                        style::bullet(style::fmt_dir(parent, |entry| {
-                            if entry == absolute {
-                                Some("(exists)".to_string())
-                            } else {
-                                None
-                            }
-                        }))
+                        style::bullet(style::list_dir_file_exists(parent, &[absolute]))
                     )?;
                 } else {
                     writeln!(

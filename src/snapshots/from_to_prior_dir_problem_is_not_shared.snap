@@ -1,0 +1,17 @@
+---
+source: src/path_facts.rs
+expression: "FromToFacts::new(path,\nto_path).to_string().replace(&tempdir.path().display().to_string(),\n\"/path/to/directory\") + \"🛑\""
+---
+From path cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
+ - Prior path is not a directory `/path/to/directory/a`
+    - `/path/to/directory`
+        ├── `a` file [✅ read, ✅ write, ❌ execute]
+        └── `x`
+
+To path cannot access `/path/to/directory/x/y/z/also_does_not_exist.txt`
+ - Prior path is not a directory `/path/to/directory/x`
+    - `/path/to/directory`
+        ├── `a`
+        └── `x` file [✅ read, ✅ write, ❌ execute]
+
+🛑

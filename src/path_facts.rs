@@ -388,7 +388,7 @@ mod tests {
 
         insta::with_settings!({prepend_module_to_snapshot => false}, {
             insta::assert_snapshot!(
-                "from_to_prior_dir_problem_is_file",
+                "from_to_prior_dir_problem_is_not_shared",
                 FromToFacts::new(path, to_path)
                 .to_string()
                 .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑"

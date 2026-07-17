@@ -339,12 +339,16 @@ mod tests {
         let mut to_path = path.clone();
         to_path.set_file_name("also_does_not_exist.txt");
 
+        std::env::current_dir().unwrap();
+        let to_from_string = FromToFacts::new(path, to_path)
+            .to_string()
+            .replace(&tempdir.path().display().to_string(), "/path/to/directory")
+            + "🛑";
+
         insta::with_settings!({prepend_module_to_snapshot => false}, {
             insta::assert_snapshot!(
                 "from_to_prior_dir_problem_is_file",
-                FromToFacts::new(path, to_path)
-                .to_string()
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑"
+                to_from_string
             );
         });
     }

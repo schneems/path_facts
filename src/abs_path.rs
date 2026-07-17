@@ -1,16 +1,24 @@
-//! An absolute path that may or may not exist on disk
-//!
-//! Holding this type guarantees that the path is not empty and the program has permission to read CWD.
-//!
-//! A property of absolute paths is that recursively retrieving their parent paths will eventually
-//! lead to the root path. The parent of an absolute path is also an absolute path [`AbsPath::parent`].
-//!
-//! If the held path is a readable directory, all children are also absolute paths [`AbsPath::read_dir`].
+//! Module for logic related toAn absolute path that may or may not exist on disk
 use std::{
     fmt::{Display, Formatter},
     path::{Path, PathBuf},
 };
 
+/// Holds a reference to an (unresolved) absolute path
+///
+/// On unix if the path does not begin with a `/` then the absolute
+/// path will be resolved with [`std::path::absolute`]. This method
+/// does NOT resolve internal relative paths i.e. `/a/../b` is considered
+/// a valid absolute path (even though there's a relative path part inside of it).
+///
+/// To resolve all internal relative paths (as well as symlinks) use [`crate::canonical_path::CanonicalPath`]
+///
+/// Holding this type guarantees that the path is not empty and the program has permission to read CWD.
+///
+/// A property of absolute paths is that recursively retrieving their parent paths will eventually
+/// lead to the root path. The parent of an absolute path is also an absolute path [`AbsPath::parent`].
+///
+/// If the held path is a readable directory, all children are also absolute paths [`AbsPath::read_dir`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AbsPath(PathBuf);
 
@@ -27,6 +35,10 @@ impl AbsPath {
                 .map_err(|error| AbsPathError::CannotReadCWD(path.to_owned(), error))?;
             Ok(Self(absolute))
         } else {
+            // std::path::absolute MAY check current_dir but is not guaranteed to do so (if the input
+            // is already absolute) calling `current_dir()` adds an additional guarantee to the type
+            let _ = std::env::current_dir()
+                .map_err(|error| AbsPathError::CannotReadCWD(path.to_owned(), error))?;
             Ok(Self(path.to_owned()))
         }
     }
@@ -106,4 +118,16 @@ pub(crate) fn try_readlink(absolute: &AbsPath) -> Result<Option<AbsPath>, std::i
 pub(crate) enum AbsPathError {
     PathIsEmpty(PathBuf),
     CannotReadCWD(PathBuf, std::io::Error),
+}
+
+#[cfg(test)]
+#[cfg(unix)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn does_not_normalize_dots() {
+        let AbsPath(inner) = AbsPath::new("/a/b/c/../d").unwrap();
+        assert_eq!(inner, PathBuf::from("/a/b/c/../d"));
+    }
 }

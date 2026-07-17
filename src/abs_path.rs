@@ -77,12 +77,38 @@ impl AbsExpanded {
             AbsPath::new(lexical).expect("lexical absolute path must be an absolute path"),
         ))
     }
+
+    pub(crate) fn read_dir(&self) -> Result<Vec<Self>, std::io::Error> {
+        self.0.read_dir().map(|vec| {
+            vec.into_iter()
+                .map(|path| AbsExpanded::new(path).expect("inner path already expanded"))
+                .collect()
+        })
+    }
+
+    pub(crate) fn parent(&self) -> Option<Self> {
+        self.0
+            .parent()
+            .map(|path| AbsExpanded::new(path).expect("inner path already expanded"))
+    }
 }
 
 /// If a `..` parent reference would escape the path.
 #[derive(Debug)]
 #[allow(dead_code)]
-pub(crate) struct AbsExpandedError(AbsPath);
+pub(crate) struct AbsExpandedError(pub(crate) AbsPath);
+
+impl Display for AbsExpanded {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "`{}`", self.0.as_ref().display())
+    }
+}
+
+impl AsRef<Path> for AbsExpanded {
+    fn as_ref(&self) -> &Path {
+        self.0.as_ref()
+    }
+}
 
 /// Holds a reference to an (unresolved) absolute path
 ///
@@ -179,7 +205,7 @@ impl AsRef<Path> for AbsPath {
 /// Returns Err if `read_link` fails
 /// Returns Ok(None) if the path is not a symlink or if [`std::fs::symlink_metadata`] fails
 /// Otherwise returns Ok(Some(AbsPath)) with the target of the symlink
-pub(crate) fn try_readlink(absolute: &AbsPath) -> Result<Option<AbsPath>, std::io::Error> {
+pub(crate) fn try_readlink(absolute: &AbsExpanded) -> Result<Option<AbsPath>, std::io::Error> {
     let path = absolute.as_ref();
     if path.is_symlink() {
         std::fs::read_link(path)

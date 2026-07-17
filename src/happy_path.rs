@@ -2,7 +2,7 @@
 //!
 //! Holds [`HappyPath`] and [`DirOk`]
 use crate::{
-    abs_path::{self, AbsPath},
+    abs_path::{self, AbsExpanded},
     canonical_path::CanonicalPath,
     resolved_metadata::{ResolvedMetadata, ResolvedType},
 };
@@ -14,9 +14,9 @@ use std::path::Path;
 /// For a path to be happy, it's parent (directory) must be good too, represented by a [`DirOk`]
 #[derive(Debug)]
 pub(crate) struct HappyPath {
-    pub(crate) absolute: AbsPath,
+    pub(crate) absolute: AbsExpanded,
     pub(crate) canonical: CanonicalPath,
-    pub(crate) symlink_target: Option<AbsPath>,
+    pub(crate) symlink_target: Option<abs_path::AbsPath>,
     pub(crate) resolved_type: ResolvedType,
     pub(crate) parent: DirOk,
     pub(crate) read: bool,
@@ -27,17 +27,17 @@ pub(crate) struct HappyPath {
 /// A [`DirOk`] represents a directory with no problems that we could find
 #[derive(Debug, Clone)]
 pub(crate) struct DirOk {
-    pub(crate) absolute: AbsPath,
+    pub(crate) absolute: AbsExpanded,
     /// Not printed, the type signature ensures that we can canonicalize the path
     pub(crate) _canonical: CanonicalPath,
-    pub(crate) entries: Vec<AbsPath>,
+    pub(crate) entries: Vec<AbsExpanded>,
     pub(crate) read: bool,
     pub(crate) write: bool,
     pub(crate) execute: bool,
 }
 
 impl DirOk {
-    pub(crate) fn new(absolute: AbsPath) -> Result<Self, std::io::Error> {
+    pub(crate) fn new(absolute: AbsExpanded) -> Result<Self, std::io::Error> {
         let canonical = CanonicalPath::new(&absolute)?;
         let entries = absolute.read_dir()?;
 
@@ -55,7 +55,7 @@ impl DirOk {
         })
     }
 
-    pub(crate) fn has_entry(&self, path: &AbsPath) -> bool {
+    pub(crate) fn has_entry(&self, path: &AbsExpanded) -> bool {
         self.entries.contains(path)
     }
 }
@@ -64,21 +64,21 @@ impl DirOk {
 pub(crate) enum UnhappyPath {
     AbsPathError(abs_path::AbsPathError),
     EscapesRoot(abs_path::AbsExpandedError),
-    IsRoot(AbsPath),
+    IsRoot(AbsExpanded),
     ParentProblem {
-        absolute: AbsPath,
-        parent: AbsPath,
+        absolute: AbsExpanded,
+        parent: AbsExpanded,
         /// Original error preventing us from creating a `DirOk` for the parent directory.
         /// Not printed, we traverse prior directories to find the root cause
         _error: std::io::Error,
     },
     DoesNotExist {
-        absolute: AbsPath,
+        absolute: AbsExpanded,
         parent: DirOk,
     },
     // Path exists, but we cannot canonicalize it
     CannotCanonicalize {
-        absolute: AbsPath,
+        absolute: AbsExpanded,
         parent: DirOk,
         error: std::io::Error,
     },
@@ -89,7 +89,7 @@ pub(crate) enum UnhappyPath {
     /// where the parent directory has read and execute access when the canonicalization is attempted,
     /// but loses execute access before the metadata reading, then this error will occur.
     CannotMetadata {
-        absolute: AbsPath,
+        absolute: AbsExpanded,
         canonical: CanonicalPath,
         parent: DirOk,
         error: std::io::Error,
@@ -97,7 +97,7 @@ pub(crate) enum UnhappyPath {
     /// Path exists, but and is reportedly a symlink but readlink fails
     /// Probably TOCTOU otherwise the canonical path would have errored
     CannotReadLink {
-        absolute: AbsPath,
+        absolute: AbsExpanded,
         canonical: CanonicalPath,
         parent: DirOk,
         error: std::io::Error,
@@ -105,7 +105,9 @@ pub(crate) enum UnhappyPath {
 }
 
 pub(crate) fn state(path: &Path) -> Result<HappyPath, Box<UnhappyPath>> {
-    let absolute = AbsPath::new(path).map_err(UnhappyPath::AbsPathError)?;
+    let absolute = abs_path::AbsPath::new(path)
+        .map_err(UnhappyPath::AbsPathError)
+        .and_then(|abs| AbsExpanded::new(abs).map_err(UnhappyPath::EscapesRoot))?;
     let abs_parent = absolute
         .parent()
         .ok_or_else(|| UnhappyPath::IsRoot(absolute.clone()))?;

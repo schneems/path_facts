@@ -9,6 +9,9 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[cfg(unix)]
+    use crate::abs_path::AbsExpanded;
+
+    #[cfg(unix)]
     fn set_read_write_no_execute<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
         let path = path.as_ref();
         let metadata = std::fs::metadata(path)?;
@@ -42,7 +45,7 @@ mod tests {
         }
 
         // Can see the file, but cannot read it's metadata
-        let dir = DirOk::new(AbsPath::new(dir).unwrap()).unwrap();
-        assert!(dir.has_entry(&AbsPath::new(&path).unwrap()));
+        let dir = DirOk::new(AbsExpanded::new(AbsPath::new(dir).unwrap()).unwrap()).unwrap();
+        assert!(dir.has_entry(&AbsExpanded::new(AbsPath::new(&path).unwrap()).unwrap()));
     }
 }

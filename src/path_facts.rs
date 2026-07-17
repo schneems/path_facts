@@ -60,7 +60,7 @@ impl PathFacts {
                 }
             }
             Err(UnhappyPath::EscapesRoot(abs_path::AbsExpandedError(absolute))) => {
-                writeln!(f, "path {} is would escape root if expanded", absolute)?;
+                writeln!(f, "path would escape root if expanded {absolute}")?;
             }
             Err(UnhappyPath::AbsPathError(AbsPathError::PathIsEmpty(path))) => {
                 writeln!(f, "path `{}` is empty", path.display())?;
@@ -816,6 +816,24 @@ mod tests {
              - Cannot canonicalize due to error `{error}`
              - `/path/to/directory/no_exec_dir` [✅ read, ✅ write, ❌ execute]
                  └── `file.txt` (exists)
+            "
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_path_escapes_root() {
+        let path = Path::new("/")
+            .join("a")
+            .join("..")
+            .join("..")
+            .join("oops.txt");
+
+        insta::assert_snapshot!(
+            PathFacts::new(&path)
+                .to_string(),
+            @r"
+                path would escape root if expanded `/a/../../oops.txt`
             "
         );
     }

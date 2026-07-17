@@ -6,12 +6,11 @@
 //! we can guarantee that all files involved exist.
 //!
 //! Built from a [`AbsPath`] so we know the program has access to CWD.
+use crate::abs_path::AbsPath;
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
 };
-
-use crate::abs_path::AbsPath;
 
 #[derive(Debug, Clone)]
 pub(crate) struct CanonicalPath(PathBuf);

@@ -63,6 +63,7 @@ impl DirOk {
 #[derive(Debug)]
 pub(crate) enum UnhappyPath {
     AbsPathError(abs_path::AbsPathError),
+    EscapesRoot(abs_path::AbsExpandedError),
     IsRoot(AbsPath),
     ParentProblem {
         absolute: AbsPath,

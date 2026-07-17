@@ -1,5 +1,5 @@
 //! Facts about paths
-use crate::abs_path::AbsPathError;
+use crate::abs_path::{self, AbsPathError};
 use crate::happy_path::{state, HappyPath, UnhappyPath};
 use crate::resolved_metadata::ResolvedType;
 use crate::style;
@@ -58,6 +58,9 @@ impl PathFacts {
                         style::bullet(format!("Symlink target: {}", target))
                     )?;
                 }
+            }
+            Err(UnhappyPath::EscapesRoot(abs_path::AbsExpandedError(absolute))) => {
+                writeln!(f, "path {} is would escape root if expanded", absolute)?;
             }
             Err(UnhappyPath::AbsPathError(AbsPathError::PathIsEmpty(path))) => {
                 writeln!(f, "path `{}` is empty", path.display())?;
@@ -162,6 +165,7 @@ impl PathFacts {
                     style::bullet(style::list_dir_with_files(&happy.parent, &[happy.into()]))
                 )?;
             }
+            Err(UnhappyPath::EscapesRoot(_)) => {}
             Err(UnhappyPath::AbsPathError(AbsPathError::PathIsEmpty(_))) => {}
             Err(UnhappyPath::AbsPathError(AbsPathError::CannotReadCWD(_, error))) => {
                 writeln!(

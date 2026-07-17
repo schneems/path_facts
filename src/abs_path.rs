@@ -37,6 +37,8 @@ impl AbsPath {
         } else {
             // std::path::absolute MAY check current_dir but is not guaranteed to do so (if the input
             // is already absolute) calling `current_dir()` adds an additional guarantee to the type
+            // PROBLEM: A test modifes CWD to test edge cases in another thread, this code
+            // now means basically every path fails randomly.
             let _ = std::env::current_dir()
                 .map_err(|error| AbsPathError::CannotReadCWD(path.to_owned(), error))?;
             Ok(Self(path.to_owned()))

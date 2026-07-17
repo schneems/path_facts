@@ -1,8 +1,88 @@
 //! Module for logic related toAn absolute path that may or may not exist on disk
 use std::{
     fmt::{Display, Formatter},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
+
+/// Holds an absolute path that has been normalized (no `..` or `.`)
+///
+/// - All guarantees from [`AbsPath`] hold
+/// - Plus the expanded path is guaranteed to not escape root
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AbsExpanded(AbsPath);
+
+#[allow(dead_code)]
+impl AbsExpanded {
+    /// Normalize a path, including `..` without traversing the filesystem.
+    ///
+    /// Returns an error if normalization would leave leading `..` components.
+    ///
+    /// <div class="warning">
+    ///
+    /// This function always resolves `..` to the "lexical" parent.
+    /// That is "a/b/../c" will always resolve to `a/c` which can change the meaning of the path.
+    /// In particular, `a/c` and `a/b/../c` are distinct on many systems because `b` may be a symbolic link, so its parent isn't `a`.
+    ///
+    /// </div>
+    ///
+    /// [`path::absolute`](absolute) is an alternative that preserves `..`.
+    /// Or [`Path::canonicalize`] can be used to resolve any `..` by querying the filesystem.
+    /// implementation from: #[unstable(feature = "normalize_lexically", issue = "134694")]
+    pub(crate) fn new(abs_path: AbsPath) -> Result<Self, AbsExpandedError> {
+        let AbsPath(path) = &abs_path;
+        let mut lexical = PathBuf::new();
+        let mut iter = path.components().peekable();
+
+        // Find the root, if any, and add it to the lexical path.
+        // Here we treat the Windows path "C:\" as a single "root" even though
+        // `components` splits it into two: (Prefix, RootDir).
+        let root = match iter.peek() {
+            Some(Component::ParentDir) => return Err(AbsExpandedError(abs_path)),
+            Some(p @ Component::RootDir) | Some(p @ Component::CurDir) => {
+                lexical.push(p);
+                iter.next();
+                lexical.as_os_str().len()
+            }
+            Some(Component::Prefix(prefix)) => {
+                lexical.push(prefix.as_os_str());
+                iter.next();
+                if let Some(p @ Component::RootDir) = iter.peek() {
+                    lexical.push(p);
+                    iter.next();
+                }
+                lexical.as_os_str().len()
+            }
+            None => return Ok(AbsExpanded(abs_path)),
+            Some(Component::Normal(_)) => 0,
+        };
+
+        for component in iter {
+            match component {
+                Component::RootDir => unreachable!(),
+                Component::Prefix(_) => return Err(AbsExpandedError(abs_path)),
+                Component::CurDir => continue,
+                Component::ParentDir => {
+                    // It's an error if ParentDir causes us to go above the "root".
+                    if lexical.as_os_str().len() == root {
+                        return Err(AbsExpandedError(abs_path));
+                    } else {
+                        lexical.pop();
+                    }
+                }
+                Component::Normal(path) => lexical.push(path),
+            }
+        }
+        Ok(AbsExpanded(
+            AbsPath::new(lexical).expect("lexical absolute path must be an absolute path"),
+        ))
+    }
+}
+
+/// If a `..` parent reference would escape the path.
+#[derive(Debug)]
+#[allow(dead_code)]
+pub(crate) struct AbsExpandedError(AbsPath);
 
 /// Holds a reference to an (unresolved) absolute path
 ///
@@ -127,9 +207,37 @@ pub(crate) enum AbsPathError {
 mod tests {
     use super::*;
 
+    fn abs(path: &str) -> AbsPath {
+        AbsPath::new(PathBuf::from(path)).unwrap()
+    }
+
     #[test]
-    fn does_not_normalize_dots() {
-        let AbsPath(inner) = AbsPath::new("/a/b/c/../d").unwrap();
+    fn abs_path_does_not_normalize_dots() {
+        let AbsPath(inner) = abs("/a/b/c/../d");
         assert_eq!(inner, PathBuf::from("/a/b/c/../d"));
+    }
+
+    #[test]
+    fn abs_expanded_normalizes_dots() {
+        let AbsExpanded(normalized) = AbsExpanded::new(abs("/a/b/c/../d")).unwrap();
+
+        assert_eq!(normalized, abs("/a/b/d"));
+    }
+
+    #[test]
+    fn abs_expanded_root() {
+        let AbsExpanded(normalized) = AbsExpanded::new(abs("/")).unwrap();
+
+        assert_eq!(normalized, abs("/"));
+    }
+
+    #[test]
+    fn does_not_escape_root() {
+        let result = AbsExpanded::new(abs("/.."));
+        assert!(
+            result.is_err(),
+            "expected {:?} to be Err but it was not",
+            result
+        );
     }
 }

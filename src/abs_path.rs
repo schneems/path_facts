@@ -119,8 +119,8 @@ impl AbsPath {
             // is already absolute) calling `current_dir()` adds an additional guarantee to the type
             // PROBLEM: A test modifes CWD to test edge cases in another thread, this code
             // now means basically every path fails randomly.
-            let _ = std::env::current_dir()
-                .map_err(|error| AbsPathError::CannotReadCWD(path.to_owned(), error))?;
+            // let _ = std::env::current_dir()
+            //     .map_err(|error| AbsPathError::CannotReadCWD(path.to_owned(), error))?;
             Ok(Self(path.to_owned()))
         }
     }

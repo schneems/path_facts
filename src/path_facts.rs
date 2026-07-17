@@ -38,7 +38,7 @@ impl PathFacts {
         match self.state.as_ref().map_err(|e| &**e) {
             Ok(happy) => {
                 writeln!(f, "exists `{}`", self.path.display())?;
-                if self.path.is_relative() {
+                if happy.absolute.as_ref() != self.path {
                     writeln!(
                         f,
                         "{}",
@@ -77,7 +77,7 @@ impl PathFacts {
                 _error,
             }) => {
                 writeln!(f, "cannot access `{}`", self.path.display())?;
-                if self.path.is_relative() {
+                if absolute.as_ref() != self.path {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
                 }
             }
@@ -86,7 +86,7 @@ impl PathFacts {
                 parent: _,
             }) => {
                 writeln!(f, "does not exist `{}`", self.path.display())?;
-                if self.path.is_relative() {
+                if absolute.as_ref() != self.path {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
                 }
             }
@@ -100,7 +100,7 @@ impl PathFacts {
                 } else {
                     writeln!(f, "does not exist `{}`", self.path.display())?;
                 }
-                if self.path.is_relative() {
+                if absolute.as_ref() != self.path {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
                 }
                 writeln!(
@@ -120,7 +120,7 @@ impl PathFacts {
                 } else {
                     writeln!(f, "does not exist `{}`", self.path.display())?;
                 }
-                if self.path.is_relative() {
+                if absolute.as_ref() != self.path {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
                 }
                 writeln!(f, "{}", style::bullet(format!("Canonical: {canonical}",)))?;
@@ -141,7 +141,7 @@ impl PathFacts {
                 } else {
                     writeln!(f, "does not exist `{}`", self.path.display())?;
                 }
-                if self.path.is_relative() {
+                if absolute.as_ref() != self.path {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
                 }
                 writeln!(f, "{}", style::bullet(format!("Canonical: {canonical}",)))?;
@@ -835,6 +835,35 @@ mod tests {
             @r"
                 path would escape root if expanded `/a/../../oops.txt`
             "
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_path_expanded_if_internal_relative_path() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let path = tempdir
+            .path()
+            .join("a")
+            .join("..")
+            .join("c")
+            .join("does_not_exist.txt");
+
+        std::fs::write(tempdir.path().join("a"), "").unwrap();
+
+        insta::assert_snapshot!(
+            PathFacts::new(&path)
+                .to_string()
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory")
+                ,
+            @r"
+        cannot access `/path/to/directory/a/../c/does_not_exist.txt`
+         - Absolute: `/path/to/directory/c/does_not_exist.txt`
+         - Prior directory does not exist `/path/to/directory/c`
+            - Missing `c` from parent directory:
+              `/path/to/directory`
+                └── `a`
+        "
         );
     }
 }

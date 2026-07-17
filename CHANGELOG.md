@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+- Show expanded absolute path. Previously only relative paths produced an `Absolute:` line. Now
+paths with an internal relative path (`..`) show their expanded representation:
+
+Before:
+
+```
+cannot access `../c/does_not_exist.txt`
+ - Absolute: `/path/to/directory/a/../c/does_not_exist.txt`
+```
+
+After:
+
+```
+cannot access `../c/does_not_exist.txt`
+ - Absolute: `/path/to/directory/c/does_not_exist.txt`
+```
+
+Before:
+
+```
+cannot access `/path/to/directory/a/../c/does_not_exist.txt`
+```
+
+After:
+
+```
+cannot access `/path/to/directory/a/../c/does_not_exist.txt`
+ - Absolute: `/path/to/directory/c/does_not_exist.txt`
+```
+
 - Improve output when when a relative internal path would escape root:
 
 ```

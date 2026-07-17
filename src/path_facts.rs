@@ -159,7 +159,7 @@ impl PathFacts {
                 writeln!(
                     f,
                     "{}",
-                    style::bullet(style::list_dir_and_files(&happy.parent, &[happy]))
+                    style::bullet(style::list_dir_with_files(&happy.parent, &[happy.into()]))
                 )?;
             }
             Err(UnhappyPath::AbsPathError(AbsPathError::PathIsEmpty(_))) => {}
@@ -255,7 +255,7 @@ impl PathFacts {
                     writeln!(
                         f,
                         "{}",
-                        style::bullet(style::list_dir_file_exists(parent, &[absolute]))
+                        style::bullet(style::list_dir_with_files(parent, &[absolute.into()]))
                     )?;
                 } else {
                     writeln!(

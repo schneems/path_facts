@@ -79,35 +79,60 @@ pub(crate) fn append_if(append: impl AsRef<str>, contents: impl AsRef<str>) -> S
     }
 }
 
-/// Shows entries inside of a dir
+/// Shows a directory and files within it
 ///
-/// If you can read the file type and permissions use [`list_dir_and_files`] otherwise
-/// this will highlight that a given entry exists.
-pub(crate) fn list_dir_file_exists(dir: &DirOk, entries: &[&AbsPath]) -> String {
+/// If any of the entries are found within the directory they'll be annotated with information
+/// based on their variant (either showing type of file and permissions or noting that it exists)
+pub(crate) fn list_dir_with_files(dir: &DirOk, entries: &[PathInDir]) -> String {
     fmt_dir(dir, |entry| {
-        entries
-            .iter()
-            .find(|path| **path == entry)
-            .map(|_| "(exists)".to_string())
+        entries.iter().find_map(|path| path.show_check(entry))
     })
 }
 
-/// Shows known good files inside of a dir
+/// Shows information about a path
 ///
-/// Annotates selected files with their type (dir/file) and permissions.
-pub(crate) fn list_dir_and_files(dir: &DirOk, entries: &[&HappyPath]) -> String {
-    fmt_dir(dir, |entry| {
-        entries
-            .iter()
-            .find(|happy| happy.absolute == *entry)
-            .map(|happy| {
-                format!(
+/// If we can get file type and permissions from the path we show
+/// maximal information, otherwise we have to scan entries in the dir to possibly annotate if
+/// it exists or not
+pub(crate) enum PathInDir<'a> {
+    Exists(&'a HappyPath),
+    MaybeExists(&'a AbsPath),
+}
+
+impl<'a> From<&'a HappyPath> for PathInDir<'a> {
+    fn from(value: &'a HappyPath) -> Self {
+        PathInDir::Exists(value)
+    }
+}
+
+impl<'a> From<&'a AbsPath> for PathInDir<'a> {
+    fn from(value: &'a AbsPath) -> Self {
+        PathInDir::MaybeExists(value)
+    }
+}
+
+impl<'a> PathInDir<'a> {
+    fn show_check(&self, entry: &AbsPath) -> Option<String> {
+        if entry == self.absolute() {
+            match self {
+                PathInDir::Exists(happy) => Some(format!(
                     "{} {}",
                     happy.resolved_type,
                     permissions(happy.read, happy.write, happy.execute)
-                )
-            })
-    })
+                )),
+                PathInDir::MaybeExists(_) => Some("(exists)".to_string()),
+            }
+        } else {
+            None
+        }
+    }
+
+    fn absolute(&'a self) -> &'a AbsPath {
+        match self {
+            PathInDir::Exists(happy_path) => &happy_path.absolute,
+            PathInDir::MaybeExists(abs_path) => abs_path,
+        }
+    }
 }
 
 pub(crate) fn fmt_dir<F>(dir: &DirOk, annotate: F) -> String

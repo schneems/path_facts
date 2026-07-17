@@ -6,14 +6,14 @@ use std::{
 
 /// Holds an absolute path that has been normalized (no `..` or `.`)
 ///
-/// - All guarantees from [`AbsPath`] hold
+/// - All guarantees from [`AbsRaw`] hold
 /// - Plus the expanded path is guaranteed to not escape root
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AbsExpanded(AbsPath);
+pub(crate) struct AbsPath(AbsRaw);
 
 #[allow(dead_code)]
-impl AbsExpanded {
+impl AbsPath {
     /// Normalize a path, including `..` without traversing the filesystem.
     ///
     /// Returns an error if normalization would leave leading `..` components.
@@ -29,8 +29,8 @@ impl AbsExpanded {
     /// [`path::absolute`](absolute) is an alternative that preserves `..`.
     /// Or [`Path::canonicalize`] can be used to resolve any `..` by querying the filesystem.
     /// implementation from: #[unstable(feature = "normalize_lexically", issue = "134694")]
-    pub(crate) fn new(abs_path: AbsPath) -> Result<Self, AbsExpandedError> {
-        let AbsPath(path) = &abs_path;
+    pub(crate) fn new(abs_path: AbsRaw) -> Result<Self, AbsExpandedError> {
+        let AbsRaw(path) = &abs_path;
         let mut lexical = PathBuf::new();
         let mut iter = path.components().peekable();
 
@@ -53,7 +53,7 @@ impl AbsExpanded {
                 }
                 lexical.as_os_str().len()
             }
-            None => return Ok(AbsExpanded(abs_path)),
+            None => return Ok(AbsPath(abs_path)),
             Some(Component::Normal(_)) => 0,
         };
 
@@ -73,15 +73,15 @@ impl AbsExpanded {
                 Component::Normal(path) => lexical.push(path),
             }
         }
-        Ok(AbsExpanded(
-            AbsPath::new(lexical).expect("lexical absolute path must be an absolute path"),
+        Ok(AbsPath(
+            AbsRaw::new(lexical).expect("lexical absolute path must be an absolute path"),
         ))
     }
 
     pub(crate) fn read_dir(&self) -> Result<Vec<Self>, std::io::Error> {
         self.0.read_dir().map(|vec| {
             vec.into_iter()
-                .map(|path| AbsExpanded::new(path).expect("inner path already expanded"))
+                .map(|path| AbsPath::new(path).expect("inner path already expanded"))
                 .collect()
         })
     }
@@ -89,22 +89,22 @@ impl AbsExpanded {
     pub(crate) fn parent(&self) -> Option<Self> {
         self.0
             .parent()
-            .map(|path| AbsExpanded::new(path).expect("inner path already expanded"))
+            .map(|path| AbsPath::new(path).expect("inner path already expanded"))
     }
 }
 
 /// If a `..` parent reference would escape the path.
 #[derive(Debug)]
 #[allow(dead_code)]
-pub(crate) struct AbsExpandedError(pub(crate) AbsPath);
+pub(crate) struct AbsExpandedError(pub(crate) AbsRaw);
 
-impl Display for AbsExpanded {
+impl Display for AbsPath {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "`{}`", self.0.as_ref().display())
     }
 }
 
-impl AsRef<Path> for AbsExpanded {
+impl AsRef<Path> for AbsPath {
     fn as_ref(&self) -> &Path {
         self.0.as_ref()
     }
@@ -126,9 +126,9 @@ impl AsRef<Path> for AbsExpanded {
 ///
 /// If the held path is a readable directory, all children are also absolute paths [`AbsPath::read_dir`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AbsPath(PathBuf);
+pub(crate) struct AbsRaw(PathBuf);
 
-impl AbsPath {
+impl AbsRaw {
     pub(crate) fn new(path: impl AsRef<Path>) -> Result<Self, AbsPathError> {
         let path = path.as_ref();
 
@@ -162,11 +162,11 @@ impl AbsPath {
     /// the format is the same.
     ///
     /// Errors if path is not a directory or is not readable
-    pub(crate) fn read_dir(&self) -> Result<Vec<AbsPath>, std::io::Error> {
+    pub(crate) fn read_dir(&self) -> Result<Vec<AbsRaw>, std::io::Error> {
         #[cfg_attr(not(test), allow(unused_mut))]
-        let mut entries: Vec<AbsPath> = std::fs::read_dir(&self.0)?
-            .map(|entry| entry.map(|e| e.path()).map(AbsPath))
-            .collect::<Result<Vec<AbsPath>, std::io::Error>>()?;
+        let mut entries: Vec<AbsRaw> = std::fs::read_dir(&self.0)?
+            .map(|entry| entry.map(|e| e.path()).map(AbsRaw))
+            .collect::<Result<Vec<AbsRaw>, std::io::Error>>()?;
 
         // Sort by filename for deterministic test output only
         // In production, preserve the OS's native directory entry order
@@ -186,17 +186,17 @@ impl AbsPath {
     pub(crate) fn parent(&self) -> Option<Self> {
         let parent = self.0.parent()?;
 
-        Some(AbsPath(parent.to_path_buf()))
+        Some(AbsRaw(parent.to_path_buf()))
     }
 }
 
-impl Display for AbsPath {
+impl Display for AbsRaw {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "`{}`", self.0.display())
     }
 }
 
-impl AsRef<Path> for AbsPath {
+impl AsRef<Path> for AbsRaw {
     fn as_ref(&self) -> &Path {
         self.0.as_ref()
     }
@@ -205,15 +205,15 @@ impl AsRef<Path> for AbsPath {
 /// Returns Err if `read_link` fails
 /// Returns Ok(None) if the path is not a symlink or if [`std::fs::symlink_metadata`] fails
 /// Otherwise returns Ok(Some(AbsPath)) with the target of the symlink
-pub(crate) fn try_readlink(absolute: &AbsExpanded) -> Result<Option<AbsPath>, std::io::Error> {
+pub(crate) fn try_readlink(absolute: &AbsPath) -> Result<Option<AbsRaw>, std::io::Error> {
     let path = absolute.as_ref();
     if path.is_symlink() {
         std::fs::read_link(path)
             .map(|target| {
                 if target.is_relative() {
-                    AbsPath(absolute.as_ref().join(target))
+                    AbsRaw(absolute.as_ref().join(target))
                 } else {
-                    AbsPath(target)
+                    AbsRaw(target)
                 }
             })
             .map(Some)
@@ -233,33 +233,33 @@ pub(crate) enum AbsPathError {
 mod tests {
     use super::*;
 
-    fn abs(path: &str) -> AbsPath {
-        AbsPath::new(PathBuf::from(path)).unwrap()
+    fn abs(path: &str) -> AbsRaw {
+        AbsRaw::new(PathBuf::from(path)).unwrap()
     }
 
     #[test]
     fn abs_path_does_not_normalize_dots() {
-        let AbsPath(inner) = abs("/a/b/c/../d");
+        let AbsRaw(inner) = abs("/a/b/c/../d");
         assert_eq!(inner, PathBuf::from("/a/b/c/../d"));
     }
 
     #[test]
     fn abs_expanded_normalizes_dots() {
-        let AbsExpanded(normalized) = AbsExpanded::new(abs("/a/b/c/../d")).unwrap();
+        let AbsPath(normalized) = AbsPath::new(abs("/a/b/c/../d")).unwrap();
 
         assert_eq!(normalized, abs("/a/b/d"));
     }
 
     #[test]
     fn abs_expanded_root() {
-        let AbsExpanded(normalized) = AbsExpanded::new(abs("/")).unwrap();
+        let AbsPath(normalized) = AbsPath::new(abs("/")).unwrap();
 
         assert_eq!(normalized, abs("/"));
     }
 
     #[test]
     fn does_not_escape_root() {
-        let result = AbsExpanded::new(abs("/.."));
+        let result = AbsPath::new(abs("/.."));
         assert!(
             result.is_err(),
             "expected {:?} to be Err but it was not",

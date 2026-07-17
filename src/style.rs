@@ -1,5 +1,5 @@
 use crate::{
-    abs_path::AbsExpanded,
+    abs_path::AbsPath,
     happy_path::{DirOk, HappyPath},
 };
 use std::path::Path;
@@ -87,7 +87,7 @@ pub(crate) fn list_dir_with_files(dir: &DirOk, entries: &[PathInDir]) -> String 
 /// it exists or not
 pub(crate) enum PathInDir<'a> {
     Exists(&'a HappyPath),
-    MaybeExists(&'a AbsExpanded),
+    MaybeExists(&'a AbsPath),
 }
 
 impl<'a> From<&'a HappyPath> for PathInDir<'a> {
@@ -96,14 +96,14 @@ impl<'a> From<&'a HappyPath> for PathInDir<'a> {
     }
 }
 
-impl<'a> From<&'a AbsExpanded> for PathInDir<'a> {
-    fn from(value: &'a AbsExpanded) -> Self {
+impl<'a> From<&'a AbsPath> for PathInDir<'a> {
+    fn from(value: &'a AbsPath) -> Self {
         PathInDir::MaybeExists(value)
     }
 }
 
 impl<'a> PathInDir<'a> {
-    fn show_check(&self, entry: &AbsExpanded) -> Option<String> {
+    fn show_check(&self, entry: &AbsPath) -> Option<String> {
         if entry == self.absolute() {
             match self {
                 PathInDir::Exists(happy) => Some(format!(
@@ -118,7 +118,7 @@ impl<'a> PathInDir<'a> {
         }
     }
 
-    fn absolute(&'a self) -> &'a AbsExpanded {
+    fn absolute(&'a self) -> &'a AbsPath {
         match self {
             PathInDir::Exists(happy_path) => &happy_path.absolute,
             PathInDir::MaybeExists(abs_path) => abs_path,
@@ -132,7 +132,7 @@ impl<'a> PathInDir<'a> {
 /// is appended to the entry.
 pub(crate) fn fmt_dir<F>(dir: &DirOk, annotate: F) -> String
 where
-    F: Fn(&AbsExpanded) -> Option<String>,
+    F: Fn(&AbsPath) -> Option<String>,
 {
     format!(
         "{path}{perms}\n{entries}",
@@ -147,9 +147,9 @@ where
 }
 
 /// Formats a vec of filenames
-pub(crate) fn fmt_dir_entries_annotate<F>(entries: &[AbsExpanded], annotate: F) -> String
+pub(crate) fn fmt_dir_entries_annotate<F>(entries: &[AbsPath], annotate: F) -> String
 where
-    F: Fn(&AbsExpanded) -> Option<String>,
+    F: Fn(&AbsPath) -> Option<String>,
 {
     let mut out = String::new();
     if entries.is_empty() {

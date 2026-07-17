@@ -6,7 +6,7 @@
 //! we can guarantee that all files involved exist.
 //!
 //! Built from a [`AbsExpanded`] so we know the program has access to CWD.
-use crate::abs_path::AbsExpanded;
+use crate::abs_path::AbsPath;
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
@@ -16,7 +16,7 @@ use std::{
 pub(crate) struct CanonicalPath(PathBuf);
 
 impl CanonicalPath {
-    pub(crate) fn new(abs_path: &AbsExpanded) -> Result<Self, std::io::Error> {
+    pub(crate) fn new(abs_path: &AbsPath) -> Result<Self, std::io::Error> {
         let canonical = abs_path.as_ref().canonicalize()?;
         Ok(CanonicalPath(canonical))
     }

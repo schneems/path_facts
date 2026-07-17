@@ -9,7 +9,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[cfg(unix)]
-    use crate::abs_path::AbsExpanded;
+    use crate::abs_path::AbsPath;
 
     #[cfg(unix)]
     fn set_read_write_no_execute<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
@@ -25,7 +25,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn test_dir_without_execute() {
-        use crate::{abs_path::AbsPath, happy_path::DirOk};
+        use crate::{abs_path::AbsRaw, happy_path::DirOk};
 
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
@@ -45,7 +45,7 @@ mod tests {
         }
 
         // Can see the file, but cannot read it's metadata
-        let dir = DirOk::new(AbsExpanded::new(AbsPath::new(dir).unwrap()).unwrap()).unwrap();
-        assert!(dir.has_entry(&AbsExpanded::new(AbsPath::new(&path).unwrap()).unwrap()));
+        let dir = DirOk::new(AbsPath::new(AbsRaw::new(dir).unwrap()).unwrap()).unwrap();
+        assert!(dir.has_entry(&AbsPath::new(AbsRaw::new(&path).unwrap()).unwrap()));
     }
 }

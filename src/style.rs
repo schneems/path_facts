@@ -70,15 +70,6 @@ pub(crate) fn prefix_lines<F: Fn(usize, &str) -> String>(contents: &str, f: F) -
     }
 }
 
-pub(crate) fn append_if(append: impl AsRef<str>, contents: impl AsRef<str>) -> String {
-    let out = contents.as_ref();
-    if out.is_empty() {
-        out.to_string()
-    } else {
-        format!("{append}{out}", append = append.as_ref())
-    }
-}
-
 /// Shows a directory and files within it
 ///
 /// If any of the entries are found within the directory they'll be annotated with information
@@ -135,23 +126,24 @@ impl<'a> PathInDir<'a> {
     }
 }
 
+/// Shows a directory and it's permissions and ind the files inside of it
+///
+/// Yields each entry to the given annotation function, if it returns Some that annotation
+/// is appended to the entry.
 pub(crate) fn fmt_dir<F>(dir: &DirOk, annotate: F) -> String
 where
     F: Fn(&AbsPath) -> Option<String>,
 {
-    let entries = &dir.entries;
-    let mut out = String::new();
-    let permissions = append_if(
-        " ",
-        if dir.read && dir.write && dir.execute {
+    format!(
+        "{path}{perms}\n{entries}",
+        path = dir.absolute,
+        perms = if dir.read && dir.write && dir.execute {
             "".to_string()
         } else {
-            permissions(dir.read, dir.write, dir.execute)
+            format!(" {}", permissions(dir.read, dir.write, dir.execute))
         },
-    );
-    out.push_str(&format!("{path}{permissions}\n", path = dir.absolute));
-    out.push_str(&fmt_dir_entries_annotate(entries, annotate));
-    out
+        entries = fmt_dir_entries_annotate(&dir.entries, annotate)
+    )
 }
 
 /// Formats a vec of filenames

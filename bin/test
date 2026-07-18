@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+#
+# Run the full test suite.
+#
+# `cargo nextest` runs each test in its own process, isolating tests that mutate
+# the process-global current directory. nextest does not run doctests, so we run
+# those separately with `cargo test --doc`.
+#
+# These run sequentially (not in parallel): cargo holds an exclusive lock on the
+# target directory for the whole invocation, so two same-target cargo processes
+# cannot overlap anyway.
+#
+# Any arguments are forwarded to `cargo nextest run`.
+set -euo pipefail
+
+cargo nextest run "$@"
+cargo test --doc

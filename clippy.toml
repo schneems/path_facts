@@ -1,3 +1,0 @@
-disallowed-methods = [
-    { path = "std::env::set_current_dir", reason = "Use `crate::test_help::SetCurrentDirTempSafe` to safely set the current directory for tests" },
-]

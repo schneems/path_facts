@@ -5,7 +5,7 @@
 //! expected to be a directory or not having correct permissions, but
 //! we can guarantee that all files involved exist.
 //!
-//! Built from a [`AbsExpanded`] so we know the program has access to CWD.
+//! Built from an [`AbsPath`].
 use crate::abs_path::AbsPath;
 use std::{
     fmt::Display,

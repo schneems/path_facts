@@ -119,7 +119,7 @@ impl AsRef<Path> for AbsPath {
 ///
 /// To resolve all internal relative paths (as well as symlinks) use [`crate::canonical_path::CanonicalPath`]
 ///
-/// Holding this type guarantees that the path is not empty and the program has permission to read CWD.
+/// Holding this type guarantees that the path is not empty.
 ///
 /// A property of absolute paths is that recursively retrieving their parent paths will eventually
 /// lead to the root path. The parent of an absolute path is also an absolute path [`AbsPath::parent`].
@@ -141,12 +141,6 @@ impl AbsRaw {
                 .map_err(|error| AbsPathError::CannotReadCWD(path.to_owned(), error))?;
             Ok(Self(absolute))
         } else {
-            // std::path::absolute MAY check current_dir but is not guaranteed to do so (if the input
-            // is already absolute) calling `current_dir()` adds an additional guarantee to the type
-            // PROBLEM: A test modifes CWD to test edge cases in another thread, this code
-            // now means basically every path fails randomly.
-            // let _ = std::env::current_dir()
-            //     .map_err(|error| AbsPathError::CannotReadCWD(path.to_owned(), error))?;
             Ok(Self(path.to_owned()))
         }
     }

@@ -184,7 +184,13 @@ than "simply state the facts". However, we're here. We have the facts, we might 
 
 ## Development
 
-Output style and contents are tested via snapshot testing using [insta](https://docs.rs/insta/latest/insta/). If the output changes and you want to update the snapshots, you can generate new pending output by running tests `cargo test` this will produce `*.pending-snap` files. These can be reviewed and accepted by using `cargo insta`:
+Run the test suite with [`cargo nextest`](https://nexte.st), which runs each test in its own process. Some tests mutate the process-global current directory and rely on this isolation, so a guard test fails fast under plain `cargo test`. The `bin/test` helper runs the isolated tests and doctests together:
+
+```term
+$ bin/test
+```
+
+Output style and contents are tested via snapshot testing using [insta](https://docs.rs/insta/latest/insta/). If the output changes and you want to update the snapshots, you can generate new pending output by running tests with `cargo nextest run`; this will produce `*.pending-snap` files. These can be reviewed and accepted by using `cargo insta`:
 
 ```term
 $ cargo insta review
@@ -193,7 +199,7 @@ $ cargo insta review
 Or via using env vars:
 
 ```term
-$ INSTA_UPDATE=always cargo test
+$ INSTA_UPDATE=always cargo nextest run
 ```
 
 To run on linux:

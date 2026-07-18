@@ -183,7 +183,23 @@ mod path_facts;
 mod resolved_metadata;
 mod style;
 
-#[cfg(test)]
-mod test_help;
-
 pub use path_facts::PathFacts;
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn enforce_nextest() {
+        assert!(
+            std::env::var_os("NEXTEST").as_deref() == Some(std::ffi::OsStr::new("1")),
+            indoc::indoc! {"
+                Cannot run tests
+
+                Run the test suite with `bin/test` or `cargo nextest run` (NOT `cargo test`).
+
+                Some tests mutate the process-global current directory and rely on nextest's
+                process-per-test isolation (https://nexte.st). Under plain `cargo test` these
+                tests share one process and race, causing spurious failures.
+            "},
+        );
+    }
+}

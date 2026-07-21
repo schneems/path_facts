@@ -214,7 +214,8 @@ impl PathFacts {
                             state: prior_state,
                         }
                         .fmt_parent_facts(&mut parent_facts)?;
-                        writeln!(
+                        // Use `write!` because `parent_facts` already has a newline at the end.
+                        write!(
                             f,
                             "{}",
                             style::prefix_first_rest_lines("   ", "   ", &parent_facts)

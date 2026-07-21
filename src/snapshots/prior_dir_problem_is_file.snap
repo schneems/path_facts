@@ -7,5 +7,4 @@ cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
     - `/path/to/directory`
         └── `a` file [✅ read, ✅ write, ❌ execute]
 
-
 🛑

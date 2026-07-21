@@ -1,8 +1,11 @@
 ---
 source: src/path_facts.rs
-expression: snapshot
+expression: "PathFacts::new(path).to_string().replace(&tempdir.path().display().to_string(),\n\"/path/to/directory\") + \"🛑\""
 ---
 cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
  - Prior path is not a directory `/path/to/directory/a`
     - `/path/to/directory`
         └── `a` file [✅ read, ✅ write, ❌ execute]
+
+
+🛑

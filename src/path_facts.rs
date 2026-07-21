@@ -315,7 +315,7 @@ mod tests {
                 "prior_dir_problem_is_file",
                 PathFacts::new(path)
                 .to_string()
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory")
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑"
             );
         });
     }
@@ -328,6 +328,7 @@ mod tests {
                     .split("---")
                     .nth(2)
                     .expect("Snapshot should have YAML frontmatter")
+                    .replace("🛑", "")
                     .trim()
             ),
             "README missing correct example output. Update the module docs and re-run `cargo rdme`"

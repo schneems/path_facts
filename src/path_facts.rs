@@ -348,13 +348,15 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(path)
                 .to_string()
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory"),
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑",
             @r"
             cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
              - Prior directory does not exist `/path/to/directory/a`
                 - Missing `a` from parent directory:
                   `/path/to/directory`
                      └── (empty)
+
+            🛑
             ")
     }
 

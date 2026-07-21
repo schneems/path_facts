@@ -7,7 +7,11 @@ use std::{
 /// Holds an absolute path that has been normalized (no `..` or `.`)
 ///
 /// - All guarantees from [`AbsRaw`] hold
-/// - Plus the expanded path is guaranteed to not escape root
+/// - Plus any `..` and `.` components have been resolved lexically
+///
+/// A `..` that would escape root is clamped to root (a no-op), matching the
+/// behavior of Ruby's `File.expand_path`. For example `/..` expands to `/` and
+/// `/a/../../b` expands to `/b`.
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AbsPath(AbsRaw);
@@ -16,7 +20,9 @@ pub(crate) struct AbsPath(AbsRaw);
 impl AbsPath {
     /// Normalize a path, including `..` without traversing the filesystem.
     ///
-    /// Returns an error if normalization would leave leading `..` components.
+    /// This is a purely lexical expansion that mirrors Ruby's `File.expand_path`
+    /// for `.` and `..`: a `..` that would escape the root is clamped to the root
+    /// rather than escaping it (e.g. `/..` -> `/`, `/a/../../b` -> `/b`).
     ///
     /// <div class="warning">
     ///
@@ -26,10 +32,14 @@ impl AbsPath {
     ///
     /// </div>
     ///
-    /// [`path::absolute`](absolute) is an alternative that preserves `..`.
+    /// Note: unlike Ruby, multiple leading slashes are collapsed to a single root
+    /// (e.g. `////some/path` -> `/some/path`) because this reuses [`Path::components`],
+    /// which normalizes a leading run of separators to a single [`Component::RootDir`].
+    ///
+    /// [`std::path::absolute`] is an alternative that preserves `..`.
     /// Or [`Path::canonicalize`] can be used to resolve any `..` by querying the filesystem.
-    /// implementation from: #[unstable(feature = "normalize_lexically", issue = "134694")]
-    pub(crate) fn new(abs_path: AbsRaw) -> Result<Self, AbsExpandedError> {
+    /// implementation adapted from: #[unstable(feature = "normalize_lexically", issue = "134694")]
+    pub(crate) fn new(abs_path: AbsRaw) -> Self {
         let AbsRaw(path) = &abs_path;
         let mut lexical = PathBuf::new();
         let mut iter = path.components().peekable();
@@ -38,7 +48,6 @@ impl AbsPath {
         // Here we treat the Windows path "C:\" as a single "root" even though
         // `components` splits it into two: (Prefix, RootDir).
         let root = match iter.peek() {
-            Some(Component::ParentDir) => return Err(AbsExpandedError(abs_path)),
             Some(p @ Component::RootDir) | Some(p @ Component::CurDir) => {
                 lexical.push(p);
                 iter.next();
@@ -53,19 +62,19 @@ impl AbsPath {
                 }
                 lexical.as_os_str().len()
             }
-            None => return Ok(AbsPath(abs_path)),
-            Some(Component::Normal(_)) => 0,
+            // A leading `Normal`/`ParentDir` means the path is relative (no root),
+            // so `..` clamps at len 0. `None` (empty) is unreachable for a valid
+            // `AbsRaw`, but we treat it the same rather than panicking.
+            Some(Component::Normal(_)) | Some(Component::ParentDir) | None => 0,
         };
 
         for component in iter {
             match component {
-                Component::RootDir => unreachable!(),
-                Component::Prefix(_) => return Err(AbsExpandedError(abs_path)),
+                Component::RootDir | Component::Prefix(_) => unreachable!(),
                 Component::CurDir => continue,
                 Component::ParentDir => {
-                    // It's an error if ParentDir causes us to go above the "root".
                     if lexical.as_os_str().len() == root {
-                        return Err(AbsExpandedError(abs_path));
+                        // Pop nothing, keep root. Mirrors Ruby's `File.expand_path`
                     } else {
                         lexical.pop();
                     }
@@ -73,30 +82,19 @@ impl AbsPath {
                 Component::Normal(path) => lexical.push(path),
             }
         }
-        Ok(AbsPath(
-            AbsRaw::new(lexical).expect("lexical absolute path must be an absolute path"),
-        ))
+        AbsPath(AbsRaw::new(lexical).expect("lexical absolute path must be an absolute path"))
     }
 
     pub(crate) fn read_dir(&self) -> Result<Vec<Self>, std::io::Error> {
-        self.0.read_dir().map(|vec| {
-            vec.into_iter()
-                .map(|path| AbsPath::new(path).expect("inner path already expanded"))
-                .collect()
-        })
+        self.0
+            .read_dir()
+            .map(|vec| vec.into_iter().map(AbsPath::new).collect())
     }
 
     pub(crate) fn parent(&self) -> Option<Self> {
-        self.0
-            .parent()
-            .map(|path| AbsPath::new(path).expect("inner path already expanded"))
+        self.0.parent().map(AbsPath::new)
     }
 }
-
-/// If a `..` parent reference would escape the path.
-#[derive(Debug)]
-#[allow(dead_code)]
-pub(crate) struct AbsExpandedError(pub(crate) AbsRaw);
 
 impl Display for AbsPath {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -239,25 +237,79 @@ mod tests {
 
     #[test]
     fn abs_expanded_normalizes_dots() {
-        let AbsPath(normalized) = AbsPath::new(abs("/a/b/c/../d")).unwrap();
+        let AbsPath(normalized) = AbsPath::new(abs("/a/b/c/../d"));
 
         assert_eq!(normalized, abs("/a/b/d"));
     }
 
     #[test]
     fn abs_expanded_root() {
-        let AbsPath(normalized) = AbsPath::new(abs("/")).unwrap();
+        let AbsPath(normalized) = AbsPath::new(abs("/"));
 
         assert_eq!(normalized, abs("/"));
     }
 
     #[test]
-    fn does_not_escape_root() {
-        let result = AbsPath::new(abs("/.."));
-        assert!(
-            result.is_err(),
-            "expected {:?} to be Err but it was not",
-            result
-        );
+    fn parent_dir_at_root_clamps_to_root() {
+        let AbsPath(normalized) = AbsPath::new(abs("/.."));
+
+        assert_eq!(normalized, abs("/"));
+    }
+
+    #[test]
+    fn parent_dir_past_root_clamps() {
+        // Ruby: File.expand_path("../../bin", "/tmp/x") == "/bin"
+        let AbsPath(normalized) = AbsPath::new(abs("/a/../../b"));
+        assert_eq!(normalized, abs("/b"));
+
+        // Ruby: File.expand_path('/tmp/../../../tmp') == '/tmp'
+        let AbsPath(normalized) = AbsPath::new(abs("/tmp/../../../tmp"));
+        assert_eq!(normalized, abs("/tmp"));
+    }
+
+    #[test]
+    fn cur_dir_is_removed() {
+        let AbsPath(normalized) = AbsPath::new(abs("/./dir"));
+        assert_eq!(normalized, abs("/dir"));
+
+        let AbsPath(normalized) = AbsPath::new(abs("/a/./b"));
+        assert_eq!(normalized, abs("/a/b"));
+    }
+
+    #[test]
+    fn only_exact_dot_and_dotdot_are_special() {
+        // Names that merely start with dots are ordinary path elements,
+        // matching Ruby's expand_path (and Rust's `Component` semantics).
+        let AbsPath(normalized) = AbsPath::new(abs("/..a"));
+        assert_eq!(normalized, abs("/..a"));
+
+        let AbsPath(normalized) = AbsPath::new(abs("/a../b"));
+        assert_eq!(normalized, abs("/a../b"));
+
+        let AbsPath(normalized) = AbsPath::new(abs("/a."));
+        assert_eq!(normalized, abs("/a."));
+    }
+}
+
+#[cfg(test)]
+#[cfg(windows)]
+mod windows_tests {
+    use super::*;
+
+    fn abs(path: &str) -> AbsRaw {
+        AbsRaw::new(PathBuf::from(path)).unwrap()
+    }
+
+    #[test]
+    fn parent_dir_past_drive_root_clamps() {
+        // Exercises the `Component::Prefix` + `RootDir` root-detection branch.
+        let AbsPath(normalized) = AbsPath::new(abs(r"C:\a\..\..\b"));
+        assert_eq!(normalized, abs(r"C:\b"));
+    }
+
+    #[test]
+    fn parent_dir_at_drive_root_clamps_to_root() {
+        let AbsPath(normalized) = AbsPath::new(abs(r"C:\.."));
+        assert_eq!(normalized, abs(r"C:\"));
     }
 }

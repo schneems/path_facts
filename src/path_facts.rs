@@ -1,5 +1,5 @@
 //! Facts about paths
-use crate::abs_path::{self, AbsPathError};
+use crate::abs_path::AbsPathError;
 use crate::happy_path::{state, HappyPath, UnhappyPath};
 use crate::resolved_metadata::ResolvedType;
 use crate::style;
@@ -58,9 +58,6 @@ impl PathFacts {
                         style::bullet(format!("Symlink target: {}", target))
                     )?;
                 }
-            }
-            Err(UnhappyPath::EscapesRoot(abs_path::AbsExpandedError(absolute))) => {
-                writeln!(f, "path would escape root if expanded {absolute}")?;
             }
             Err(UnhappyPath::AbsPathError(AbsPathError::PathIsEmpty(path))) => {
                 writeln!(f, "path `{}` is empty", path.display())?;
@@ -165,7 +162,6 @@ impl PathFacts {
                     style::bullet(style::list_dir_with_files(&happy.parent, &[happy.into()]))
                 )?;
             }
-            Err(UnhappyPath::EscapesRoot(_)) => {}
             Err(UnhappyPath::AbsPathError(AbsPathError::PathIsEmpty(_))) => {}
             Err(UnhappyPath::AbsPathError(AbsPathError::CannotReadCWD(_, error))) => {
                 writeln!(
@@ -822,18 +818,27 @@ mod tests {
 
     #[test]
     #[cfg(unix)]
-    fn test_path_escapes_root() {
+    fn test_path_clamps_to_root_when_escaping() {
+        // Ruby's expand_path clamps `..` at root, so `/a/../../oops.txt`
+        // expands to `/oops.txt` rather than erroring.
         let path = Path::new("/")
             .join("a")
             .join("..")
             .join("..")
             .join("oops.txt");
 
+        // Only assert the individual facts: the clamped path's parent is root,
+        // whose directory listing is not deterministic across machines.
+        let mut individual = String::new();
+        PathFacts::new(&path)
+            .fmt_individual_facts(&mut individual)
+            .unwrap();
+
         insta::assert_snapshot!(
-            PathFacts::new(&path)
-                .to_string(),
+            individual,
             @r"
-                path would escape root if expanded `/a/../../oops.txt`
+            does not exist `/a/../../oops.txt`
+             - Absolute: `/oops.txt`
             "
         );
     }

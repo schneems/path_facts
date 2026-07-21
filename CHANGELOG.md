@@ -32,12 +32,6 @@ cannot access `/path/to/directory/a/../c/does_not_exist.txt`
  - Absolute: `/path/to/directory/c/does_not_exist.txt`
 ```
 
-- Improve output when when a relative internal path would escape root:
-
-```
-path would escape root if expanded `/a/../../oops.txt`
-```
-
 - Improve output when prior path is not a directory
 
 Before:

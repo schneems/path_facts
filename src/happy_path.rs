@@ -63,7 +63,6 @@ impl DirOk {
 #[derive(Debug)]
 pub(crate) enum UnhappyPath {
     AbsPathError(abs_path::AbsPathError),
-    EscapesRoot(abs_path::AbsExpandedError),
     IsRoot(AbsPath),
     ParentProblem {
         absolute: AbsPath,
@@ -105,9 +104,7 @@ pub(crate) enum UnhappyPath {
 }
 
 pub(crate) fn state(path: &Path) -> Result<HappyPath, Box<UnhappyPath>> {
-    let absolute = abs_path::AbsRaw::new(path)
-        .map_err(UnhappyPath::AbsPathError)
-        .and_then(|abs| AbsPath::new(abs).map_err(UnhappyPath::EscapesRoot))?;
+    let absolute = AbsPath::new(abs_path::AbsRaw::new(path).map_err(UnhappyPath::AbsPathError)?);
     let abs_parent = absolute
         .parent()
         .ok_or_else(|| UnhappyPath::IsRoot(absolute.clone()))?;

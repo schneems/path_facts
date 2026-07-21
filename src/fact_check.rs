@@ -3,13 +3,11 @@
 //! in this library.
 #[cfg(test)]
 mod tests {
+    use crate::abs_path::AbsPath;
     use std::path::Path;
 
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
-
-    #[cfg(unix)]
-    use crate::abs_path::AbsPath;
 
     #[cfg(unix)]
     fn set_read_write_no_execute<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
@@ -45,7 +43,7 @@ mod tests {
         }
 
         // Can see the file, but cannot read it's metadata
-        let dir = DirOk::new(AbsPath::new(AbsRaw::new(dir).unwrap()).unwrap()).unwrap();
-        assert!(dir.has_entry(&AbsPath::new(AbsRaw::new(&path).unwrap()).unwrap()));
+        let dir = DirOk::new(AbsPath::new(AbsRaw::new(dir).unwrap())).unwrap();
+        assert!(dir.has_entry(&AbsPath::new(AbsRaw::new(&path).unwrap())));
     }
 }

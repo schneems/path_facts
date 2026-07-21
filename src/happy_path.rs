@@ -1,3 +1,6 @@
+//! Representations of paths with no problems
+//!
+//! Holds [`HappyPath`] and [`DirOk`]
 use crate::{
     abs_path::{self, AbsPath},
     canonical_path::CanonicalPath,
@@ -6,6 +9,9 @@ use crate::{
 use faccess::{AccessMode, PathExt};
 use std::path::Path;
 
+/// A [`HappyPath`] represents a path with no problems that we could find
+///
+/// For a path to be happy, it's parent (directory) must be good too, represented by a [`DirOk`]
 #[derive(Debug)]
 pub(crate) struct HappyPath {
     pub(crate) absolute: AbsPath,
@@ -18,6 +24,7 @@ pub(crate) struct HappyPath {
     pub(crate) execute: bool,
 }
 
+/// A [`DirOk`] represents a directory with no problems that we could find
 #[derive(Debug, Clone)]
 pub(crate) struct DirOk {
     pub(crate) absolute: AbsPath,

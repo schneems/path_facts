@@ -1,3 +1,4 @@
+//! Facts about paths
 use crate::abs_path::AbsPathError;
 use crate::happy_path::{state, HappyPath, UnhappyPath};
 use crate::resolved_metadata::ResolvedType;
@@ -9,7 +10,9 @@ use std::{
 
 /// Shows helpful facts about a path when `Display`ed.
 pub struct PathFacts {
+    /// Original input path
     path: PathBuf,
+    /// Detected state of the path
     state: Result<HappyPath, Box<UnhappyPath>>,
 }
 
@@ -276,8 +279,10 @@ mod tests {
                 .replace(&tempdir.path().display().to_string(), "/path/to/directory")
             );
         });
+    }
 
-        // Verify README doesn't need to be updated
+    #[test]
+    fn verify_rdme_updated() {
         assert!(
             include_str!("../README.md").contains(
                 include_str!("snapshots/prior_dir_problem_is_file.snap")

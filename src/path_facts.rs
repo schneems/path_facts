@@ -29,10 +29,10 @@ impl Display for PathFacts {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut buf = String::new();
         self.write_facts(&mut buf)?;
-        // Guarantee exactly one trailing blank line (`\n\n`) regardless of which
-        // fact branch produced the last line (empty-dir listings end in a single `\n`).
-        write!(f, "{}", buf.trim_end_matches('\n'))?;
-        f.write_str("\n\n")
+        // Always end with exactly one trailing newline so a fact can be
+        // interpolated mid-message without injecting extra blank lines
+        // (empty-dir listings would otherwise end with no newline).
+        writeln!(f, "{}", buf.trim_end_matches('\n'))
     }
 }
 
@@ -356,14 +356,13 @@ mod tests {
                 .to_string()
                 .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑",
             @r"
-            cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
-             - Prior directory does not exist `/path/to/directory/a`
-                - Missing `a` from parent directory:
-                  `/path/to/directory`
-                     └── (empty)
-
-            🛑
-            ")
+        cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
+         - Prior directory does not exist `/path/to/directory/a`
+            - Missing `a` from parent directory:
+              `/path/to/directory`
+                 └── (empty)
+        🛑
+        ")
     }
 
     #[test]
@@ -371,10 +370,9 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(Path::new("")).to_string() + "🛑",
             @r"
-            path `` is empty
-
-            🛑
-            "
+        path `` is empty
+        🛑
+        "
         )
     }
 
@@ -392,7 +390,6 @@ mod tests {
         exists `/path/to/directory/exists.txt`
          - `/path/to/directory`
              └── `exists.txt` file [✅ read, ✅ write, ❌ execute]
-
         🛑
         ")
     }
@@ -409,7 +406,6 @@ mod tests {
          - Missing `does_not_exist.txt` from parent directory:
            `/path/to/directory`
               └── (empty)
-
         🛑
         ")
     }
@@ -465,7 +461,6 @@ mod tests {
          - Absolute: `/path/to/directory/exists.txt`
          - `/path/to/directory`
              └── `exists.txt` file [✅ read, ✅ write, ❌ execute]
-
         🛑
         ")
     }
@@ -501,13 +496,12 @@ mod tests {
         insta::assert_snapshot!(
             output,
             @r"
-             exists `/path/to/link/link_to_target.txt`
-              - Canonical: `/path/to/target/target.txt`
-              - Symlink target: `/path/to/target/target.txt`
-              - `/path/to/link`
-                  └── `link_to_target.txt` file [✅ read, ✅ write, ❌ execute]
-
-             🛑
+        exists `/path/to/link/link_to_target.txt`
+         - Canonical: `/path/to/target/target.txt`
+         - Symlink target: `/path/to/target/target.txt`
+         - `/path/to/link`
+             └── `link_to_target.txt` file [✅ read, ✅ write, ❌ execute]
+        🛑
         ");
     }
 
@@ -547,7 +541,6 @@ mod tests {
          - Symlink target: `/path/to/target/target_dir`
          - `/path/to/link`
              └── `link_to_dir` directory [✅ read, ✅ write, ✅ execute]
-
         🛑
         ");
     }
@@ -570,7 +563,6 @@ mod tests {
             @r"
         `relative_path.txt`
          - Cannot read current working directory: {error}
-
         🛑
         ");
     }
@@ -581,7 +573,6 @@ mod tests {
             PathFacts::new("/").to_string() + "🛑",
             @r"
         is root `/`
-
         🛑
         "
         );
@@ -604,7 +595,6 @@ mod tests {
             - Missing `a` from parent directory:
               `/path/to/directory`
                  └── (empty)
-
         🛑
         ");
     }
@@ -631,7 +621,6 @@ mod tests {
          - Missing `does_not_exist.txt` from parent directory:
            `/path/to/directory/readonly_dir` [✅ read, ❌ write, ✅ execute]
               └── (empty)
-
         🛑
         "
         );
@@ -659,7 +648,6 @@ mod tests {
          - `/path/to/directory`
              ├── `link1` (exists)
              └── `link2`
-
         🛑
         "
         );
@@ -687,7 +675,6 @@ mod tests {
          - `/path/to/directory`
              ├── `link1` (exists)
              └── `link2`
-
         🛑
         "
         );
@@ -713,7 +700,6 @@ mod tests {
          - Cannot canonicalize due to error `{error}`
          - `/path/to/directory`
              └── `broken_link` (exists)
-
         🛑
         "
         );
@@ -739,7 +725,6 @@ mod tests {
          - Cannot canonicalize due to error `{error}`
          - `/path/to/directory`
              └── `broken_link` (exists)
-
         🛑
         "
         );
@@ -770,7 +755,6 @@ mod tests {
          - Cannot canonicalize due to error `{error}`
          - `/path/to/directory/no_exec_dir` [✅ read, ✅ write, ❌ execute]
              └── `file.txt` (exists)
-
         🛑
         "
         );

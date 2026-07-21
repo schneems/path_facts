@@ -1,6 +1,6 @@
 ---
 source: src/path_facts.rs
-expression: "result.unwrap_err().to_string().replace(&tempdir.path().canonicalize().unwrap().display().to_string(),\n\"/path/to/directory\")"
+expression: "result.unwrap_err().to_string().replace(&tempdir.path().canonicalize().unwrap().display().to_string(),\n\"/path/to/directory\") + \"🛑\""
 ---
 cannot rename from `doesnotexist.txt` to `also_does_not_exist.txt` due to: {error}.
 
@@ -10,8 +10,12 @@ From path does not exist `doesnotexist.txt`
    `/path/to/directory`
       └── (empty)
 
+
 To path does not exist `also_does_not_exist.txt`
  - Absolute: `/path/to/directory/also_does_not_exist.txt`
  - Missing `also_does_not_exist.txt` from parent directory:
    `/path/to/directory`
       └── (empty)
+
+
+🛑

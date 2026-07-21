@@ -369,8 +369,12 @@ mod tests {
     #[test]
     fn test_empty_path() {
         insta::assert_snapshot!(
-            PathFacts::new(Path::new("")),
-            @"path `` is empty"
+            PathFacts::new(Path::new("")).to_string() + "🛑",
+            @r"
+            path `` is empty
+
+            🛑
+            "
         )
     }
 
@@ -383,12 +387,14 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(path)
                 .to_string()
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory"),
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑",
             @r"
-            exists `/path/to/directory/exists.txt`
-             - `/path/to/directory`
-                 └── `exists.txt` file [✅ read, ✅ write, ❌ execute]
-            ")
+        exists `/path/to/directory/exists.txt`
+         - `/path/to/directory`
+             └── `exists.txt` file [✅ read, ✅ write, ❌ execute]
+
+        🛑
+        ")
     }
 
     #[test]
@@ -397,13 +403,15 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(tempdir.path().join("does_not_exist.txt"))
                 .to_string()
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory"),
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑",
             @r"
-            does not exist `/path/to/directory/does_not_exist.txt`
-             - Missing `does_not_exist.txt` from parent directory:
-               `/path/to/directory`
-                  └── (empty)
-            ")
+        does not exist `/path/to/directory/does_not_exist.txt`
+         - Missing `does_not_exist.txt` from parent directory:
+           `/path/to/directory`
+              └── (empty)
+
+        🛑
+        ")
     }
 
     #[test]
@@ -435,7 +443,7 @@ mod tests {
                 "rename_two_missing_paths",
                 result.unwrap_err()
                     .to_string()
-                    .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
+                    .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory") + "🛑"
             );
         });
     }
@@ -451,13 +459,15 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(path)
                 .to_string()
-                .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory"),
+                .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory") + "🛑",
             @r"
-            exists `exists.txt`
-             - Absolute: `/path/to/directory/exists.txt`
-             - `/path/to/directory`
-                 └── `exists.txt` file [✅ read, ✅ write, ❌ execute]
-            ")
+        exists `exists.txt`
+         - Absolute: `/path/to/directory/exists.txt`
+         - `/path/to/directory`
+             └── `exists.txt` file [✅ read, ✅ write, ❌ execute]
+
+        🛑
+        ")
     }
 
     #[test]
@@ -485,7 +495,8 @@ mod tests {
                 "/path/to/target",
             )
             .replace(&link_canonical.display().to_string(), "/path/to/link")
-            .replace(&link_tempdir.path().display().to_string(), "/path/to/link");
+            .replace(&link_tempdir.path().display().to_string(), "/path/to/link")
+            + "🛑";
 
         insta::assert_snapshot!(
             output,
@@ -495,6 +506,8 @@ mod tests {
               - Symlink target: `/path/to/target/target.txt`
               - `/path/to/link`
                   └── `link_to_target.txt` file [✅ read, ✅ write, ❌ execute]
+
+             🛑
         ");
     }
 
@@ -523,16 +536,19 @@ mod tests {
                 "/path/to/target",
             )
             .replace(&link_canonical.display().to_string(), "/path/to/link")
-            .replace(&link_tempdir.path().display().to_string(), "/path/to/link");
+            .replace(&link_tempdir.path().display().to_string(), "/path/to/link")
+            + "🛑";
 
         insta::assert_snapshot!(
             output,
             @r"
-             exists `/path/to/link/link_to_dir`
-              - Canonical: `/path/to/target/target_dir`
-              - Symlink target: `/path/to/target/target_dir`
-              - `/path/to/link`
-                  └── `link_to_dir` directory [✅ read, ✅ write, ✅ execute]
+        exists `/path/to/link/link_to_dir`
+         - Canonical: `/path/to/target/target_dir`
+         - Symlink target: `/path/to/target/target_dir`
+         - `/path/to/link`
+             └── `link_to_dir` directory [✅ read, ✅ write, ✅ execute]
+
+        🛑
         ");
     }
 
@@ -550,18 +566,24 @@ mod tests {
                 .replace(
                     &std::fs::read_to_string(tempdir.path()).unwrap_err().to_string(),
                     "{error}"
-                ),
+                ) + "🛑",
             @r"
-            `relative_path.txt`
-             - Cannot read current working directory: {error}
-            ");
+        `relative_path.txt`
+         - Cannot read current working directory: {error}
+
+        🛑
+        ");
     }
 
     #[test]
     fn test_is_root() {
         insta::assert_snapshot!(
-            PathFacts::new("/"),
-            @"is root `/`"
+            PathFacts::new("/").to_string() + "🛑",
+            @r"
+        is root `/`
+
+        🛑
+        "
         );
     }
 
@@ -574,15 +596,17 @@ mod tests {
             // Create a relative path where the parent directories don't exist
             PathFacts::new(Path::new("a/b/c/does_not_exist.txt"))
                 .to_string()
-                .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory"),
+                .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory") + "🛑",
             @r"
-            cannot access `a/b/c/does_not_exist.txt`
-             - Absolute: `/path/to/directory/a/b/c/does_not_exist.txt`
-             - Prior directory does not exist `/path/to/directory/a`
-                - Missing `a` from parent directory:
-                  `/path/to/directory`
-                     └── (empty)
-            ");
+        cannot access `a/b/c/does_not_exist.txt`
+         - Absolute: `/path/to/directory/a/b/c/does_not_exist.txt`
+         - Prior directory does not exist `/path/to/directory/a`
+            - Missing `a` from parent directory:
+              `/path/to/directory`
+                 └── (empty)
+
+        🛑
+        ");
     }
 
     #[test]
@@ -600,14 +624,16 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(readonly_dir.join("does_not_exist.txt"))
                 .to_string()
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory"),
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑",
             @r"
-            does not exist `/path/to/directory/readonly_dir/does_not_exist.txt`
-             - Parent directory is missing write permissions (cannot create, delete, or modify files)
-             - Missing `does_not_exist.txt` from parent directory:
-               `/path/to/directory/readonly_dir` [✅ read, ❌ write, ✅ execute]
-                  └── (empty)
-            "
+        does not exist `/path/to/directory/readonly_dir/does_not_exist.txt`
+         - Parent directory is missing write permissions (cannot create, delete, or modify files)
+         - Missing `does_not_exist.txt` from parent directory:
+           `/path/to/directory/readonly_dir` [✅ read, ❌ write, ✅ execute]
+              └── (empty)
+
+        🛑
+        "
         );
     }
 
@@ -626,14 +652,16 @@ mod tests {
             PathFacts::new(&link1)
                 .to_string()
                 .replace(&tempdir.path().display().to_string(), "/path/to/directory")
-                .replace(&std::fs::canonicalize(&link1).unwrap_err().to_string(), "{error}"),
+                .replace(&std::fs::canonicalize(&link1).unwrap_err().to_string(), "{error}") + "🛑",
             @r"
-            exists `/path/to/directory/link1`
-             - Cannot canonicalize due to error `{error}`
-             - `/path/to/directory`
-                 ├── `link1` (exists)
-                 └── `link2`
-            "
+        exists `/path/to/directory/link1`
+         - Cannot canonicalize due to error `{error}`
+         - `/path/to/directory`
+             ├── `link1` (exists)
+             └── `link2`
+
+        🛑
+        "
         );
     }
 
@@ -651,15 +679,17 @@ mod tests {
             PathFacts::new(Path::new("link1"))
                 .to_string()
                 .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
-                .replace(&std::fs::canonicalize("link1").unwrap_err().to_string(), "{error}"),
+                .replace(&std::fs::canonicalize("link1").unwrap_err().to_string(), "{error}") + "🛑",
             @r"
-            exists `link1`
-             - Absolute: `/path/to/directory/link1`
-             - Cannot canonicalize due to error `{error}`
-             - `/path/to/directory`
-                 ├── `link1` (exists)
-                 └── `link2`
-            "
+        exists `link1`
+         - Absolute: `/path/to/directory/link1`
+         - Cannot canonicalize due to error `{error}`
+         - `/path/to/directory`
+             ├── `link1` (exists)
+             └── `link2`
+
+        🛑
+        "
         );
     }
 
@@ -677,13 +707,15 @@ mod tests {
             PathFacts::new(&broken_link)
                 .to_string()
                 .replace(&tempdir.path().display().to_string(), "/path/to/directory")
-                .replace(&std::fs::canonicalize(&broken_link).unwrap_err().to_string(), "{error}"),
+                .replace(&std::fs::canonicalize(&broken_link).unwrap_err().to_string(), "{error}") + "🛑",
             @r"
-            exists `/path/to/directory/broken_link`
-             - Cannot canonicalize due to error `{error}`
-             - `/path/to/directory`
-                 └── `broken_link` (exists)
-            "
+        exists `/path/to/directory/broken_link`
+         - Cannot canonicalize due to error `{error}`
+         - `/path/to/directory`
+             └── `broken_link` (exists)
+
+        🛑
+        "
         );
     }
 
@@ -700,14 +732,16 @@ mod tests {
             PathFacts::new(Path::new("broken_link"))
                 .to_string()
                 .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
-                .replace(&std::fs::canonicalize("broken_link").unwrap_err().to_string(), "{error}"),
+                .replace(&std::fs::canonicalize("broken_link").unwrap_err().to_string(), "{error}") + "🛑",
             @r"
-            exists `broken_link`
-             - Absolute: `/path/to/directory/broken_link`
-             - Cannot canonicalize due to error `{error}`
-             - `/path/to/directory`
-                 └── `broken_link` (exists)
-            "
+        exists `broken_link`
+         - Absolute: `/path/to/directory/broken_link`
+         - Cannot canonicalize due to error `{error}`
+         - `/path/to/directory`
+             └── `broken_link` (exists)
+
+        🛑
+        "
         );
     }
 
@@ -730,13 +764,15 @@ mod tests {
             PathFacts::new(&file)
                 .to_string()
                 .replace(&tempdir.path().display().to_string(), "/path/to/directory")
-                .replace(&std::fs::canonicalize(&file).unwrap_err().to_string(), "{error}"),
+                .replace(&std::fs::canonicalize(&file).unwrap_err().to_string(), "{error}") + "🛑",
             @r"
-            exists `/path/to/directory/no_exec_dir/file.txt`
-             - Cannot canonicalize due to error `{error}`
-             - `/path/to/directory/no_exec_dir` [✅ read, ✅ write, ❌ execute]
-                 └── `file.txt` (exists)
-            "
+        exists `/path/to/directory/no_exec_dir/file.txt`
+         - Cannot canonicalize due to error `{error}`
+         - `/path/to/directory/no_exec_dir` [✅ read, ✅ write, ❌ execute]
+             └── `file.txt` (exists)
+
+        🛑
+        "
         );
     }
 }

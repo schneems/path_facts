@@ -137,7 +137,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn prefix_empty_first_line_workd() {
+    fn prefix_empty_first_line_works() {
         assert_eq!(prefix_first_rest_lines(" - ", "   ", "\n\n"), " -\n\n",);
     }
 

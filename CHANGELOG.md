@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix inconsistent trailing indentation. Previously some facts had only one newline, and some had two. They now consistenly end with `\n\n` so there's an empty line after the fact is emited.
 - Improve output when prior path is not a directory
 
 Before:

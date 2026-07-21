@@ -27,13 +27,22 @@ impl PathFacts {
 
 impl Display for PathFacts {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.fmt_individual_facts(f)?;
-        self.fmt_parent_facts(f)?;
-        Ok(())
+        let mut buf = String::new();
+        self.write_facts(&mut buf)?;
+        // Guarantee exactly one trailing blank line (`\n\n`) regardless of which
+        // fact branch produced the last line (empty-dir listings end in a single `\n`).
+        write!(f, "{}", buf.trim_end_matches('\n'))?;
+        f.write_str("\n\n")
     }
 }
 
 impl PathFacts {
+    fn write_facts(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        self.fmt_individual_facts(f)?;
+        self.fmt_parent_facts(f)?;
+        Ok(())
+    }
+
     fn fmt_individual_facts(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
         match self.state.as_ref().map_err(|e| &**e) {
             Ok(happy) => {
@@ -222,17 +231,13 @@ impl PathFacts {
                         )?
                     }
                     _ => {
-                        writeln!(
-                            f,
-                            "{}",
-                            style::bullet(format!(
-                                "Prior directory {}",
-                                PathFacts {
-                                    path: prior_dir.as_ref().to_owned(),
-                                    state: prior_state
-                                }
-                            ))
-                        )?;
+                        let mut prior = String::new();
+                        PathFacts {
+                            path: prior_dir.as_ref().to_owned(),
+                            state: prior_state,
+                        }
+                        .write_facts(&mut prior)?;
+                        writeln!(f, "{}", style::bullet(format!("Prior directory {prior}")))?;
                     }
                 }
             }

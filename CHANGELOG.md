@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Show normalized absolute path if the original has `..` or `.`
+
+Before:
+
+```
+cannot access `/path/to/directory/a/../c/does_not_exist.txt`
+```
+
+After:
+
+```
+cannot access `/path/to/directory/a/../c/does_not_exist.txt`
+ - Absolute: `/path/to/directory/c/does_not_exist.txt`
+```
+
 - Normalize absolute path output by removing `.` and `..` parts.
 
 Before:

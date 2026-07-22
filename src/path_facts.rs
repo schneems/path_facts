@@ -44,7 +44,7 @@ impl PathFacts {
         match self.state.as_ref().map_err(|e| &**e) {
             Ok(happy) => {
                 writeln!(f, "exists `{}`", self.path.display())?;
-                if self.path.is_relative() {
+                if happy.absolute.as_ref() != self.path {
                     writeln!(
                         f,
                         "{}",
@@ -80,7 +80,7 @@ impl PathFacts {
                 _error,
             }) => {
                 writeln!(f, "cannot access `{}`", self.path.display())?;
-                if self.path.is_relative() {
+                if absolute.as_ref() != self.path {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
                 }
             }
@@ -89,7 +89,7 @@ impl PathFacts {
                 parent: _,
             }) => {
                 writeln!(f, "does not exist `{}`", self.path.display())?;
-                if self.path.is_relative() {
+                if absolute.as_ref() != self.path {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
                 }
             }
@@ -103,7 +103,7 @@ impl PathFacts {
                 } else {
                     writeln!(f, "does not exist `{}`", self.path.display())?;
                 }
-                if self.path.is_relative() {
+                if absolute.as_ref() != self.path {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
                 }
                 writeln!(
@@ -123,7 +123,7 @@ impl PathFacts {
                 } else {
                     writeln!(f, "does not exist `{}`", self.path.display())?;
                 }
-                if self.path.is_relative() {
+                if absolute.as_ref() != self.path {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
                 }
                 writeln!(f, "{}", style::bullet(format!("Canonical: {canonical}",)))?;
@@ -144,7 +144,7 @@ impl PathFacts {
                 } else {
                     writeln!(f, "does not exist `{}`", self.path.display())?;
                 }
-                if self.path.is_relative() {
+                if absolute.as_ref() != self.path {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
                 }
                 writeln!(f, "{}", style::bullet(format!("Canonical: {canonical}",)))?;
@@ -881,6 +881,62 @@ mod tests {
          - `/path/to/directory`
              └── `exists.txt` (exists)
         🛑
+        "
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_path_clamps_to_root_when_escaping() {
+        // Ruby's expand_path clamps `..` at root, so `/a/../../oops.txt`
+        // expands to `/oops.txt` rather than erroring.
+        let path = Path::new("/")
+            .join("a")
+            .join("..")
+            .join("..")
+            .join("oops.txt");
+
+        // Only assert the individual facts: the clamped path's parent is root,
+        // whose directory listing is not deterministic across machines.
+        let mut individual = String::new();
+        PathFacts::new(&path)
+            .fmt_individual_facts(&mut individual)
+            .unwrap();
+
+        insta::assert_snapshot!(
+            individual,
+            @r"
+            does not exist `/a/../../oops.txt`
+             - Absolute: `/oops.txt`
+            "
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_path_expanded_if_internal_relative_path() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let path = tempdir
+            .path()
+            .join("a")
+            .join("..")
+            .join("c")
+            .join("does_not_exist.txt");
+
+        std::fs::write(tempdir.path().join("a"), "").unwrap();
+
+        insta::assert_snapshot!(
+            PathFacts::new(&path)
+                .to_string()
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory")
+                ,
+            @r"
+        cannot access `/path/to/directory/a/../c/does_not_exist.txt`
+         - Absolute: `/path/to/directory/c/does_not_exist.txt`
+         - Prior directory does not exist `/path/to/directory/c`
+            - Missing `c` from parent directory:
+              `/path/to/directory`
+                └── `a`
         "
         );
     }

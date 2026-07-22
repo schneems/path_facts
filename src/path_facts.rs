@@ -217,6 +217,9 @@ impl PathFacts {
                             style::bullet(format!("Prior path is not a directory {prior_dir}"))
                         )?;
 
+                        // We've already stated the prior path (and that it's a file) above, so
+                        // emit only its parent directory listing here. Using `write_facts` would
+                        // repeat the redundant `exists ...` individual-fact line.
                         let mut parent_facts = String::new();
                         PathFacts {
                             path: prior_dir.as_ref().to_owned(),
@@ -231,6 +234,8 @@ impl PathFacts {
                         )?
                     }
                     _ => {
+                        // The prior path hasn't been described yet, so emit its full facts
+                        // (individual + parent), e.g. `does not exist ...` plus the dir listing.
                         let mut prior = String::new();
                         PathFacts {
                             path: prior_dir.as_ref().to_owned(),

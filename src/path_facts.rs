@@ -29,9 +29,6 @@ impl Display for PathFacts {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut buf = String::new();
         self.write_facts(&mut buf)?;
-        // Always end with exactly one trailing newline so a fact can be
-        // interpolated mid-message without injecting extra blank lines
-        // (empty-dir listings would otherwise end with no newline).
         writeln!(f, "{}", buf.trim_end_matches('\n'))
     }
 }

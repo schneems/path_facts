@@ -815,7 +815,7 @@ mod tests {
         let file = tempdir.path().join("exists.txt");
         std::fs::write(&file, "").unwrap();
 
-        let absolute = AbsPath::new(&file).unwrap();
+        let absolute = AbsPath::from(&file).unwrap();
         let parent = DirOk::new(absolute.parent().unwrap()).unwrap();
         let canonical = CanonicalPath::new(&absolute).unwrap();
         let error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "simulated");
@@ -854,7 +854,7 @@ mod tests {
         let file = tempdir.path().join("exists.txt");
         std::fs::write(&file, "").unwrap();
 
-        let absolute = AbsPath::new(&file).unwrap();
+        let absolute = AbsPath::from(&file).unwrap();
         let parent = DirOk::new(absolute.parent().unwrap()).unwrap();
         let canonical = CanonicalPath::new(&absolute).unwrap();
         let error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "simulated");

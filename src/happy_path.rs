@@ -104,7 +104,7 @@ pub(crate) enum UnhappyPath {
 }
 
 pub(crate) fn state(path: &Path) -> Result<HappyPath, Box<UnhappyPath>> {
-    let absolute = AbsPath::new(path).map_err(UnhappyPath::AbsPathError)?;
+    let absolute = AbsPath::from(path).map_err(UnhappyPath::AbsPathError)?;
     let abs_parent = absolute
         .parent()
         .ok_or_else(|| UnhappyPath::IsRoot(absolute.clone()))?;

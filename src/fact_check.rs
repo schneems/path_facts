@@ -42,7 +42,7 @@ mod tests {
         }
 
         // Can see the file, but cannot read it's metadata
-        let dir = DirOk::new(AbsPath::new(dir).unwrap()).unwrap();
-        assert!(dir.has_entry(&AbsPath::new(&path).unwrap()));
+        let dir = DirOk::new(AbsPath::from(dir).unwrap()).unwrap();
+        assert!(dir.has_entry(&AbsPath::from(&path).unwrap()));
     }
 }

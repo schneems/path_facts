@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Normalize absolute path output by removing `.` and `..` parts.
+
+Before:
+
+```
+cannot access `../c/does_not_exist.txt`
+ - Absolute: `/path/to/directory/a/../c/does_not_exist.txt`
+```
+
+After:
+
+```
+cannot access `../c/does_not_exist.txt`
+ - Absolute: `/path/to/directory/c/does_not_exist.txt`
+```
+
 ## 0.2.2
 
 - Fix inconsistent trailing newline. Previously some facts ended with one newline and some with two. They now consistently end with a single trailing newline, so interpolating a fact into a larger message no longer injects an extra blank line.

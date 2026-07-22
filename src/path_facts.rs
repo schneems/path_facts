@@ -801,4 +801,43 @@ mod tests {
         "
         );
     }
+
+    #[test]
+    fn test_cannot_read_link_exists() {
+        // `CannotReadLink` is only reachable at runtime via a TOCTOU race, so we
+        // construct the error state directly to exercise the Display branch.
+        let tempdir = tempfile::tempdir().unwrap();
+        let file = tempdir.path().join("exists.txt");
+        std::fs::write(&file, "").unwrap();
+
+        let absolute = AbsPath::new(&file).unwrap();
+        let parent = DirOk::new(absolute.parent().unwrap()).unwrap();
+        let canonical = CanonicalPath::new(&absolute).unwrap();
+        let error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "simulated");
+
+        let facts = PathFacts {
+            path: file.clone(),
+            state: Err(Box::new(UnhappyPath::CannotReadLink {
+                absolute,
+                canonical,
+                parent,
+                error,
+            })),
+        };
+
+        insta::assert_snapshot!(
+            facts
+                .to_string()
+                .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑",
+            @r"
+        exists `/path/to/directory/exists.txt`
+         - Canonical: `/path/to/directory/exists.txt`
+         - Cannot readlink due to error `simulated`
+         - `/path/to/directory`
+             └── `exists.txt` (exists)
+        🛑
+        "
+        );
+    }
 }

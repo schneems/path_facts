@@ -769,6 +769,48 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
+    fn test_cannot_canonicalize_no_write_dir_with_file() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let no_write_dir = tempdir.path().join("no_write_dir");
+        std::fs::create_dir(&no_write_dir).unwrap();
+
+        let file = no_write_dir.join("file.txt");
+        std::fs::write(&file, "content").unwrap();
+
+        // read only: no write (fires warning), no execute (canonicalize fails)
+        let mut perms = std::fs::metadata(&no_write_dir).unwrap().permissions();
+        perms.set_mode(0o444);
+        std::fs::set_permissions(&no_write_dir, perms).unwrap();
+
+        let output = PathFacts::new(&file)
+            .to_string()
+            .replace(&tempdir.path().display().to_string(), "/path/to/directory")
+            .replace(
+                &std::fs::canonicalize(&file).unwrap_err().to_string(),
+                "{error}",
+            )
+            + "🛑";
+
+        // Restore permissions so the tempdir can be cleaned up.
+        let mut perms = std::fs::metadata(&no_write_dir).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&no_write_dir, perms).unwrap();
+
+        insta::assert_snapshot!(
+            output,
+            @r"
+        exists `/path/to/directory/no_write_dir/file.txt`
+         - Cannot canonicalize due to error `{error}`
+         - Parent directory is missing write permissions (cannot create, delete, or modify files)
+         - `/path/to/directory/no_write_dir` [✅ read, ❌ write, ❌ execute]
+             └── `file.txt` (exists)
+        🛑
+        "
+        );
+    }
+
+    #[test]
     fn test_cannot_metadata_exists() {
         // `CannotMetadata` is only reachable at runtime via a TOCTOU race, so we
         // construct the error state directly to exercise the Display branch.

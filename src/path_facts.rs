@@ -27,6 +27,20 @@ impl PathFacts {
 
 impl Display for PathFacts {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut buf = String::new();
+        self.write_facts(&mut buf)?;
+        writeln!(f, "{}", buf.trim_end_matches('\n'))
+    }
+}
+
+impl PathFacts {
+    fn write_facts(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        self.fmt_individual_facts(f)?;
+        self.fmt_parent_facts(f)?;
+        Ok(())
+    }
+
+    fn fmt_individual_facts(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
         match self.state.as_ref().map_err(|e| &**e) {
             Ok(happy) => {
                 writeln!(f, "exists `{}`", self.path.display())?;
@@ -50,107 +64,34 @@ impl Display for PathFacts {
                         style::bullet(format!("Symlink target: {}", target))
                     )?;
                 }
-                writeln!(
-                    f,
-                    "{}",
-                    style::bullet(style::fmt_dir(&happy.parent, |entry| {
-                        if entry == &happy.absolute {
-                            Some(format!(
-                                "{file_type} {permissions}",
-                                file_type = happy.resolved_type,
-                                permissions = permissions(happy.read, happy.write, happy.execute)
-                            ))
-                        } else {
-                            None
-                        }
-                    }))
-                )?;
             }
             Err(UnhappyPath::AbsPathError(AbsPathError::PathIsEmpty(path))) => {
                 writeln!(f, "path `{}` is empty", path.display())?;
             }
-            Err(UnhappyPath::AbsPathError(AbsPathError::CannotReadCWD(path, error))) => {
+            Err(UnhappyPath::AbsPathError(AbsPathError::CannotReadCWD(path, _))) => {
                 writeln!(f, "`{}`", path.display())?;
-                writeln!(
-                    f,
-                    "{}",
-                    style::bullet(format!("Cannot read current working directory: {}", error))
-                )?;
             }
             Err(UnhappyPath::IsRoot(absolute)) => {
                 writeln!(f, "is root {absolute}")?;
             }
             Err(UnhappyPath::ParentProblem {
                 absolute,
-                parent,
+                parent: _,
                 _error,
             }) => {
                 writeln!(f, "cannot access `{}`", self.path.display())?;
                 if self.path.is_relative() {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
                 }
-
-                let mut prior_dir = parent.clone();
-                let mut prior_state = state(parent.as_ref());
-                while let Err(UnhappyPath::ParentProblem {
-                    absolute: _,
-                    parent,
-                    _error,
-                }) = prior_state.as_ref().map_err(|e| &**e)
-                {
-                    prior_dir = parent.clone();
-                    prior_state = state(prior_dir.as_ref());
-                }
-                match &prior_state {
-                    Ok(HappyPath {
-                        resolved_type: ResolvedType::File,
-                        ..
-                    }) => {
-                        writeln!(f, "{}", style::bullet("Prior path is not a directory"))?;
-                        writeln!(
-                            f,
-                            "{}",
-                            style::bullet(format!(
-                                "Prior path {}",
-                                PathFacts::new(prior_dir.as_ref())
-                            ))
-                        )?
-                    }
-                    _ => {
-                        writeln!(
-                            f,
-                            "{}",
-                            style::bullet(format!(
-                                "Prior directory {}",
-                                PathFacts::new(prior_dir.as_ref())
-                            ))
-                        )?;
-                    }
-                }
             }
-            Err(UnhappyPath::DoesNotExist { absolute, parent }) => {
+            Err(UnhappyPath::DoesNotExist {
+                absolute,
+                parent: _,
+            }) => {
                 writeln!(f, "does not exist `{}`", self.path.display())?;
                 if self.path.is_relative() {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
                 }
-
-                if !parent.write {
-                    writeln!(
-                        f,
-                        "{}",
-                        style::bullet("Parent directory is missing write permissions (cannot create, delete, or modify files)")
-                    )?;
-                }
-
-                writeln!(
-                    f,
-                    "{}",
-                    style::bullet(format!(
-                        "Missing `{filename}` from parent directory:\n{dir}",
-                        filename = style::filename_or_path(&self.path),
-                        dir = style::fmt_dir(parent, |_| { None },)
-                    ))
-                )?;
             }
             Err(UnhappyPath::CannotCanonicalize {
                 absolute,
@@ -169,17 +110,6 @@ impl Display for PathFacts {
                     f,
                     "{}",
                     style::bullet(format!("Cannot canonicalize due to error `{error}`",))
-                )?;
-                writeln!(
-                    f,
-                    "{}",
-                    style::bullet(style::fmt_dir(parent, |entry| {
-                        if entry == absolute {
-                            Some("(exists)".to_string())
-                        } else {
-                            None
-                        }
-                    }))
                 )?;
             }
             Err(UnhappyPath::CannotMetadata {
@@ -202,17 +132,6 @@ impl Display for PathFacts {
                     "{}",
                     style::bullet(format!("Cannot read metadata due to error `{error}`",))
                 )?;
-                writeln!(
-                    f,
-                    "{}",
-                    style::bullet(style::fmt_dir(parent, |entry| {
-                        if entry == absolute {
-                            Some("(exists)".to_string())
-                        } else {
-                            None
-                        }
-                    }))
-                )?;
             }
             Err(UnhappyPath::CannotReadLink {
                 absolute,
@@ -234,17 +153,145 @@ impl Display for PathFacts {
                     "{}",
                     style::bullet(format!("Cannot readlink due to error `{error}`",))
                 )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn fmt_parent_facts(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        match self.state.as_ref().map_err(|e| &**e) {
+            Ok(happy) => {
                 writeln!(
                     f,
                     "{}",
-                    style::bullet(style::fmt_dir(parent, |entry| {
-                        if entry == absolute {
-                            Some("(exists)".to_string())
+                    style::bullet(style::fmt_dir(&happy.parent, |entry| {
+                        if entry == &happy.absolute {
+                            Some(format!(
+                                "{file_type} {permissions}",
+                                file_type = happy.resolved_type,
+                                permissions = permissions(happy.read, happy.write, happy.execute)
+                            ))
                         } else {
                             None
                         }
                     }))
                 )?;
+            }
+            Err(UnhappyPath::AbsPathError(AbsPathError::PathIsEmpty(_))) => {}
+            Err(UnhappyPath::AbsPathError(AbsPathError::CannotReadCWD(_, error))) => {
+                writeln!(
+                    f,
+                    "{}",
+                    style::bullet(format!("Cannot read current working directory: {}", error))
+                )?;
+            }
+            Err(UnhappyPath::IsRoot(_)) => {}
+            Err(UnhappyPath::ParentProblem {
+                absolute: _,
+                parent,
+                _error,
+            }) => {
+                let mut prior_dir = parent.clone();
+                let mut prior_state = state(parent.as_ref());
+                while let Err(UnhappyPath::ParentProblem {
+                    absolute: _,
+                    parent,
+                    _error,
+                }) = prior_state.as_ref().map_err(|e| &**e)
+                {
+                    prior_dir = parent.clone();
+                    prior_state = state(prior_dir.as_ref());
+                }
+                match &prior_state {
+                    Ok(HappyPath {
+                        resolved_type: ResolvedType::File,
+                        ..
+                    }) => {
+                        writeln!(
+                            f,
+                            "{}",
+                            style::bullet(format!("Prior path is not a directory {prior_dir}"))
+                        )?;
+
+                        // We've already stated the prior path (and that it's a file) above, so
+                        // emit only its parent directory listing here. Using `write_facts` would
+                        // repeat the redundant `exists ...` individual-fact line.
+                        let mut parent_facts = String::new();
+                        PathFacts {
+                            path: prior_dir.as_ref().to_owned(),
+                            state: prior_state,
+                        }
+                        .fmt_parent_facts(&mut parent_facts)?;
+                        // Use `write!` because `parent_facts` already has a newline at the end.
+                        write!(
+                            f,
+                            "{}",
+                            style::prefix_first_rest_lines("   ", "   ", &parent_facts)
+                        )?
+                    }
+                    _ => {
+                        // The prior path hasn't been described yet, so emit its full facts
+                        // (individual + parent), e.g. `does not exist ...` plus the dir listing.
+                        let mut prior = String::new();
+                        PathFacts {
+                            path: prior_dir.as_ref().to_owned(),
+                            state: prior_state,
+                        }
+                        .write_facts(&mut prior)?;
+                        writeln!(f, "{}", style::bullet(format!("Prior directory {prior}")))?;
+                    }
+                }
+            }
+            Err(UnhappyPath::DoesNotExist { absolute, parent })
+            | Err(UnhappyPath::CannotCanonicalize {
+                absolute,
+                parent,
+                error: _,
+            })
+            | Err(UnhappyPath::CannotMetadata {
+                absolute,
+                canonical: _,
+                parent,
+                error: _,
+            })
+            | Err(UnhappyPath::CannotReadLink {
+                absolute,
+                canonical: _,
+                parent,
+                error: _,
+            }) => {
+                if !parent.write {
+                    writeln!(
+                        f,
+                        "{}",
+                        style::bullet("Parent directory is missing write permissions (cannot create, delete, or modify files)")
+                    )?;
+                }
+
+                if parent.has_entry(absolute) {
+                    writeln!(
+                        f,
+                        "{}",
+                        style::bullet(style::fmt_dir(parent, |entry| {
+                            if entry == absolute {
+                                Some("(exists)".to_string())
+                            } else {
+                                None
+                            }
+                        }))
+                    )?;
+                } else {
+                    writeln!(
+                        f,
+                        "{}",
+                        style::bullet(format!(
+                            "Missing `{filename}` from parent directory:\n{dir}",
+                            filename = style::filename_or_path(&self.path),
+                            dir = style::fmt_dir(parent, |_| { None },)
+                        ))
+                    )?;
+                }
             }
         }
 
@@ -255,6 +302,9 @@ impl Display for PathFacts {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::abs_path::AbsPath;
+    use crate::canonical_path::CanonicalPath;
+    use crate::happy_path::DirOk;
 
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
@@ -276,7 +326,7 @@ mod tests {
                 "prior_dir_problem_is_file",
                 PathFacts::new(path)
                 .to_string()
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory")
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑"
             );
         });
     }
@@ -289,6 +339,7 @@ mod tests {
                     .split("---")
                     .nth(2)
                     .expect("Snapshot should have YAML frontmatter")
+                    .replace("🛑", "")
                     .trim()
             ),
             "README missing correct example output. Update the module docs and re-run `cargo rdme`"
@@ -308,21 +359,25 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(path)
                 .to_string()
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory"),
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑",
             @r"
-            cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
-             - Prior directory does not exist `/path/to/directory/a`
-                - Missing `a` from parent directory:
-                  `/path/to/directory`
-                     └── (empty)
-            ")
+        cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
+         - Prior directory does not exist `/path/to/directory/a`
+            - Missing `a` from parent directory:
+              `/path/to/directory`
+                 └── (empty)
+        🛑
+        ")
     }
 
     #[test]
     fn test_empty_path() {
         insta::assert_snapshot!(
-            PathFacts::new(Path::new("")),
-            @"path `` is empty"
+            PathFacts::new(Path::new("")).to_string() + "🛑",
+            @r"
+        path `` is empty
+        🛑
+        "
         )
     }
 
@@ -335,12 +390,13 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(path)
                 .to_string()
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory"),
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑",
             @r"
-            exists `/path/to/directory/exists.txt`
-             - `/path/to/directory`
-                 └── `exists.txt` file [✅ read, ✅ write, ❌ execute]
-            ")
+        exists `/path/to/directory/exists.txt`
+         - `/path/to/directory`
+             └── `exists.txt` file [✅ read, ✅ write, ❌ execute]
+        🛑
+        ")
     }
 
     #[test]
@@ -349,13 +405,14 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(tempdir.path().join("does_not_exist.txt"))
                 .to_string()
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory"),
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑",
             @r"
-            does not exist `/path/to/directory/does_not_exist.txt`
-             - Missing `does_not_exist.txt` from parent directory:
-               `/path/to/directory`
-                  └── (empty)
-            ")
+        does not exist `/path/to/directory/does_not_exist.txt`
+         - Missing `does_not_exist.txt` from parent directory:
+           `/path/to/directory`
+              └── (empty)
+        🛑
+        ")
     }
 
     #[test]
@@ -387,7 +444,7 @@ mod tests {
                 "rename_two_missing_paths",
                 result.unwrap_err()
                     .to_string()
-                    .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
+                    .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory") + "🛑"
             );
         });
     }
@@ -403,13 +460,14 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(path)
                 .to_string()
-                .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory"),
+                .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory") + "🛑",
             @r"
-            exists `exists.txt`
-             - Absolute: `/path/to/directory/exists.txt`
-             - `/path/to/directory`
-                 └── `exists.txt` file [✅ read, ✅ write, ❌ execute]
-            ")
+        exists `exists.txt`
+         - Absolute: `/path/to/directory/exists.txt`
+         - `/path/to/directory`
+             └── `exists.txt` file [✅ read, ✅ write, ❌ execute]
+        🛑
+        ")
     }
 
     #[test]
@@ -437,16 +495,18 @@ mod tests {
                 "/path/to/target",
             )
             .replace(&link_canonical.display().to_string(), "/path/to/link")
-            .replace(&link_tempdir.path().display().to_string(), "/path/to/link");
+            .replace(&link_tempdir.path().display().to_string(), "/path/to/link")
+            + "🛑";
 
         insta::assert_snapshot!(
             output,
             @r"
-             exists `/path/to/link/link_to_target.txt`
-              - Canonical: `/path/to/target/target.txt`
-              - Symlink target: `/path/to/target/target.txt`
-              - `/path/to/link`
-                  └── `link_to_target.txt` file [✅ read, ✅ write, ❌ execute]
+        exists `/path/to/link/link_to_target.txt`
+         - Canonical: `/path/to/target/target.txt`
+         - Symlink target: `/path/to/target/target.txt`
+         - `/path/to/link`
+             └── `link_to_target.txt` file [✅ read, ✅ write, ❌ execute]
+        🛑
         ");
     }
 
@@ -475,16 +535,18 @@ mod tests {
                 "/path/to/target",
             )
             .replace(&link_canonical.display().to_string(), "/path/to/link")
-            .replace(&link_tempdir.path().display().to_string(), "/path/to/link");
+            .replace(&link_tempdir.path().display().to_string(), "/path/to/link")
+            + "🛑";
 
         insta::assert_snapshot!(
             output,
             @r"
-             exists `/path/to/link/link_to_dir`
-              - Canonical: `/path/to/target/target_dir`
-              - Symlink target: `/path/to/target/target_dir`
-              - `/path/to/link`
-                  └── `link_to_dir` directory [✅ read, ✅ write, ✅ execute]
+        exists `/path/to/link/link_to_dir`
+         - Canonical: `/path/to/target/target_dir`
+         - Symlink target: `/path/to/target/target_dir`
+         - `/path/to/link`
+             └── `link_to_dir` directory [✅ read, ✅ write, ✅ execute]
+        🛑
         ");
     }
 
@@ -502,18 +564,22 @@ mod tests {
                 .replace(
                     &std::fs::read_to_string(tempdir.path()).unwrap_err().to_string(),
                     "{error}"
-                ),
+                ) + "🛑",
             @r"
-            `relative_path.txt`
-             - Cannot read current working directory: {error}
-            ");
+        `relative_path.txt`
+         - Cannot read current working directory: {error}
+        🛑
+        ");
     }
 
     #[test]
     fn test_is_root() {
         insta::assert_snapshot!(
-            PathFacts::new("/"),
-            @"is root `/`"
+            PathFacts::new("/").to_string() + "🛑",
+            @r"
+        is root `/`
+        🛑
+        "
         );
     }
 
@@ -526,15 +592,16 @@ mod tests {
             // Create a relative path where the parent directories don't exist
             PathFacts::new(Path::new("a/b/c/does_not_exist.txt"))
                 .to_string()
-                .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory"),
+                .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory") + "🛑",
             @r"
-            cannot access `a/b/c/does_not_exist.txt`
-             - Absolute: `/path/to/directory/a/b/c/does_not_exist.txt`
-             - Prior directory does not exist `/path/to/directory/a`
-                - Missing `a` from parent directory:
-                  `/path/to/directory`
-                     └── (empty)
-            ");
+        cannot access `a/b/c/does_not_exist.txt`
+         - Absolute: `/path/to/directory/a/b/c/does_not_exist.txt`
+         - Prior directory does not exist `/path/to/directory/a`
+            - Missing `a` from parent directory:
+              `/path/to/directory`
+                 └── (empty)
+        🛑
+        ");
     }
 
     #[test]
@@ -552,14 +619,15 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(readonly_dir.join("does_not_exist.txt"))
                 .to_string()
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory"),
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑",
             @r"
-            does not exist `/path/to/directory/readonly_dir/does_not_exist.txt`
-             - Parent directory is missing write permissions (cannot create, delete, or modify files)
-             - Missing `does_not_exist.txt` from parent directory:
-               `/path/to/directory/readonly_dir` [✅ read, ❌ write, ✅ execute]
-                  └── (empty)
-            "
+        does not exist `/path/to/directory/readonly_dir/does_not_exist.txt`
+         - Parent directory is missing write permissions (cannot create, delete, or modify files)
+         - Missing `does_not_exist.txt` from parent directory:
+           `/path/to/directory/readonly_dir` [✅ read, ❌ write, ✅ execute]
+              └── (empty)
+        🛑
+        "
         );
     }
 
@@ -578,14 +646,15 @@ mod tests {
             PathFacts::new(&link1)
                 .to_string()
                 .replace(&tempdir.path().display().to_string(), "/path/to/directory")
-                .replace(&std::fs::canonicalize(&link1).unwrap_err().to_string(), "{error}"),
+                .replace(&std::fs::canonicalize(&link1).unwrap_err().to_string(), "{error}") + "🛑",
             @r"
-            exists `/path/to/directory/link1`
-             - Cannot canonicalize due to error `{error}`
-             - `/path/to/directory`
-                 ├── `link1` (exists)
-                 └── `link2`
-            "
+        exists `/path/to/directory/link1`
+         - Cannot canonicalize due to error `{error}`
+         - `/path/to/directory`
+             ├── `link1` (exists)
+             └── `link2`
+        🛑
+        "
         );
     }
 
@@ -603,15 +672,16 @@ mod tests {
             PathFacts::new(Path::new("link1"))
                 .to_string()
                 .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
-                .replace(&std::fs::canonicalize("link1").unwrap_err().to_string(), "{error}"),
+                .replace(&std::fs::canonicalize("link1").unwrap_err().to_string(), "{error}") + "🛑",
             @r"
-            exists `link1`
-             - Absolute: `/path/to/directory/link1`
-             - Cannot canonicalize due to error `{error}`
-             - `/path/to/directory`
-                 ├── `link1` (exists)
-                 └── `link2`
-            "
+        exists `link1`
+         - Absolute: `/path/to/directory/link1`
+         - Cannot canonicalize due to error `{error}`
+         - `/path/to/directory`
+             ├── `link1` (exists)
+             └── `link2`
+        🛑
+        "
         );
     }
 
@@ -629,13 +699,14 @@ mod tests {
             PathFacts::new(&broken_link)
                 .to_string()
                 .replace(&tempdir.path().display().to_string(), "/path/to/directory")
-                .replace(&std::fs::canonicalize(&broken_link).unwrap_err().to_string(), "{error}"),
+                .replace(&std::fs::canonicalize(&broken_link).unwrap_err().to_string(), "{error}") + "🛑",
             @r"
-            exists `/path/to/directory/broken_link`
-             - Cannot canonicalize due to error `{error}`
-             - `/path/to/directory`
-                 └── `broken_link` (exists)
-            "
+        exists `/path/to/directory/broken_link`
+         - Cannot canonicalize due to error `{error}`
+         - `/path/to/directory`
+             └── `broken_link` (exists)
+        🛑
+        "
         );
     }
 
@@ -652,14 +723,15 @@ mod tests {
             PathFacts::new(Path::new("broken_link"))
                 .to_string()
                 .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
-                .replace(&std::fs::canonicalize("broken_link").unwrap_err().to_string(), "{error}"),
+                .replace(&std::fs::canonicalize("broken_link").unwrap_err().to_string(), "{error}") + "🛑",
             @r"
-            exists `broken_link`
-             - Absolute: `/path/to/directory/broken_link`
-             - Cannot canonicalize due to error `{error}`
-             - `/path/to/directory`
-                 └── `broken_link` (exists)
-            "
+        exists `broken_link`
+         - Absolute: `/path/to/directory/broken_link`
+         - Cannot canonicalize due to error `{error}`
+         - `/path/to/directory`
+             └── `broken_link` (exists)
+        🛑
+        "
         );
     }
 
@@ -682,13 +754,134 @@ mod tests {
             PathFacts::new(&file)
                 .to_string()
                 .replace(&tempdir.path().display().to_string(), "/path/to/directory")
-                .replace(&std::fs::canonicalize(&file).unwrap_err().to_string(), "{error}"),
+                .replace(&std::fs::canonicalize(&file).unwrap_err().to_string(), "{error}") + "🛑",
             @r"
-            exists `/path/to/directory/no_exec_dir/file.txt`
-             - Cannot canonicalize due to error `{error}`
-             - `/path/to/directory/no_exec_dir` [✅ read, ✅ write, ❌ execute]
-                 └── `file.txt` (exists)
-            "
+        exists `/path/to/directory/no_exec_dir/file.txt`
+         - Cannot canonicalize due to error `{error}`
+         - `/path/to/directory/no_exec_dir` [✅ read, ✅ write, ❌ execute]
+             └── `file.txt` (exists)
+        🛑
+        "
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_cannot_canonicalize_no_write_dir_with_file() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let no_write_dir = tempdir.path().join("no_write_dir");
+        std::fs::create_dir(&no_write_dir).unwrap();
+
+        let file = no_write_dir.join("file.txt");
+        std::fs::write(&file, "content").unwrap();
+
+        // read only: no write (fires warning), no execute (canonicalize fails)
+        let mut perms = std::fs::metadata(&no_write_dir).unwrap().permissions();
+        perms.set_mode(0o444);
+        std::fs::set_permissions(&no_write_dir, perms).unwrap();
+
+        let output = PathFacts::new(&file)
+            .to_string()
+            .replace(&tempdir.path().display().to_string(), "/path/to/directory")
+            .replace(
+                &std::fs::canonicalize(&file).unwrap_err().to_string(),
+                "{error}",
+            )
+            + "🛑";
+
+        // Restore permissions so the tempdir can be cleaned up.
+        let mut perms = std::fs::metadata(&no_write_dir).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&no_write_dir, perms).unwrap();
+
+        insta::assert_snapshot!(
+            output,
+            @r"
+        exists `/path/to/directory/no_write_dir/file.txt`
+         - Cannot canonicalize due to error `{error}`
+         - Parent directory is missing write permissions (cannot create, delete, or modify files)
+         - `/path/to/directory/no_write_dir` [✅ read, ❌ write, ❌ execute]
+             └── `file.txt` (exists)
+        🛑
+        "
+        );
+    }
+
+    #[test]
+    fn test_cannot_metadata_exists() {
+        // `CannotMetadata` is only reachable at runtime via a TOCTOU race, so we
+        // construct the error state directly to exercise the Display branch.
+        let tempdir = tempfile::tempdir().unwrap();
+        let file = tempdir.path().join("exists.txt");
+        std::fs::write(&file, "").unwrap();
+
+        let absolute = AbsPath::new(&file).unwrap();
+        let parent = DirOk::new(absolute.parent().unwrap()).unwrap();
+        let canonical = CanonicalPath::new(&absolute).unwrap();
+        let error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "simulated");
+
+        let facts = PathFacts {
+            path: file.clone(),
+            state: Err(Box::new(UnhappyPath::CannotMetadata {
+                absolute,
+                canonical,
+                parent,
+                error,
+            })),
+        };
+
+        insta::assert_snapshot!(
+            facts
+                .to_string()
+                .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑",
+            @r"
+        exists `/path/to/directory/exists.txt`
+         - Canonical: `/path/to/directory/exists.txt`
+         - Cannot read metadata due to error `simulated`
+         - `/path/to/directory`
+             └── `exists.txt` (exists)
+        🛑
+        "
+        );
+    }
+
+    #[test]
+    fn test_cannot_read_link_exists() {
+        // `CannotReadLink` is only reachable at runtime via a TOCTOU race, so we
+        // construct the error state directly to exercise the Display branch.
+        let tempdir = tempfile::tempdir().unwrap();
+        let file = tempdir.path().join("exists.txt");
+        std::fs::write(&file, "").unwrap();
+
+        let absolute = AbsPath::new(&file).unwrap();
+        let parent = DirOk::new(absolute.parent().unwrap()).unwrap();
+        let canonical = CanonicalPath::new(&absolute).unwrap();
+        let error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "simulated");
+
+        let facts = PathFacts {
+            path: file.clone(),
+            state: Err(Box::new(UnhappyPath::CannotReadLink {
+                absolute,
+                canonical,
+                parent,
+                error,
+            })),
+        };
+
+        insta::assert_snapshot!(
+            facts
+                .to_string()
+                .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
+                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑",
+            @r"
+        exists `/path/to/directory/exists.txt`
+         - Canonical: `/path/to/directory/exists.txt`
+         - Cannot readlink due to error `simulated`
+         - `/path/to/directory`
+             └── `exists.txt` (exists)
+        🛑
+        "
         );
     }
 }

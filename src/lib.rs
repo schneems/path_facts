@@ -21,8 +21,7 @@
 //!
 //! ```text
 //! cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
-//!  - Prior path is not a directory
-//!  - Prior path exists `/path/to/directory/a`
+//!  - Prior path is not a directory `/path/to/directory/a`
 //!     - `/path/to/directory`
 //!         └── `a` file [✅ read, ✅ write, ❌ execute]
 //! ```

@@ -29,4 +29,6 @@ similar.opt-level = 3
 # cargo-llvm-cov enables that config when instrumenting our code, so we can enable
 # the experimental coverage_attribute feature. To run use `cargo +nightly llvm-cov nextest --locked --html && open target/llvm-cov/html/index.html`
 # (use `llvm-cov nextest` so tests get nextest's process-per-test isolation)
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }
+lints.rust.unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(coverage_nightly)',
+] }

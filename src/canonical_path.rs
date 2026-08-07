@@ -85,6 +85,17 @@ impl CanonicalPath {
         let canonical = abs_path.as_ref().canonicalize()?;
         Ok(CanonicalPath(canonical))
     }
+
+    /// Similar semantics to [`AbsPath::parent`], but we guarantee return value
+    /// exists and is normalized i.e. any CanonicalPath that is lexically equal is guaranteed
+    /// to represent the same path on disk (TOCTOU caveat).
+    ///
+    /// A None here would guarantee self is the root path
+    pub(crate) fn parent(&self) -> Option<Self> {
+        let parent = self.0.parent()?;
+
+        Some(CanonicalPath(parent.to_path_buf()))
+    }
 }
 
 impl AsRef<Path> for CanonicalPath {

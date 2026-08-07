@@ -13,7 +13,7 @@ use std::path::Path;
 ///
 /// For a path to be happy, it's parent (directory) must be good too, represented by a [`DirOk`]
 #[derive(Debug)]
-pub(crate) struct HappyPath {
+pub(crate) struct KnownPath {
     pub(crate) absolute: AbsPath,
     pub(crate) canonical: CanonicalPath,
     pub(crate) symlink_target: Option<AbsPath>,
@@ -61,7 +61,7 @@ impl DirOk {
 }
 
 #[derive(Debug)]
-pub(crate) enum UnhappyPath {
+pub(crate) enum UnknownPath {
     AbsPathError(abs_path::AbsPathError),
     IsRoot(AbsPath),
     ParentProblem {
@@ -103,12 +103,12 @@ pub(crate) enum UnhappyPath {
     },
 }
 
-pub(crate) fn state(path: &Path) -> Result<HappyPath, Box<UnhappyPath>> {
-    let absolute = AbsPath::new(path).map_err(UnhappyPath::AbsPathError)?;
+pub(crate) fn state(path: &Path) -> Result<KnownPath, Box<UnknownPath>> {
+    let absolute = AbsPath::new(path).map_err(UnknownPath::AbsPathError)?;
     let abs_parent = absolute
         .parent()
-        .ok_or_else(|| UnhappyPath::IsRoot(absolute.clone()))?;
-    let parent = DirOk::new(abs_parent.clone()).map_err(|error| UnhappyPath::ParentProblem {
+        .ok_or_else(|| UnknownPath::IsRoot(absolute.clone()))?;
+    let parent = DirOk::new(abs_parent.clone()).map_err(|error| UnknownPath::ParentProblem {
         absolute: absolute.clone(),
         parent: abs_parent.clone(),
         _error: error,
@@ -116,12 +116,12 @@ pub(crate) fn state(path: &Path) -> Result<HappyPath, Box<UnhappyPath>> {
     let path_does_not_exist = !parent.has_entry(&absolute);
     let canonical = CanonicalPath::new(&absolute).map_err(|error| {
         if path_does_not_exist {
-            UnhappyPath::DoesNotExist {
+            UnknownPath::DoesNotExist {
                 absolute: absolute.clone(),
                 parent: parent.clone(),
             }
         } else {
-            UnhappyPath::CannotCanonicalize {
+            UnknownPath::CannotCanonicalize {
                 absolute: absolute.clone(),
                 parent: parent.clone(),
                 error,
@@ -130,7 +130,7 @@ pub(crate) fn state(path: &Path) -> Result<HappyPath, Box<UnhappyPath>> {
     })?;
 
     let resolved_type = ResolvedMetadata::new(&absolute)
-        .map_err(|error| UnhappyPath::CannotMetadata {
+        .map_err(|error| UnknownPath::CannotMetadata {
             absolute: absolute.clone(),
             canonical: canonical.clone(),
             parent: parent.clone(),
@@ -138,7 +138,7 @@ pub(crate) fn state(path: &Path) -> Result<HappyPath, Box<UnhappyPath>> {
         })?
         .resolved_type();
     let symlink_target =
-        abs_path::try_readlink(&absolute).map_err(|error| UnhappyPath::CannotReadLink {
+        abs_path::try_readlink(&absolute).map_err(|error| UnknownPath::CannotReadLink {
             absolute: absolute.clone(),
             canonical: canonical.clone(),
             parent: parent.clone(),
@@ -149,7 +149,7 @@ pub(crate) fn state(path: &Path) -> Result<HappyPath, Box<UnhappyPath>> {
     let write = canonical.as_ref().access(AccessMode::WRITE).is_ok();
     let execute = canonical.as_ref().access(AccessMode::EXECUTE).is_ok();
 
-    Ok(HappyPath {
+    Ok(KnownPath {
         absolute,
         canonical,
         symlink_target,

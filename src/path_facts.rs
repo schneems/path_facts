@@ -1,6 +1,6 @@
 //! Facts about paths
 use crate::abs_path::AbsPathError;
-use crate::happy_path::{state, HappyPath, UnhappyPath};
+use crate::happy_path::{state, KnownPath, UnknownPath};
 use crate::resolved_metadata::ResolvedType;
 use crate::style::{self, permissions};
 use std::{
@@ -13,7 +13,7 @@ pub struct PathFacts {
     /// Original input path
     path: PathBuf,
     /// Detected state of the path
-    state: Result<HappyPath, Box<UnhappyPath>>,
+    state: Result<KnownPath, Box<UnknownPath>>,
 }
 
 impl PathFacts {
@@ -65,16 +65,16 @@ impl PathFacts {
                     )?;
                 }
             }
-            Err(UnhappyPath::AbsPathError(AbsPathError::PathIsEmpty(path))) => {
+            Err(UnknownPath::AbsPathError(AbsPathError::PathIsEmpty(path))) => {
                 writeln!(f, "path `{}` is empty", path.display())?;
             }
-            Err(UnhappyPath::AbsPathError(AbsPathError::CannotReadCWD(path, _))) => {
+            Err(UnknownPath::AbsPathError(AbsPathError::CannotReadCWD(path, _))) => {
                 writeln!(f, "`{}`", path.display())?;
             }
-            Err(UnhappyPath::IsRoot(absolute)) => {
+            Err(UnknownPath::IsRoot(absolute)) => {
                 writeln!(f, "is root {absolute}")?;
             }
-            Err(UnhappyPath::ParentProblem {
+            Err(UnknownPath::ParentProblem {
                 absolute,
                 parent: _,
                 _error,
@@ -84,7 +84,7 @@ impl PathFacts {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
                 }
             }
-            Err(UnhappyPath::DoesNotExist {
+            Err(UnknownPath::DoesNotExist {
                 absolute,
                 parent: _,
             }) => {
@@ -93,7 +93,7 @@ impl PathFacts {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
                 }
             }
-            Err(UnhappyPath::CannotCanonicalize {
+            Err(UnknownPath::CannotCanonicalize {
                 absolute,
                 parent,
                 error,
@@ -112,7 +112,7 @@ impl PathFacts {
                     style::bullet(format!("Cannot canonicalize due to error `{error}`",))
                 )?;
             }
-            Err(UnhappyPath::CannotMetadata {
+            Err(UnknownPath::CannotMetadata {
                 absolute,
                 canonical,
                 parent,
@@ -133,7 +133,7 @@ impl PathFacts {
                     style::bullet(format!("Cannot read metadata due to error `{error}`",))
                 )?;
             }
-            Err(UnhappyPath::CannotReadLink {
+            Err(UnknownPath::CannotReadLink {
                 absolute,
                 canonical,
                 parent,
@@ -178,23 +178,23 @@ impl PathFacts {
                     }))
                 )?;
             }
-            Err(UnhappyPath::AbsPathError(AbsPathError::PathIsEmpty(_))) => {}
-            Err(UnhappyPath::AbsPathError(AbsPathError::CannotReadCWD(_, error))) => {
+            Err(UnknownPath::AbsPathError(AbsPathError::PathIsEmpty(_))) => {}
+            Err(UnknownPath::AbsPathError(AbsPathError::CannotReadCWD(_, error))) => {
                 writeln!(
                     f,
                     "{}",
                     style::bullet(format!("Cannot read current working directory: {}", error))
                 )?;
             }
-            Err(UnhappyPath::IsRoot(_)) => {}
-            Err(UnhappyPath::ParentProblem {
+            Err(UnknownPath::IsRoot(_)) => {}
+            Err(UnknownPath::ParentProblem {
                 absolute: _,
                 parent,
                 _error,
             }) => {
                 let mut prior_dir = parent.clone();
                 let mut prior_state = state(parent.as_ref());
-                while let Err(UnhappyPath::ParentProblem {
+                while let Err(UnknownPath::ParentProblem {
                     absolute: _,
                     parent,
                     _error,
@@ -204,7 +204,7 @@ impl PathFacts {
                     prior_state = state(prior_dir.as_ref());
                 }
                 match &prior_state {
-                    Ok(HappyPath {
+                    Ok(KnownPath {
                         resolved_type: ResolvedType::File,
                         ..
                     }) => {
@@ -243,19 +243,19 @@ impl PathFacts {
                     }
                 }
             }
-            Err(UnhappyPath::DoesNotExist { absolute, parent })
-            | Err(UnhappyPath::CannotCanonicalize {
+            Err(UnknownPath::DoesNotExist { absolute, parent })
+            | Err(UnknownPath::CannotCanonicalize {
                 absolute,
                 parent,
                 error: _,
             })
-            | Err(UnhappyPath::CannotMetadata {
+            | Err(UnknownPath::CannotMetadata {
                 absolute,
                 canonical: _,
                 parent,
                 error: _,
             })
-            | Err(UnhappyPath::CannotReadLink {
+            | Err(UnknownPath::CannotReadLink {
                 absolute,
                 canonical: _,
                 parent,
@@ -822,7 +822,7 @@ mod tests {
 
         let facts = PathFacts {
             path: file.clone(),
-            state: Err(Box::new(UnhappyPath::CannotMetadata {
+            state: Err(Box::new(UnknownPath::CannotMetadata {
                 absolute,
                 canonical,
                 parent,
@@ -861,7 +861,7 @@ mod tests {
 
         let facts = PathFacts {
             path: file.clone(),
-            state: Err(Box::new(UnhappyPath::CannotReadLink {
+            state: Err(Box::new(UnknownPath::CannotReadLink {
                 absolute,
                 canonical,
                 parent,

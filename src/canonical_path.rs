@@ -11,7 +11,70 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::abs_path::AbsPath;
+use crate::abs_path::{AbsPath, RelativePath};
+
+/// Represents a partially cannonicalized path
+pub(crate) struct PriorCanonicalPath {
+    /// Parent or prior directory that can be canonicalized
+    pub(crate) prior: CanonicalPath,
+    /// Rest of the path that could not be canonicalized, may have un-normalized parts i.e. `..`
+    pub(crate) rest: RelativePath,
+}
+
+/// Always contains a full or partial [`CanonicalPath`]
+///
+/// Any [`CanonicalPath`] exists, but we don't know other things about it without querying the
+/// filesystem.
+pub(crate) enum ExpandPath {
+    /// Path exists, fully expanded
+    Canonical(CanonicalPath),
+    /// Part of a path exists, the full path either doesn't exist or we don't have permission or broken symlink somewhere
+    Prior(PriorCanonicalPath),
+}
+
+#[derive(Debug)]
+pub(crate) struct CannotCanonicalizeAnything {
+    pub(crate) original: AbsPath,
+    pub(crate) root: AbsPath,
+    pub(crate) root_error: std::io::Error,
+}
+
+impl ExpandPath {
+    pub(crate) fn new(abs_path: &AbsPath) -> Result<Self, CannotCanonicalizeAnything> {
+        // Walk the original path, then each lexical ancestor up to root.
+        let ancestors = std::iter::successors(Some(abs_path.clone()), AbsPath::parent);
+
+        let mut last_failure = None;
+        for path in ancestors.peekable() {
+            match CanonicalPath::new(&path) {
+                Ok(can_path) => {
+                    let relative = abs_path
+                        .strip_prefix(&path)
+                        .expect("ancestor is a lexical prefix of the original path");
+
+                    // Empty path when the two paths are the same
+                    if relative.as_ref().as_os_str().is_empty() {
+                        return Ok(ExpandPath::Canonical(can_path));
+                    } else {
+                        return Ok(ExpandPath::Prior(PriorCanonicalPath {
+                            prior: can_path,
+                            rest: relative,
+                        }));
+                    };
+                }
+                Err(io_error) => last_failure = Some((path, io_error)),
+            }
+        }
+
+        let (root, root_error) =
+            last_failure.expect("loop either returns or populates this value, loop guaranteed to have at least one value");
+        Err(CannotCanonicalizeAnything {
+            original: abs_path.clone(),
+            root,
+            root_error,
+        })
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct CanonicalPath(PathBuf);

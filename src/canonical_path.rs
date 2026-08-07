@@ -14,7 +14,7 @@ use std::{
 use crate::abs_path::{AbsPath, RelativePath};
 
 /// Represents a partially cannonicalized path
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct PriorCanonicalPath {
     /// Parent or prior directory that can be canonicalized
     pub(crate) prior: CanonicalPath,
@@ -26,6 +26,7 @@ pub(crate) struct PriorCanonicalPath {
 ///
 /// Any [`CanonicalPath`] exists, but we don't know other things about it without querying the
 /// filesystem.
+#[derive(Debug, Clone)]
 pub(crate) enum ExpandPath {
     /// Path exists, fully expanded
     Canonical(CanonicalPath),

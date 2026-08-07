@@ -67,6 +67,7 @@ pub(crate) enum UnknownPath {
     CannotCanonicalizeAnything(CannotCanonicalizeAnything),
     ParentProblem {
         absolute: AbsPath,
+        expand: ExpandPath,
         parent: AbsPath,
         /// Original error preventing us from creating a `DirOk` for the parent directory.
         /// Not printed, we traverse prior directories to find the root cause
@@ -74,11 +75,13 @@ pub(crate) enum UnknownPath {
     },
     DoesNotExist {
         absolute: AbsPath,
+        expand: ExpandPath,
         parent: DirOk,
     },
     // Path exists, but we cannot canonicalize it
     CannotCanonicalize {
         absolute: AbsPath,
+        expand: ExpandPath,
         parent: DirOk,
         error: std::io::Error,
     },
@@ -109,9 +112,10 @@ pub(crate) fn state(path: &Path) -> Result<KnownPath, Box<UnknownPath>> {
     let abs_parent = absolute
         .parent()
         .ok_or_else(|| UnknownPath::IsRoot(absolute.clone()))?;
-    let _ = ExpandPath::new(&absolute).map_err(UnknownPath::CannotCanonicalizeAnything)?;
+    let expand = ExpandPath::new(&absolute).map_err(UnknownPath::CannotCanonicalizeAnything)?;
     let parent = DirOk::new(abs_parent.clone()).map_err(|error| UnknownPath::ParentProblem {
         absolute: absolute.clone(),
+        expand: expand.clone(),
         parent: abs_parent.clone(),
         _error: error,
     })?;
@@ -120,11 +124,13 @@ pub(crate) fn state(path: &Path) -> Result<KnownPath, Box<UnknownPath>> {
         if path_does_not_exist {
             UnknownPath::DoesNotExist {
                 absolute: absolute.clone(),
+                expand: expand.clone(),
                 parent: parent.clone(),
             }
         } else {
             UnknownPath::CannotCanonicalize {
                 absolute: absolute.clone(),
+                expand: expand.clone(),
                 parent: parent.clone(),
                 error,
             }

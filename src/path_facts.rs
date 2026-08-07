@@ -1,5 +1,6 @@
 //! Facts about paths
 use crate::abs_path::AbsPathError;
+use crate::canonical_path::CannotCanonicalizeAnything;
 use crate::happy_path::{state, KnownPath, UnknownPath};
 use crate::resolved_metadata::ResolvedType;
 use crate::style::{self, permissions};
@@ -85,6 +86,7 @@ impl PathFacts {
             }
             Err(UnknownPath::ParentProblem {
                 absolute,
+                expand: _,
                 parent: _,
                 _error,
             }) => {
@@ -95,6 +97,7 @@ impl PathFacts {
             }
             Err(UnknownPath::DoesNotExist {
                 absolute,
+                expand: _,
                 parent: _,
             }) => {
                 writeln!(f, "does not exist `{}`", self.path.display())?;
@@ -104,6 +107,7 @@ impl PathFacts {
             }
             Err(UnknownPath::CannotCanonicalize {
                 absolute,
+                expand: _,
                 parent,
                 error,
             }) => {
@@ -211,6 +215,7 @@ impl PathFacts {
             }
             Err(UnknownPath::ParentProblem {
                 absolute: _,
+                expand: _,
                 parent,
                 _error,
             }) => {
@@ -218,6 +223,7 @@ impl PathFacts {
                 let mut prior_state = state(parent.as_ref());
                 while let Err(UnknownPath::ParentProblem {
                     absolute: _,
+                    expand: _,
                     parent,
                     _error,
                 }) = prior_state.as_ref().map_err(|e| &**e)
@@ -265,9 +271,14 @@ impl PathFacts {
                     }
                 }
             }
-            Err(UnknownPath::DoesNotExist { absolute, parent })
+            Err(UnknownPath::DoesNotExist {
+                absolute,
+                expand: _,
+                parent,
+            })
             | Err(UnknownPath::CannotCanonicalize {
                 absolute,
+                expand: _,
                 parent,
                 error: _,
             })
@@ -325,7 +336,7 @@ impl PathFacts {
 mod tests {
     use super::*;
     use crate::abs_path::AbsPath;
-    use crate::canonical_path::CanonicalPath;
+    use crate::canonical_path::{CanonicalPath, ExpandPath};
     use crate::happy_path::DirOk;
 
     #[cfg(unix)]

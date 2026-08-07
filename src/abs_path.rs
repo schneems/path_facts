@@ -94,6 +94,8 @@ impl AbsPath {
     }
 
     /// Similar semantics to [`Path::parent`], but returning a None here would guarantee self is the root path
+    ///
+    /// An `AbsPath` is not normalized so it may contain `..` and/or symlinks. This is a lexical operation.
     pub(crate) fn parent(&self) -> Option<Self> {
         let parent = self.0.parent()?;
 

@@ -8,8 +8,28 @@
 //! If the held path is a readable directory, all children are also absolute paths [`AbsPath::read_dir`].
 use std::{
     fmt::{Display, Formatter},
-    path::{Path, PathBuf},
+    path::{Path, PathBuf, StripPrefixError},
 };
+
+/// Guaranteed to be relative
+pub(crate) struct RelativePath(PathBuf);
+
+impl RelativePath {
+    pub(crate) fn new(path: impl AsRef<Path>) -> Option<Self> {
+        let path = path.as_ref();
+        if path.is_relative() {
+            Some(Self(path.to_owned()))
+        } else {
+            None
+        }
+    }
+}
+
+impl AsRef<Path> for RelativePath {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AbsPath(PathBuf);
@@ -29,6 +49,16 @@ impl AbsPath {
         } else {
             Ok(Self(path.to_owned()))
         }
+    }
+
+    /// Returns `self` expressed relative to `base`.
+    ///
+    /// - The returned relative path may be empty (when `self == base`).
+    /// - Purely lexical: `..` is NOT resolved, so `/root/a/../b` and `/root/b` differ.
+    /// - Errors if `base` is not a lexical prefix of `self`.
+    pub(crate) fn strip_prefix(&self, base: &AbsPath) -> Result<RelativePath, StripPrefixError> {
+        let diff = self.as_ref().strip_prefix(base.as_ref())?;
+        Ok(RelativePath::new(diff).expect("path with stripped prefix is guaranteed relative"))
     }
 
     /// Tries to read the current path as a directory

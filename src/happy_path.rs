@@ -3,7 +3,7 @@
 //! Holds [`HappyPath`] and [`DirOk`]
 use crate::{
     abs_path::{self, AbsPath},
-    canonical_path::CanonicalPath,
+    canonical_path::{CannotCanonicalizeAnything, CanonicalPath, ExpandPath, PriorCanonicalPath},
     resolved_metadata::{ResolvedMetadata, ResolvedType},
 };
 use faccess::{AccessMode, PathExt};
@@ -64,6 +64,7 @@ impl DirOk {
 pub(crate) enum UnknownPath {
     AbsPathError(abs_path::AbsPathError),
     IsRoot(AbsPath),
+    CannotCanonicalizeAnything(CannotCanonicalizeAnything),
     ParentProblem {
         absolute: AbsPath,
         parent: AbsPath,
@@ -108,6 +109,7 @@ pub(crate) fn state(path: &Path) -> Result<KnownPath, Box<UnknownPath>> {
     let abs_parent = absolute
         .parent()
         .ok_or_else(|| UnknownPath::IsRoot(absolute.clone()))?;
+    let _ = ExpandPath::new(&absolute).map_err(UnknownPath::CannotCanonicalizeAnything)?;
     let parent = DirOk::new(abs_parent.clone()).map_err(|error| UnknownPath::ParentProblem {
         absolute: absolute.clone(),
         parent: abs_parent.clone(),

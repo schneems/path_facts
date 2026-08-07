@@ -71,6 +71,15 @@ impl PathFacts {
             Err(UnknownPath::AbsPathError(AbsPathError::CannotReadCWD(path, _))) => {
                 writeln!(f, "`{}`", path.display())?;
             }
+            Err(UnknownPath::CannotCanonicalizeAnything(CannotCanonicalizeAnything {
+                original,
+                ..
+            })) => {
+                writeln!(f, "`{}`", &self.path.display())?;
+                if self.path.is_relative() {
+                    writeln!(f, "{}", style::bullet(format!("Absolute: {original}",)))?;
+                };
+            }
             Err(UnknownPath::IsRoot(absolute)) => {
                 writeln!(f, "is root {absolute}")?;
             }
@@ -187,6 +196,19 @@ impl PathFacts {
                 )?;
             }
             Err(UnknownPath::IsRoot(_)) => {}
+            Err(UnknownPath::CannotCanonicalizeAnything(CannotCanonicalizeAnything {
+                original: _,
+                root,
+                root_error,
+            })) => {
+                writeln!(
+                    f,
+                    "{}",
+                    style::bullet(format!(
+                        "Cannot canonicalize root {root} due to error: {root_error}"
+                    ))
+                )?;
+            }
             Err(UnknownPath::ParentProblem {
                 absolute: _,
                 parent,
@@ -802,6 +824,34 @@ mod tests {
          - Parent directory is missing write permissions (cannot create, delete, or modify files)
          - `/path/to/directory/no_write_dir` [✅ read, ❌ write, ❌ execute]
              └── `file.txt` (exists)
+        🛑
+        "
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_cannot_canonicalize_anything() {
+        let path = PathBuf::from(r"/pretend/root/does/not/exist/somehow");
+        let error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "simulated error");
+        let output = PathFacts {
+            path: path.clone(),
+            state: Err(Box::new(UnknownPath::CannotCanonicalizeAnything(
+                CannotCanonicalizeAnything {
+                    original: AbsPath::new(&path).unwrap(),
+                    root: AbsPath::new(Path::new("/")).unwrap(),
+                    root_error: error,
+                },
+            ))),
+        }
+        .to_string()
+            + "🛑";
+
+        insta::assert_snapshot!(
+            output,
+            @r"
+        `/pretend/root/does/not/exist/somehow`
+         - Cannot canonicalize root `/` due to error: simulated error
         🛑
         "
         );

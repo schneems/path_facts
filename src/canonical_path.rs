@@ -14,6 +14,7 @@ use std::{
 use crate::abs_path::{AbsPath, RelativePath};
 
 /// Represents a partially cannonicalized path
+#[derive(Debug)]
 pub(crate) struct PriorCanonicalPath {
     /// Parent or prior directory that can be canonicalized
     pub(crate) prior: CanonicalPath,

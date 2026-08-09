@@ -12,7 +12,7 @@ use std::{
 };
 
 /// Guaranteed to be relative
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct RelativePath(PathBuf);
 
 impl RelativePath {

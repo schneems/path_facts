@@ -3,7 +3,7 @@
 //! Holds [`HappyPath`] and [`DirOk`]
 use crate::{
     abs_path::{self, AbsPath},
-    canonical_path::{CannotCanonicalizeAnything, CanonicalPath, ExpandPath, PriorCanonicalPath},
+    canonical_path::{CannotCanonicalizeAnything, CanonicalPath, ExpandPath, PartialCanonicalPath},
     resolved_metadata::{ResolvedMetadata, ResolvedType},
 };
 use faccess::{AccessMode, PathExt};

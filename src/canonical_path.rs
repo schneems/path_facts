@@ -15,7 +15,7 @@ use crate::abs_path::{AbsPath, RelativePath};
 
 /// Represents a partially cannonicalized path
 #[derive(Debug, Clone)]
-pub(crate) struct PriorCanonicalPath {
+pub(crate) struct PartialCanonicalPath {
     /// Parent or prior directory that can be canonicalized
     pub(crate) prior: CanonicalPath,
     /// Rest of the path that could not be canonicalized, may have un-normalized parts i.e. `..`
@@ -33,7 +33,7 @@ pub(crate) enum ExpandPath {
     /// Part of a path exists and can be expanded, the full path either doesn't exist or we don't
     /// have permission or there is a broken symlink somewhere. NOT lexically normalized, could
     /// contain `..` or `.` parts.
-    Prior(PriorCanonicalPath),
+    Partial(PartialCanonicalPath),
 }
 
 #[derive(Debug)]
@@ -60,7 +60,7 @@ impl ExpandPath {
                     if relative.as_ref().as_os_str().is_empty() {
                         return Ok(ExpandPath::Canonical(can_path));
                     } else {
-                        return Ok(ExpandPath::Prior(PriorCanonicalPath {
+                        return Ok(ExpandPath::Partial(PartialCanonicalPath {
                             prior: can_path,
                             rest: relative,
                         }));
@@ -78,9 +78,25 @@ impl ExpandPath {
             root_error,
         })
     }
+
+    #[allow(dead_code)]
+    pub(crate) fn canonical(self) -> Result<CanonicalPath, PartialCanonicalPath> {
+        match self {
+            ExpandPath::Canonical(canonical_path) => Ok(canonical_path),
+            ExpandPath::Partial(partial_canonical_path) => Err(partial_canonical_path),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn partial(self) -> Result<PartialCanonicalPath, CanonicalPath> {
+        match self {
+            ExpandPath::Canonical(canonical_path) => Err(canonical_path),
+            ExpandPath::Partial(partial_canonical_path) => Ok(partial_canonical_path),
+        }
+    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CanonicalPath(PathBuf);
 
 impl CanonicalPath {
@@ -94,6 +110,7 @@ impl CanonicalPath {
     /// to represent the same path on disk (TOCTOU caveat).
     ///
     /// A None here would guarantee self is the root path
+    #[allow(dead_code)]
     pub(crate) fn parent(&self) -> Option<Self> {
         let parent = self.0.parent()?;
 
@@ -110,5 +127,47 @@ impl AsRef<Path> for CanonicalPath {
 impl Display for CanonicalPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "`{}`", self.0.display())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::canonical_path;
+
+    use super::*;
+
+    #[test]
+    fn prior_canonical() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let path = dir.join("does/not/exist.txt");
+        let expand = ExpandPath::new(&AbsPath::new(path).unwrap()).unwrap();
+        match expand {
+            ExpandPath::Canonical(_) => panic!("expected partial got {:?}", expand),
+            ExpandPath::Partial(PartialCanonicalPath { prior, rest }) => {
+                assert_eq!(
+                    prior,
+                    CanonicalPath::new(&AbsPath::new(dir).unwrap()).unwrap()
+                );
+                assert_eq!(rest, RelativePath::new("does/not/exist.txt").unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn test_canonical_expand() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let expand = ExpandPath::new(&AbsPath::new(dir).unwrap()).unwrap();
+
+        match &expand {
+            ExpandPath::Canonical(canonical_path) => assert_eq!(
+                canonical_path,
+                &CanonicalPath::new(&AbsPath::new(dir).unwrap()).unwrap()
+            ),
+            ExpandPath::Partial(PartialCanonicalPath { .. }) => {
+                panic!("expected full got {:?}", expand)
+            }
+        }
     }
 }

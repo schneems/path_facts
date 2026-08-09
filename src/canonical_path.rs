@@ -8,7 +8,7 @@
 //! Built from a [`AbsPath`] so we know the program has access to CWD.
 use std::{
     fmt::Display,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 use crate::abs_path::{AbsPath, RelativePath};
@@ -20,6 +20,14 @@ pub(crate) struct PartialCanonicalPath {
     pub(crate) prior: CanonicalPath,
     /// Rest of the path that could not be canonicalized, may have un-normalized parts i.e. `..`
     pub(crate) rest: RelativePath,
+}
+
+impl From<PartialCanonicalPath> for AbsPath {
+    fn from(value: PartialCanonicalPath) -> Self {
+        let PartialCanonicalPath { prior, rest } = value;
+        AbsPath::new(prior.as_ref().to_owned().join(rest.as_ref()))
+            .expect("canonical path is always absolute")
+    }
 }
 
 /// Always contains a full or partial [`CanonicalPath`]
@@ -34,6 +42,27 @@ pub(crate) enum ExpandPath {
     /// have permission or there is a broken symlink somewhere. NOT lexically normalized, could
     /// contain `..` or `.` parts.
     Partial(PartialCanonicalPath),
+}
+
+impl From<ExpandPath> for AbsPath {
+    fn from(value: ExpandPath) -> Self {
+        match value {
+            ExpandPath::Canonical(canonical_path) => canonical_path.into(),
+            ExpandPath::Partial(partial_canonical_path) => partial_canonical_path.into(),
+        }
+    }
+}
+
+impl From<CanonicalPath> for ExpandPath {
+    fn from(value: CanonicalPath) -> Self {
+        ExpandPath::Canonical(value)
+    }
+}
+
+impl From<PartialCanonicalPath> for ExpandPath {
+    fn from(value: PartialCanonicalPath) -> Self {
+        ExpandPath::Partial(value)
+    }
 }
 
 #[derive(Debug)]
@@ -96,8 +125,78 @@ impl ExpandPath {
     }
 }
 
+/// Cleaned path
+///
+/// Guaranteed to have no `..` (parent parts) in the path. Guaranteed that SOME of the path exists
+/// if the input was CanonicalPath then the output is the input. If the input was PartialCanonicalPath
+/// then the root (and maybe more) is guaranteed to exist. Chained `..` parent paths cannot escape root
+/// of disk drive.
+///
+/// Lexical normalization has a problem where `a/b/..` could point to `a/` but if `b` is a symlink to
+/// `/usr/bin/which` then `a/b/..` would represent `/usr/bin`. The input type ExpandPath guarantees
+/// that as much of the path that exists on disk (that we can access/know about) has been canonicalized
+/// then whatever is left over either doesn't exist (in which case there is no symlink indirection problem)
+/// or is a broken symlink, in which case I'm not sure if this is strictly safe to show to people.
+///
+/// We need to make sure that we can show a symlink problem with this representation OR ensure
+/// that is shown in some other way.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct NormalizedPath(PathBuf);
+
+impl AsRef<Path> for NormalizedPath {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl NormalizedPath {
+    pub(crate) fn new(input: impl Into<ExpandPath>) -> Self {
+        match input.into() {
+            ExpandPath::Canonical(canonical_path) => {
+                NormalizedPath(canonical_path.as_ref().to_owned())
+            }
+            ExpandPath::Partial(PartialCanonicalPath { prior, rest }) => {
+                let CanonicalPath(mut lexical) = prior;
+                for component in rest.as_ref().components() {
+                    match component {
+                        Component::RootDir => unreachable!("relative path does not have root dir"),
+                        Component::Prefix(_) => unreachable!("relative path does not have prefix"),
+                        Component::CurDir => {}
+                        Component::ParentDir => match lexical.components().next_back() {
+                            // Preserve
+                            Some(Component::RootDir) => {}
+                            // A real directory: cancel it out.
+                            Some(Component::Normal(_)) => {
+                                lexical.pop();
+                            }
+                            // Guarantteed path is not empty and first element does not start with `..`
+                            None
+                            // Stripped already
+                            | Some(Component::CurDir)
+                            // Stripped already
+                            | Some(Component::ParentDir)
+                            // prefix only exists when there's prefix + root and we're only ever looking one back
+                            // we never remove a root
+                            | Some(Component::Prefix(_)) => unreachable!(),
+                        },
+                        Component::Normal(p) => lexical.push(p),
+                    }
+                }
+
+                NormalizedPath(lexical)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CanonicalPath(PathBuf);
+
+impl From<CanonicalPath> for AbsPath {
+    fn from(value: CanonicalPath) -> Self {
+        AbsPath::new(value.0).unwrap()
+    }
+}
 
 impl CanonicalPath {
     pub(crate) fn new(abs_path: &AbsPath) -> Result<Self, std::io::Error> {
@@ -132,8 +231,6 @@ impl Display for CanonicalPath {
 
 #[cfg(test)]
 mod tests {
-    use crate::canonical_path;
-
     use super::*;
 
     #[test]
@@ -169,5 +266,54 @@ mod tests {
                 panic!("expected full got {:?}", expand)
             }
         }
+    }
+
+    fn expand(path: impl AsRef<Path>) -> ExpandPath {
+        ExpandPath::new(&AbsPath::new(path).unwrap()).unwrap()
+    }
+
+    fn normal(path: impl AsRef<Path>) -> NormalizedPath {
+        NormalizedPath::new(expand(path.as_ref()))
+    }
+
+    #[test]
+    fn abs_expanded_normalizes_dots() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let normalized = normal(dir.join("a/b/c/../d"));
+
+        assert_eq!(normalized, normal(dir.join("a/b/d")));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn abs_expanded_root() {
+        assert_eq!(normal("/").as_ref(), Path::new("/"));
+        assert_eq!(normal("/..").as_ref(), Path::new("/"));
+        assert_eq!(normal("/../..").as_ref(), Path::new("/"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn parent_dir_past_root_clamps() {
+        assert_eq!(normal("/a/../b"), normal("/b"));
+        assert_eq!(normal("/tmp/../../../tmp"), normal("/tmp"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn cur_dir_is_removed() {
+        assert_eq!(normal("/./dir").as_ref(), Path::new("/dir"));
+        assert_eq!(normal("/a/./b").as_ref(), Path::new("/a/b"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn only_exact_dot_and_dotdot_are_special() {
+        // Names that merely start with dots are ordinary path elements,
+        // matching Ruby's expand_path (and Rust's `Component` semantics).
+        assert_eq!(normal("/..a").as_ref(), Path::new("/..a"));
+        assert_eq!(normal("/..a/b").as_ref(), Path::new("/..a/b"));
+        assert_eq!(normal("/a.").as_ref(), Path::new("/a."));
     }
 }

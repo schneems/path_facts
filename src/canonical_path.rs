@@ -30,7 +30,9 @@ pub(crate) struct PriorCanonicalPath {
 pub(crate) enum ExpandPath {
     /// Path exists, fully expanded
     Canonical(CanonicalPath),
-    /// Part of a path exists, the full path either doesn't exist or we don't have permission or broken symlink somewhere
+    /// Part of a path exists and can be expanded, the full path either doesn't exist or we don't
+    /// have permission or there is a broken symlink somewhere. NOT lexically normalized, could
+    /// contain `..` or `.` parts.
     Prior(PriorCanonicalPath),
 }
 

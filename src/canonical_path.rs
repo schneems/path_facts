@@ -20,13 +20,34 @@ pub(crate) struct PartialCanonicalPath {
     pub(crate) prior: CanonicalPath,
     /// Rest of the path that could not be canonicalized, may have un-normalized parts i.e. `..`
     pub(crate) rest: RelativePath,
+
+    /// Holds full path, allows us to impl AsRef<Path>
+    full: AbsPath,
+}
+
+impl AsRef<Path> for PartialCanonicalPath {
+    fn as_ref(&self) -> &Path {
+        self.full.as_ref()
+    }
+}
+
+impl AsRef<Path> for ExpandPath {
+    fn as_ref(&self) -> &Path {
+        match self {
+            ExpandPath::Canonical(canonical_path) => canonical_path.as_ref(),
+            ExpandPath::Partial(partial_canonical_path) => partial_canonical_path.as_ref(),
+        }
+    }
 }
 
 impl From<PartialCanonicalPath> for AbsPath {
     fn from(value: PartialCanonicalPath) -> Self {
-        let PartialCanonicalPath { prior, rest } = value;
-        AbsPath::new(prior.as_ref().to_owned().join(rest.as_ref()))
-            .expect("canonical path is always absolute")
+        let PartialCanonicalPath {
+            prior: _,
+            rest: _,
+            full,
+        } = value;
+        full
     }
 }
 
@@ -92,6 +113,7 @@ impl ExpandPath {
                         return Ok(ExpandPath::Partial(PartialCanonicalPath {
                             prior: can_path,
                             rest: relative,
+                            full: abs_path.clone(),
                         }));
                     };
                 }
@@ -155,7 +177,11 @@ impl NormalizedPath {
             ExpandPath::Canonical(canonical_path) => {
                 NormalizedPath(canonical_path.as_ref().to_owned())
             }
-            ExpandPath::Partial(PartialCanonicalPath { prior, rest }) => {
+            ExpandPath::Partial(PartialCanonicalPath {
+                prior,
+                rest,
+                full: _,
+            }) => {
                 let CanonicalPath(mut lexical) = prior;
                 for component in rest.as_ref().components() {
                     match component {
@@ -241,7 +267,11 @@ mod tests {
         let expand = ExpandPath::new(&AbsPath::new(path).unwrap()).unwrap();
         match expand {
             ExpandPath::Canonical(_) => panic!("expected partial got {:?}", expand),
-            ExpandPath::Partial(PartialCanonicalPath { prior, rest }) => {
+            ExpandPath::Partial(PartialCanonicalPath {
+                prior,
+                rest,
+                full: _,
+            }) => {
                 assert_eq!(
                     prior,
                     CanonicalPath::new(&AbsPath::new(dir).unwrap()).unwrap()

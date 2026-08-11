@@ -3,7 +3,7 @@
 //! Holds [`HappyPath`] and [`DirOk`]
 use crate::{
     abs_path::{self, AbsPath},
-    canonical_path::{CannotCanonicalizeAnything, CanonicalPath, ExpandPath, PartialCanonicalPath},
+    canonical_path::{CannotCanonicalizeAnything, CanonicalPath, ExpandPath},
     resolved_metadata::{ResolvedMetadata, ResolvedType},
 };
 use faccess::{AccessMode, PathExt};
@@ -66,6 +66,7 @@ pub(crate) enum UnknownPath {
     IsRoot(AbsPath),
     CannotCanonicalizeAnything(CannotCanonicalizeAnything),
     ParentProblem {
+        #[allow(dead_code)] // Prove we can access CWD and path is not empty
         absolute: AbsPath,
         expand: ExpandPath,
         parent: AbsPath,

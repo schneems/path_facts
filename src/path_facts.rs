@@ -112,15 +112,16 @@ impl PathFacts {
                 parent,
                 error,
             }) => {
+                let expanded = ExpandPath::from(canonical.clone());
                 if parent.has_entry(absolute) {
-                    writeln!(f, "exists `{}`", self.path.display())?;
+                    writeln!(f, "exists {}", style::expanded(&self.path, &expanded))?;
                 } else {
-                    writeln!(f, "does not exist `{}`", self.path.display())?;
+                    writeln!(
+                        f,
+                        "does not exist {}",
+                        style::expanded(&self.path, &expanded)
+                    )?;
                 }
-                if self.path.is_relative() {
-                    writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
-                }
-                writeln!(f, "{}", style::bullet(format!("Canonical: {canonical}",)))?;
                 writeln!(
                     f,
                     "{}",
@@ -133,15 +134,16 @@ impl PathFacts {
                 parent,
                 error,
             }) => {
+                let expanded = ExpandPath::from(canonical.clone());
                 if parent.has_entry(absolute) {
-                    writeln!(f, "exists `{}`", self.path.display())?;
+                    writeln!(f, "exists {}", style::expanded(&self.path, &expanded))?;
                 } else {
-                    writeln!(f, "does not exist `{}`", self.path.display())?;
+                    writeln!(
+                        f,
+                        "does not exist {}",
+                        style::expanded(&self.path, &expanded)
+                    )?;
                 }
-                if self.path.is_relative() {
-                    writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
-                }
-                writeln!(f, "{}", style::bullet(format!("Canonical: {canonical}",)))?;
                 writeln!(
                     f,
                     "{}",
@@ -868,7 +870,6 @@ mod tests {
                 .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
             @r"
         exists `/path/to/directory/exists.txt`
-         - Canonical: `/path/to/directory/exists.txt`
          - Cannot read metadata due to error `simulated`
          - `/path/to/directory`
              └── `exists.txt` (exists)
@@ -908,7 +909,6 @@ mod tests {
                 .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
             @r"
         exists `/path/to/directory/exists.txt`
-         - Canonical: `/path/to/directory/exists.txt`
          - Cannot readlink due to error `simulated`
          - `/path/to/directory`
              └── `exists.txt` (exists)

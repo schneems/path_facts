@@ -69,6 +69,7 @@ impl PathFacts {
                 if self.path.is_relative() {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {original}",)))?;
                 };
+                // Error is in root, show message in the parent facts
             }
             Err(UnknownPath::IsRoot(absolute)) => {
                 writeln!(f, "is root {absolute}")?;
@@ -90,17 +91,14 @@ impl PathFacts {
             }
             Err(UnknownPath::CannotCanonicalize {
                 absolute,
-                expand: _,
+                expand,
                 parent,
                 error,
             }) => {
                 if parent.has_entry(absolute) {
-                    writeln!(f, "exists `{}`", self.path.display())?;
+                    writeln!(f, "exists {}", style::expanded(&self.path, expand))?;
                 } else {
-                    writeln!(f, "does not exist `{}`", self.path.display())?;
-                }
-                if self.path.is_relative() {
-                    writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
+                    writeln!(f, "does not exist {}", style::expanded(&self.path, expand))?;
                 }
                 writeln!(
                     f,
@@ -676,8 +674,7 @@ mod tests {
                 .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
                 .replace(&std::fs::canonicalize("link1").unwrap_err().to_string(), "{error}") + "🛑",
             @r"
-        exists `link1`
-         - Absolute: `/path/to/directory/link1`
+        exists `link1` → `/path/to/directory/link1`
          - Cannot canonicalize due to error `{error}`
          - `/path/to/directory`
              ├── `link1` (exists)
@@ -729,8 +726,7 @@ mod tests {
                 .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
                 .replace(&std::fs::canonicalize("broken_link").unwrap_err().to_string(), "{error}") + "🛑",
             @r"
-        exists `broken_link`
-         - Absolute: `/path/to/directory/broken_link`
+        exists `broken_link` → `/path/to/directory/broken_link`
          - Cannot canonicalize due to error `{error}`
          - `/path/to/directory`
              └── `broken_link` (exists)

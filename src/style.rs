@@ -18,6 +18,11 @@ pub(crate) fn permissions(read: bool, write: bool, execute: bool) -> String {
     ["[", &perms.join(", "), "]"].join("").to_string()
 }
 
+/// Adds a space in front of permissions
+pub(crate) fn space_permissions(read: bool, write: bool, execute: bool) -> String {
+    " ".to_string() + &permissions(read, write, execute)
+}
+
 /// Applies a prefix to the first line and a different prefix to the rest of the lines.
 ///
 /// The primary use case is to align indentation with the prefix of the first line. Most often
@@ -82,14 +87,11 @@ where
 {
     let entries = &dir.entries;
     let mut out = String::new();
-    let permissions = append_if(
-        " ",
-        if dir.read && dir.write && dir.execute {
-            "".to_string()
-        } else {
-            permissions(dir.read, dir.write, dir.execute)
-        },
-    );
+    let permissions = if dir.read && dir.write && dir.execute {
+        "".to_string()
+    } else {
+        space_permissions(dir.read, dir.write, dir.execute)
+    };
     out.push_str(&format!("{path}{permissions}\n", path = dir.absolute));
     out.push_str(&fmt_dir_entries_annotate(entries, annotate));
     out

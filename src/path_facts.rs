@@ -74,25 +74,19 @@ impl PathFacts {
                 writeln!(f, "is root {absolute}")?;
             }
             Err(UnknownPath::ParentProblem {
-                absolute,
-                expand: _,
+                absolute: _,
+                expand,
                 parent: _,
                 _error,
             }) => {
-                writeln!(f, "cannot access `{}`", self.path.display())?;
-                if self.path.is_relative() {
-                    writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
-                }
+                writeln!(f, "cannot access {}", style::expanded(&self.path, expand))?;
             }
             Err(UnknownPath::DoesNotExist {
-                absolute,
-                expand: _,
+                absolute: _,
+                expand,
                 parent: _,
             }) => {
-                writeln!(f, "does not exist `{}`", self.path.display())?;
-                if self.path.is_relative() {
-                    writeln!(f, "{}", style::bullet(format!("Absolute: {absolute}",)))?;
-                }
+                writeln!(f, "does not exist {}", style::expanded(&self.path, expand))?;
             }
             Err(UnknownPath::CannotCanonicalize {
                 absolute,
@@ -600,8 +594,7 @@ mod tests {
                 .to_string()
                 .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
             @r"
-        cannot access `a/b/c/does_not_exist.txt`
-         - Absolute: `/path/to/directory/a/b/c/does_not_exist.txt`
+        cannot access `a/b/c/does_not_exist.txt` → `/path/to/directory/a/b/c/does_not_exist.txt`
          - Prior directory does not exist `/path/to/directory/a`
             - Missing `a` from parent directory:
               `/path/to/directory`

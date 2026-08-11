@@ -6,6 +6,7 @@
 //! we can guarantee that all files involved exist.
 //!
 //! Built from a [`AbsPath`] so we know the program has access to CWD.
+//! May have un-normalized parts i.e. `..`
 use std::{
     fmt::Display,
     path::{Path, PathBuf},

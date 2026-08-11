@@ -83,7 +83,7 @@ where
     } else {
         space_permissions(dir.read, dir.write, dir.execute)
     };
-    out.push_str(&format!("{path}{permissions}\n", path = dir.absolute));
+    out.push_str(&format!("{path}{permissions}\n", path = dir.canonical));
     out.push_str(&fmt_dir_entries_annotate(entries, annotate));
     out
 }

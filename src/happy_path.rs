@@ -27,9 +27,9 @@ pub(crate) struct KnownPath {
 /// A [`DirOk`] represents a directory with no problems that we could find
 #[derive(Debug, Clone)]
 pub(crate) struct DirOk {
+    #[allow(dead_code)]
     pub(crate) absolute: AbsPath,
-    /// Not printed, the type signature ensures that we can canonicalize the path
-    pub(crate) _canonical: CanonicalPath,
+    pub(crate) canonical: CanonicalPath,
     pub(crate) entries: Vec<AbsPath>,
     pub(crate) read: bool,
     pub(crate) write: bool,
@@ -47,7 +47,7 @@ impl DirOk {
 
         Ok(DirOk {
             absolute,
-            _canonical: canonical,
+            canonical,
             entries,
             read,
             write,

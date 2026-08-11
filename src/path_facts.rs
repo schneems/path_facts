@@ -1,6 +1,6 @@
 //! Facts about paths
 use crate::abs_path::AbsPathError;
-use crate::canonical_path::CannotCanonicalizeAnything;
+use crate::canonical_path::{CannotCanonicalizeAnything, ExpandPath};
 use crate::happy_path::{state, KnownPath, UnknownPath};
 use crate::resolved_metadata::ResolvedType;
 use crate::style::{self, permissions};
@@ -44,21 +44,10 @@ impl PathFacts {
     fn fmt_individual_facts(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
         match self.state.as_ref().map_err(|e| &**e) {
             Ok(happy) => {
-                writeln!(f, "exists `{}`", self.path.display())?;
-                if self.path.is_relative() {
-                    writeln!(
-                        f,
-                        "{}",
-                        style::bullet(format!("Absolute: {absolute}", absolute = happy.absolute))
-                    )?;
-                }
+                let expanded = ExpandPath::from(happy.canonical.clone());
+                writeln!(f, "exists {}", style::expanded(&self.path, &expanded))?;
 
                 if let Some(target) = &happy.symlink_target {
-                    writeln!(
-                        f,
-                        "{}",
-                        style::bullet(format!("Canonical: {}", happy.canonical))
-                    )?;
                     writeln!(
                         f,
                         "{}",
@@ -345,21 +334,17 @@ mod tests {
     #[test]
     fn test_prior_dir_problem_is_file() {
         let tempdir = tempfile::tempdir().unwrap();
-        let path = tempdir
-            .path()
-            .join("a")
-            .join("b")
-            .join("c")
-            .join("does_not_exist.txt");
+        let dir = tempdir.path().canonicalize().unwrap();
+        let path = dir.join("a").join("b").join("c").join("does_not_exist.txt");
 
-        std::fs::write(tempdir.path().join("a"), "").unwrap();
+        std::fs::write(dir.join("a"), "").unwrap();
 
         insta::with_settings!({prepend_module_to_snapshot => false}, {
             insta::assert_snapshot!(
                 "prior_dir_problem_is_file",
                 PathFacts::new(path)
                 .to_string()
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑"
+                .replace(&dir.display().to_string(), "/path/to/directory") + "🛑"
             );
         });
     }
@@ -382,17 +367,13 @@ mod tests {
     #[test]
     fn test_prior_dir_problem_does_not_exist() {
         let tempdir = tempfile::tempdir().unwrap();
-        let path = tempdir
-            .path()
-            .join("a")
-            .join("b")
-            .join("c")
-            .join("does_not_exist.txt");
+        let dir = tempdir.path().canonicalize().unwrap();
+        let path = dir.join("a").join("b").join("c").join("does_not_exist.txt");
 
         insta::assert_snapshot!(
             PathFacts::new(path)
                 .to_string()
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑",
+                .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
             @r"
         cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
          - Prior directory does not exist `/path/to/directory/a`
@@ -417,13 +398,14 @@ mod tests {
     #[test]
     fn test_file_exists_is_file() {
         let tempdir = tempfile::tempdir().unwrap();
-        let path = tempdir.path().join("exists.txt");
+        let dir = tempdir.path().canonicalize().unwrap();
+        let path = dir.join("exists.txt");
         std::fs::write(&path, "").unwrap();
 
         insta::assert_snapshot!(
             PathFacts::new(path)
                 .to_string()
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑",
+                .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
             @r"
         exists `/path/to/directory/exists.txt`
          - `/path/to/directory`
@@ -435,10 +417,11 @@ mod tests {
     #[test]
     fn test_parent_exists_missing_file() {
         let tempdir = tempfile::tempdir().unwrap();
+        let dir = tempdir.path().canonicalize().unwrap();
         insta::assert_snapshot!(
-            PathFacts::new(tempdir.path().join("does_not_exist.txt"))
+            PathFacts::new(dir.join("does_not_exist.txt"))
                 .to_string()
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑",
+                .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
             @r"
         does not exist `/path/to/directory/does_not_exist.txt`
          - Missing `does_not_exist.txt` from parent directory:
@@ -453,7 +436,8 @@ mod tests {
         use indoc::formatdoc;
 
         let tempdir = tempfile::tempdir().unwrap();
-        std::env::set_current_dir(tempdir.path()).unwrap();
+        let dir = tempdir.path().canonicalize().unwrap();
+        std::env::set_current_dir(dir).unwrap();
 
         let from = std::path::Path::new("doesnotexist.txt");
         let to = std::path::Path::new("also_does_not_exist.txt");
@@ -485,7 +469,8 @@ mod tests {
     #[test]
     fn test_relative_path_exists() {
         let tempdir = tempfile::tempdir().unwrap();
-        std::env::set_current_dir(tempdir.path()).unwrap();
+        let dir = tempdir.path().canonicalize().unwrap();
+        std::env::set_current_dir(dir).unwrap();
 
         let path = Path::new("exists.txt");
         std::fs::write(path, "").unwrap();
@@ -495,8 +480,7 @@ mod tests {
                 .to_string()
                 .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory") + "🛑",
             @r"
-        exists `exists.txt`
-         - Absolute: `/path/to/directory/exists.txt`
+        exists `exists.txt` → `/path/to/directory/exists.txt`
          - `/path/to/directory`
              └── `exists.txt` file [✅ read, ✅ write, ❌ execute]
         🛑
@@ -506,36 +490,29 @@ mod tests {
     #[test]
     fn test_symlink_to_file() {
         // Use two separate temp directories to guarantee different paths on all platforms
-        let target_tempdir = tempfile::tempdir().unwrap();
-        let link_tempdir = tempfile::tempdir().unwrap();
+        let target_temp = tempfile::tempdir().unwrap();
+        let link_temp = tempfile::tempdir().unwrap();
+        let target_dir = target_temp.path().canonicalize().unwrap();
+        let link_dir = link_temp.path().canonicalize().unwrap();
 
         // Create target file in first tempdir
-        let target_file = target_tempdir.path().join("target.txt");
+        let target_file = target_dir.join("target.txt");
         std::fs::write(&target_file, "content").unwrap();
 
         // Create symlink in second tempdir pointing to first tempdir
-        let symlink_path = link_tempdir.path().join("link_to_target.txt");
+        let symlink_path = link_dir.join("link_to_target.txt");
         std::os::unix::fs::symlink(&target_file, &symlink_path).unwrap();
-
-        let target_canonical = target_tempdir.path().canonicalize().unwrap();
-        let link_canonical = link_tempdir.path().canonicalize().unwrap();
 
         let output = PathFacts::new(&symlink_path)
             .to_string()
-            .replace(&target_canonical.display().to_string(), "/path/to/target")
-            .replace(
-                &target_tempdir.path().display().to_string(),
-                "/path/to/target",
-            )
-            .replace(&link_canonical.display().to_string(), "/path/to/link")
-            .replace(&link_tempdir.path().display().to_string(), "/path/to/link")
+            .replace(&target_dir.display().to_string(), "/path/to/target")
+            .replace(&link_dir.display().to_string(), "/path/to/link")
             + "🛑";
 
         insta::assert_snapshot!(
             output,
             @r"
-        exists `/path/to/link/link_to_target.txt`
-         - Canonical: `/path/to/target/target.txt`
+        exists `/path/to/link/link_to_target.txt` → `/path/to/target/target.txt`
          - Symlink target: `/path/to/target/target.txt`
          - `/path/to/link`
              └── `link_to_target.txt` file [✅ read, ✅ write, ❌ execute]
@@ -546,36 +523,30 @@ mod tests {
     #[test]
     fn test_symlink_to_directory() {
         // Use two separate temp directories to guarantee different paths on all platforms
-        let target_tempdir = tempfile::tempdir().unwrap();
-        let link_tempdir = tempfile::tempdir().unwrap();
+        let target_temp = tempfile::tempdir().unwrap();
+        let link_temp = tempfile::tempdir().unwrap();
+
+        let target_dir = target_temp.path().canonicalize().unwrap();
+        let link_dir = link_temp.path().canonicalize().unwrap();
 
         // Create target directory in first tempdir
-        let target_dir = target_tempdir.path().join("target_dir");
-        std::fs::create_dir(&target_dir).unwrap();
+        let target = target_dir.join("target_dir");
+        std::fs::create_dir(&target).unwrap();
 
         // Create symlink in second tempdir pointing to first tempdir
-        let symlink_path = link_tempdir.path().join("link_to_dir");
-        std::os::unix::fs::symlink(&target_dir, &symlink_path).unwrap();
-
-        let target_canonical = target_tempdir.path().canonicalize().unwrap();
-        let link_canonical = link_tempdir.path().canonicalize().unwrap();
+        let symlink_path = link_dir.join("link_to_dir");
+        std::os::unix::fs::symlink(&target, &symlink_path).unwrap();
 
         let output = PathFacts::new(&symlink_path)
             .to_string()
-            .replace(&target_canonical.display().to_string(), "/path/to/target")
-            .replace(
-                &target_tempdir.path().display().to_string(),
-                "/path/to/target",
-            )
-            .replace(&link_canonical.display().to_string(), "/path/to/link")
-            .replace(&link_tempdir.path().display().to_string(), "/path/to/link")
+            .replace(&target_dir.display().to_string(), "/path/to/target")
+            .replace(&link_dir.display().to_string(), "/path/to/link")
             + "🛑";
 
         insta::assert_snapshot!(
             output,
             @r"
-        exists `/path/to/link/link_to_dir`
-         - Canonical: `/path/to/target/target_dir`
+        exists `/path/to/link/link_to_dir` → `/path/to/target/target_dir`
          - Symlink target: `/path/to/target/target_dir`
          - `/path/to/link`
              └── `link_to_dir` directory [✅ read, ✅ write, ✅ execute]
@@ -586,16 +557,17 @@ mod tests {
     #[test]
     fn test_cannot_read_cwd() {
         let tempdir = tempfile::tempdir().unwrap();
-        std::env::set_current_dir(tempdir.path()).unwrap();
+        let dir = tempdir.path().canonicalize().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
 
         // Remove the current working directory while we're still in it
-        std::fs::remove_dir(tempdir.path()).unwrap();
+        std::fs::remove_dir(&dir).unwrap();
 
         insta::assert_snapshot!(
             PathFacts::new("relative_path.txt")
                 .to_string()
                 .replace(
-                    &std::fs::read_to_string(tempdir.path()).unwrap_err().to_string(),
+                    &std::fs::read_to_string(dir).unwrap_err().to_string(),
                     "{error}"
                 ) + "🛑",
             @r"
@@ -619,13 +591,14 @@ mod tests {
     #[test]
     fn test_prior_dir_problem_relative_path() {
         let tempdir = tempfile::tempdir().unwrap();
-        std::env::set_current_dir(tempdir.path()).unwrap();
+        let dir = tempdir.path().canonicalize().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
 
         insta::assert_snapshot!(
             // Create a relative path where the parent directories don't exist
             PathFacts::new(Path::new("a/b/c/does_not_exist.txt"))
                 .to_string()
-                .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory") + "🛑",
+                .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
             @r"
         cannot access `a/b/c/does_not_exist.txt`
          - Absolute: `/path/to/directory/a/b/c/does_not_exist.txt`
@@ -641,7 +614,8 @@ mod tests {
     #[cfg(unix)]
     fn test_parent_directory_missing_write_permissions() {
         let tempdir = tempfile::tempdir().unwrap();
-        let readonly_dir = tempdir.path().join("readonly_dir");
+        let dir = tempdir.path().canonicalize().unwrap();
+        let readonly_dir = dir.join("readonly_dir");
         std::fs::create_dir(&readonly_dir).unwrap();
 
         // Remove write permissions from the directory
@@ -652,7 +626,7 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(readonly_dir.join("does_not_exist.txt"))
                 .to_string()
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑",
+                .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
             @r"
         does not exist `/path/to/directory/readonly_dir/does_not_exist.txt`
          - Parent directory is missing write permissions (cannot create, delete, or modify files)
@@ -668,8 +642,9 @@ mod tests {
     #[cfg(unix)]
     fn test_cannot_canonicalize_circular_symlink_absolute() {
         let tempdir = tempfile::tempdir().unwrap();
-        let link1 = tempdir.path().join("link1");
-        let link2 = tempdir.path().join("link2");
+        let dir = tempdir.path().canonicalize().unwrap();
+        let link1 = dir.join("link1");
+        let link2 = dir.join("link2");
 
         // Create circular symlinks
         std::os::unix::fs::symlink(&link2, &link1).unwrap();
@@ -678,7 +653,7 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(&link1)
                 .to_string()
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory")
+                .replace(&dir.display().to_string(), "/path/to/directory")
                 .replace(&std::fs::canonicalize(&link1).unwrap_err().to_string(), "{error}") + "🛑",
             @r"
         exists `/path/to/directory/link1`
@@ -695,7 +670,8 @@ mod tests {
     #[cfg(unix)]
     fn test_cannot_canonicalize_circular_symlink_relative() {
         let tempdir = tempfile::tempdir().unwrap();
-        std::env::set_current_dir(tempdir.path()).unwrap();
+        let dir = tempdir.path().canonicalize().unwrap();
+        std::env::set_current_dir(dir).unwrap();
 
         // Create circular symlinks with relative paths
         std::os::unix::fs::symlink("link2", "link1").unwrap();
@@ -722,8 +698,9 @@ mod tests {
     #[cfg(unix)]
     fn test_cannot_canonicalize_broken_symlink_absolute() {
         let tempdir = tempfile::tempdir().unwrap();
-        let broken_link = tempdir.path().join("broken_link");
-        let nonexistent = tempdir.path().join("does_not_exist");
+        let dir = tempdir.path().canonicalize().unwrap();
+        let broken_link = dir.join("broken_link");
+        let nonexistent = dir.join("does_not_exist");
 
         // Create a symlink pointing to a non-existent target
         std::os::unix::fs::symlink(&nonexistent, &broken_link).unwrap();
@@ -731,7 +708,7 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(&broken_link)
                 .to_string()
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory")
+                .replace(&dir.display().to_string(), "/path/to/directory")
                 .replace(&std::fs::canonicalize(&broken_link).unwrap_err().to_string(), "{error}") + "🛑",
             @r"
         exists `/path/to/directory/broken_link`
@@ -747,7 +724,8 @@ mod tests {
     #[cfg(unix)]
     fn test_cannot_canonicalize_broken_symlink_relative() {
         let tempdir = tempfile::tempdir().unwrap();
-        std::env::set_current_dir(tempdir.path()).unwrap();
+        let dir = tempdir.path().canonicalize().unwrap();
+        std::env::set_current_dir(dir).unwrap();
 
         // Create a symlink pointing to a non-existent target (relative path)
         std::os::unix::fs::symlink("does_not_exist", "broken_link").unwrap();
@@ -772,7 +750,8 @@ mod tests {
     #[cfg(unix)]
     fn test_cannot_canonicalize_no_execute_dir_with_file() {
         let tempdir = tempfile::tempdir().unwrap();
-        let no_exec_dir = tempdir.path().join("no_exec_dir");
+        let dir = tempdir.path().canonicalize().unwrap();
+        let no_exec_dir = dir.join("no_exec_dir");
         std::fs::create_dir(&no_exec_dir).unwrap();
 
         let file = no_exec_dir.join("file.txt");
@@ -786,7 +765,7 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(&file)
                 .to_string()
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory")
+                .replace(&dir.display().to_string(), "/path/to/directory")
                 .replace(&std::fs::canonicalize(&file).unwrap_err().to_string(), "{error}") + "🛑",
             @r"
         exists `/path/to/directory/no_exec_dir/file.txt`
@@ -802,7 +781,8 @@ mod tests {
     #[cfg(unix)]
     fn test_cannot_canonicalize_no_write_dir_with_file() {
         let tempdir = tempfile::tempdir().unwrap();
-        let no_write_dir = tempdir.path().join("no_write_dir");
+        let dir = tempdir.path().canonicalize().unwrap();
+        let no_write_dir = dir.join("no_write_dir");
         std::fs::create_dir(&no_write_dir).unwrap();
 
         let file = no_write_dir.join("file.txt");
@@ -815,7 +795,7 @@ mod tests {
 
         let output = PathFacts::new(&file)
             .to_string()
-            .replace(&tempdir.path().display().to_string(), "/path/to/directory")
+            .replace(&dir.display().to_string(), "/path/to/directory")
             .replace(
                 &std::fs::canonicalize(&file).unwrap_err().to_string(),
                 "{error}",
@@ -873,7 +853,8 @@ mod tests {
         // `CannotMetadata` is only reachable at runtime via a TOCTOU race, so we
         // construct the error state directly to exercise the Display branch.
         let tempdir = tempfile::tempdir().unwrap();
-        let file = tempdir.path().join("exists.txt");
+        let dir = tempdir.path().canonicalize().unwrap();
+        let file = dir.join("exists.txt");
         std::fs::write(&file, "").unwrap();
 
         let absolute = AbsPath::new(&file).unwrap();
@@ -895,7 +876,7 @@ mod tests {
             facts
                 .to_string()
                 .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑",
+                .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
             @r"
         exists `/path/to/directory/exists.txt`
          - Canonical: `/path/to/directory/exists.txt`
@@ -912,7 +893,8 @@ mod tests {
         // `CannotReadLink` is only reachable at runtime via a TOCTOU race, so we
         // construct the error state directly to exercise the Display branch.
         let tempdir = tempfile::tempdir().unwrap();
-        let file = tempdir.path().join("exists.txt");
+        let dir = tempdir.path().canonicalize().unwrap();
+        let file = dir.join("exists.txt");
         std::fs::write(&file, "").unwrap();
 
         let absolute = AbsPath::new(&file).unwrap();
@@ -934,7 +916,7 @@ mod tests {
             facts
                 .to_string()
                 .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
-                .replace(&tempdir.path().display().to_string(), "/path/to/directory") + "🛑",
+                .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
             @r"
         exists `/path/to/directory/exists.txt`
          - Canonical: `/path/to/directory/exists.txt`

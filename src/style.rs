@@ -1,4 +1,4 @@
-use crate::{abs_path::AbsPath, happy_path::DirOk};
+use crate::{abs_path::AbsPath, canonical_path::ExpandPath, happy_path::DirOk};
 use std::path::Path;
 
 pub(crate) fn bullet(contents: impl AsRef<str>) -> String {
@@ -72,15 +72,6 @@ pub(crate) fn prefix_lines<F: Fn(usize, &str) -> String>(contents: &str, f: F) -
     }
 }
 
-pub(crate) fn append_if(append: impl AsRef<str>, contents: impl AsRef<str>) -> String {
-    let out = contents.as_ref();
-    if out.is_empty() {
-        out.to_string()
-    } else {
-        format!("{append}{out}", append = append.as_ref())
-    }
-}
-
 pub(crate) fn fmt_dir<F>(dir: &DirOk, annotate: F) -> String
 where
     F: Fn(&AbsPath) -> Option<String>,
@@ -95,6 +86,14 @@ where
     out.push_str(&format!("{path}{permissions}\n", path = dir.absolute));
     out.push_str(&fmt_dir_entries_annotate(entries, annotate));
     out
+}
+
+pub(crate) fn expanded(path: &Path, expand: &ExpandPath) -> String {
+    if path == expand.as_ref() {
+        format!("`{}`", path.display())
+    } else {
+        format!("`{}` → `{}`", path.display(), expand.as_ref().display())
+    }
 }
 
 /// Formats a vec of filenames

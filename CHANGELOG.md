@@ -14,6 +14,29 @@ exists `exists.txt` → `/path/to/directory/exists.txt`
      └── `exists.txt` file [✅ read, ✅ write, ❌ execute]
 ```
 
+- Fix representing a file in a directory when it has a `.` or `..` in it. Previously equality comparisons
+  were made based on Absolute path, which is un-normalized. They're not made based on expanded paths which
+  can still diverge in some cases but are much more robust when comparing directory entries (as they all
+  exist on disk).
+
+
+Before:
+
+```
+exists `/path/to/directory/a/b/..` → `/path/to/directory/a`
+ - `/path/to/directory/a/b`
+     └── `inside.txt`
+```
+
+After:
+
+```
+exists `/path/to/directory/a/b/..` → `/path/to/directory/a`
+ - `/path/to/directory`
+     ├── `a` directory [✅ read, ✅ write, ✅ execute]
+     └── `other.txt`
+```
+
 ## 0.2.2
 
 - Fix inconsistent trailing newline. Previously some facts ended with one newline and some with two. They now consistently end with a single trailing newline, so interpolating a fact into a larger message no longer injects an extra blank line.

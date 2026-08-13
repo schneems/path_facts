@@ -57,7 +57,8 @@ impl From<PartialCanonicalPath> for AbsPath {
 /// Always contains a full or partial [`CanonicalPath`]
 ///
 /// Any [`CanonicalPath`] exists, but we don't know other things about it without querying the
-/// filesystem.
+/// filesystem. A Partial variant may or may not exist, it may have un-normalized parts such as `..`
+/// and `.` in it.
 #[derive(Debug, Clone)]
 pub(crate) enum ExpandPath {
     /// Path exists, fully expanded

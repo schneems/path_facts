@@ -151,6 +151,20 @@ impl ExpandPath {
     }
 }
 
+/// File exists, and is resolvable path, is fully normalized
+///
+/// - All symlinks resolve and are visible
+/// - All directories involved are executable
+///
+/// Does not preserve behavior on all calls. Getting metadata from
+/// `/a/b/file.txt/..` fails with NotADirectory on every unix, POSIX requires
+/// ENOTDIR when a path prefix component is not a directory.
+///
+/// Canonicalizing it produces different results. Glibc enforces the same rule and errors, but a mac
+/// returns `/a/b`. So on a mac this type gets built from a path the kernel refuses, and metadata on
+/// the canonical form succeeds while metadata on the original still fails. A trailing `.` behaves the same way.
+///
+/// So using a `CanonicalPath` as a replacement for `Path` can yield subtle differences.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CanonicalPath(PathBuf);
 

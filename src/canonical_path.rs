@@ -180,6 +180,46 @@ impl CanonicalPath {
         Ok(CanonicalPath(canonical))
     }
 
+    /// Returns list of all files that exist in the directory
+    ///
+    /// The properties of `read_dir` state that the resulting paths returned from `DirEntry`
+    /// match the original path appended with the filename of the entry. Because we know
+    /// the directory path is absolute, we know the resulting paths are absolute. However they
+    /// aren't guaranteed to be resolvable.
+    ///
+    /// Errors if path is not a directory or is not readable
+    pub(crate) fn read_dir(&self) -> Result<Vec<ExpandPath>, std::io::Error> {
+        let parent: AbsPath = self.clone().into();
+        #[cfg_attr(not(test), allow(unused_mut))]
+        let mut entries = std::fs::read_dir(&self.0)?
+            .map(|entry| {
+                entry.map(|e| {
+                    let prior = self.clone();
+                    let rest = RelativePath::new(e.file_name())
+                        .expect("read_dir to always return a relative path");
+                    let full = parent.join_relative(&rest);
+                    // Children are guaranteed to exist, but not guaranted to be resolvable (CanonicalPath)
+                    // Instead of the extra filesystem calls represent the ambiguity as all entries being
+                    // a partial canonical path.
+                    ExpandPath::Partial(PartialCanonicalPath { prior, rest, full })
+                })
+            })
+            .collect::<Result<Vec<ExpandPath>, std::io::Error>>()?;
+
+        // Sort by filename for deterministic test output only
+        // In production, preserve the OS's native directory entry order
+        #[cfg(test)]
+        {
+            entries.sort_by(|a, b| {
+                let a_name = a.as_ref().file_name().unwrap_or(a.as_ref().as_os_str());
+                let b_name = b.as_ref().file_name().unwrap_or(b.as_ref().as_os_str());
+                a_name.cmp(b_name)
+            });
+        }
+
+        Ok(entries)
+    }
+
     /// Similar semantics to [`AbsPath::parent`], but we guarantee return value
     /// exists and is normalized i.e. any CanonicalPath that is lexically equal is guaranteed
     /// to represent the same path on disk (TOCTOU caveat).

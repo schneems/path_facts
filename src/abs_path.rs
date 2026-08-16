@@ -73,6 +73,9 @@ impl AbsPath {
     /// the format is the same.
     ///
     /// Errors if path is not a directory or is not readable
+    pub fn join_relative(&self, path: &RelativePath) -> AbsPath {
+        AbsPath(self.as_ref().join(path.as_ref()))
+    }
     pub(crate) fn read_dir(&self) -> Result<Vec<AbsPath>, std::io::Error> {
         #[cfg_attr(not(test), allow(unused_mut))]
         let mut entries: Vec<AbsPath> = std::fs::read_dir(&self.0)?

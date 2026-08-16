@@ -7,12 +7,11 @@
 //!
 //! Built from a [`AbsPath`] so we know the program has access to CWD.
 //! May have un-normalized parts i.e. `..`
+use crate::abs_path::{AbsPath, RelativePath};
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
 };
-
-use crate::abs_path::{AbsPath, RelativePath};
 
 /// Represents a partially cannonicalized path
 #[derive(Debug, Clone)]

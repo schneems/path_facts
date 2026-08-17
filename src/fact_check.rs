@@ -49,18 +49,18 @@ mod tests {
         expected: std::io::ErrorKind,
     ) {
         match result {
-            Ok(value) => panic!("Expected `{expected:?}` error, got `Ok({value:?})`"),
+            Ok(value) => panic!("Expected `{:?}` error, got `Ok({:?})`", expected, value),
             Err(error) => assert_eq!(error.kind(), expected),
         }
     }
 
-    // Directory missing execute means "cannot read metadata"
-    //
-    // The names of files in the directory can be listed but not traversed.
-    // i.e. `/dir/a/b/c` would not be reachable if `dir` is missing the execute
-    // permission, however we could see that it holds an `a` entry.
-    //
-    // Inverse of `test_dir_with_execute_without_read`.
+    /// Directory missing execute means "cannot read metadata"
+    ///
+    /// The names of files in the directory can be listed but not traversed.
+    /// i.e. `/dir/a/b/c` would not be reachable if `dir` is missing the execute
+    /// permission, however we could see that it holds an `a` entry.
+    ///
+    /// Inverse of `test_dir_with_execute_without_read`.
     #[cfg(unix)]
     #[test]
     fn test_dir_without_execute() {
@@ -141,5 +141,62 @@ mod tests {
         // A name that isn't there is reported missing rather than denied, the opposite of
         // `test_dir_without_execute`. Lookup is the only existence proof left.
         assert_err_kind(missing, std::io::ErrorKind::NotFound);
+    }
+
+    /// `std::fs::canonicalize` can disagree with `std::fs::metadata`
+    ///
+    /// Both canonicalize and metadata "resolve" by following symlinks, it would seem that if you can
+    /// get one then you should be guaranteed to be able to get the other with no error. However, that's
+    /// not always the case. A real world example is that some OS's will enforce that `.` or `..` is
+    /// a directory so if you have `a/dir/..` the `..` would "eat" `dir` but if you have `a/file.txt/..`
+    /// the `..` will fail because `file.txt` is a file and not a dir.
+    ///
+    /// Canonicalize uses `realpath` while metadata uses `stat` (unix). Realpath is userspace,
+    /// stat is kernel space and checks that a path part with something after it is a dir or will
+    /// ENOTDIR. This is a exposed in Rust 1.83 as `ErrorKind::NotADirectory`
+    #[cfg(target_vendor = "apple")]
+    #[test]
+    fn test_canonicalize_disagrees_with_metadata_on_a_trailing_dot_dot() {
+        use crate::canonical_path::ExpandPath;
+
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let file = dir.join("file.txt");
+        std::fs::write(&file, "hello").unwrap();
+
+        let dotted = AbsPath::new(file.join("..")).unwrap();
+
+        assert!(std::fs::metadata(dotted.as_ref()).is_err());
+
+        assert!(std::fs::symlink_metadata(dotted.as_ref()).is_err());
+
+        // Rust 1.83
+        // assert_err_kind(
+        //     std::fs::metadata(dotted.as_ref()),
+        //     std::io::ErrorKind::NotADirectory,
+        // );
+        // assert_err_kind(
+        //     std::fs::symlink_metadata(dotted.as_ref()),
+        //     std::io::ErrorKind::NotADirectory,
+        // );
+
+        // Canonicalizing lands on `<dir>`, the answer the kernel refused to compute
+        let canonical = CanonicalPath::new(&dotted).unwrap();
+        assert_eq!(
+            canonical,
+            CanonicalPath::new(&AbsPath::new(dir).unwrap()).unwrap()
+        );
+
+        // Nothing is left over for `ExpandPath` to carry as a partial suffix
+        assert_eq!(
+            ExpandPath::new(&dotted)
+                .unwrap()
+                .canonical()
+                .expect("whole path canonicalizes under Apple's libc"),
+            canonical
+        );
+
+        // Canonical path answer diverges from input path
+        std::fs::metadata(canonical.as_ref()).unwrap();
     }
 }

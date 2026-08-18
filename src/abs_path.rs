@@ -99,9 +99,14 @@ impl AbsPath {
     /// Similar semantics to [`Path::parent`], but returning a None here would guarantee self is the root path
     ///
     /// An `AbsPath` is not normalized so it may contain `..` and/or symlinks. This is a lexical operation.
-    /// A lexical parent might not be a physical ancestor i.e.
     ///
-    ///     AbsPath::new("a/b/c/..").unwrap().lex_parent() -> Some("a/b/c")
+    /// ## Trailing ParentDir part (`..`)
+    ///
+    /// A lexical parent might not be a physical ancestor when the last path is `..` i.e.
+    ///
+    /// ```text
+    /// AbsPath::new("a/b/c/..").unwrap().lex_parent() -> Some("a/b/c")
+    /// ```
     ///
     /// In this example, the lex_parent does not contain the child. The path `a/b/c/..` maps to the physical
     /// location of `a/b` therefore the physical parent would be `a`.
@@ -110,6 +115,35 @@ impl AbsPath {
     /// symlinks. If `a/b` is a symlink to `/x/y/z`, the kernel follows `a/b`
     /// to `/x/y/z`, so `a/b/c/..` is resolved as `/x/y/z/c/..`, which expands
     /// to `/x/y/z`. The physical parent would be `/x/y` and not `a`.
+    ///
+    /// ## ParentDir part (`..`) in the middle of a path
+    ///
+    /// Unlike a trailing `..`, one in the middle is not a hazard. When the last component is
+    /// `Normal`, [`Path::parent`] hands back the prefix verbatim, `..` and all:
+    ///
+    /// ```text
+    /// AbsPath::new("/a/b/../c/d").unwrap().lex_parent() -> Some("/a/b/../c")
+    /// ```
+    ///
+    /// That result names the directory holding `d` (`a/b/c`). The kernel
+    /// walks the same characters it walked for the original path, so it stops in the same
+    /// place. Keeping the `..` unresolved is what makes this true: if `a/b` is a symlink to
+    /// `/x/y/z`, then `/a/b/..` is `/x/y`, `d` lives in `/x/y/c`, and `/a/b/../c` resolves
+    /// there too. Folding the `..` away first would give `/a/c`, a different directory that
+    /// may not exist at all.
+    ///
+    /// ## CurrentDir in path
+    ///
+    /// A `.` in the middle is harmless. It survives in the prefix the same way
+    /// (`/a/b/./c/d` -> `/a/b/./c`) and denotes the directory it appears to.
+    ///
+    /// It never survives at the *end* of a returned parent: [`Path::parent`] drops a trailing
+    /// `.` along with the component before it, so `/a/b/./c` -> `/a/b` and `/a/b/.` -> `/a`.
+    /// The second looks like it skips a level but is correct, because `/a/b/.` already denotes
+    /// `/a/b`. Walking parents therefore visits each directory once, with no `/a/b/.` step in
+    /// between. This is the opposite of the trailing `..` case above: `std` normalizes a
+    /// trailing `.` and lands on the physical parent, and leaves a trailing `..` alone and
+    /// does not.
     pub(crate) fn lex_parent(&self) -> Option<Self> {
         let parent = self.0.parent()?;
 

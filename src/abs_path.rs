@@ -62,20 +62,21 @@ impl AbsPath {
         Ok(RelativePath::new(diff).expect("path with stripped prefix is guaranteed relative"))
     }
 
-    /// Tries to read the current path as a directory
-    ///
-    /// The properties of `read_dir` state that the resulting paths returned from `DirEntry`
-    /// match the original path appended with the filename of the entry. Because we know
-    /// the directory path is absolute, we know the resulting paths are absolute.
-    ///
-    /// Further this gives us the properties that calling `AbsPath::parent().read_dir()` should
-    /// return a vector of paths that contain the original path if the original file exists. i.e.
-    /// the format is the same.
-    ///
-    /// Errors if path is not a directory or is not readable
     pub fn join_relative(&self, path: &RelativePath) -> AbsPath {
         AbsPath(self.as_ref().join(path.as_ref()))
     }
+
+    // /// Tries to read the current path as a directory
+    // ///
+    // /// The properties of `read_dir` state that the resulting paths returned from `DirEntry`
+    // /// match the original path appended with the filename of the entry. Because we know
+    // /// the directory path is absolute, we know the resulting paths are absolute.
+    // ///
+    // /// Further this gives us the properties that calling `AbsPath::parent().read_dir()` should
+    // /// return a vector of paths that contain the original path if the original file exists. i.e.
+    // /// the format is the same.
+    // ///
+    // /// Errors if path is not a directory or is not readable
     pub(crate) fn read_dir(&self) -> Result<Vec<AbsPath>, std::io::Error> {
         #[cfg_attr(not(test), allow(unused_mut))]
         let mut entries: Vec<AbsPath> = std::fs::read_dir(&self.0)?
@@ -121,6 +122,8 @@ impl AsRef<Path> for AbsPath {
 /// Returns Err if `read_link` fails
 /// Returns Ok(None) if the path is not a symlink or if [`std::fs::symlink_metadata`] fails
 /// Otherwise returns Ok(Some(AbsPath)) with the target of the symlink
+///
+/// Incorrectly joins against the current path instead of the current path's parent
 pub(crate) fn try_readlink(absolute: &AbsPath) -> Result<Option<AbsPath>, std::io::Error> {
     let path = absolute.as_ref();
     if path.is_symlink() {

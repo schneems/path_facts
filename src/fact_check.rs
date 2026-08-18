@@ -259,5 +259,50 @@ mod tests {
         // be readable `link/dir` must exist, and if `link` is broken, it cannot. so symlink_metadata
         // there would fail with ErrKind::NotFound
     }
+
+    /// `Components` erases `.` and keeps `..`, which is why only one of them is safe
+    ///
+    /// A `.` needs no filesystem to interpret, so `Path` folds it away and is right to:
+    /// `/a/b/.` reports a final `Normal("b")` and has the same parent as `/a/b`. A `..` is
+    /// kept, and `parent` returns `/a/b` for `/a/b/..` — the entry the `..` cancels rather
+    /// than any ancestor of the location.
+    ///
+    /// Every claim here is about `Path` alone, so nothing touches the disk and nothing is
+    /// platform specific.
+    #[test]
+    fn test_components_erases_current_dir_but_keeps_parent_dir() {
+        use std::ffi::OsStr;
+        use std::path::Component;
+
+        // `.` is gone from the component stream, trailing or interior
+        assert_eq!(
+            Path::new("/a/b/.").components().next_back(),
+            Some(Component::Normal(OsStr::new("b")))
+        );
+        assert_eq!(
+            Path::new("/a/./b").components().collect::<Vec<_>>(),
+            Path::new("/a/b").components().collect::<Vec<_>>()
+        );
+
+        // `parent` drops a trailing `.` along with the name before it, so `X/.` and `X` agree
+        assert_eq!(Path::new("/a/b/.").parent(), Path::new("/a/b").parent());
+        assert_eq!(Path::new("/a/b/.").parent(), Some(Path::new("/a")));
+
+        // An interior `.` survives in the bytes `parent` hands back, because the return is a
+        // slice of the input rather than a rebuild from components. It takes `as_os_str` to
+        // see that: `PartialEq` runs through `components`, which is blind to the difference.
+        assert_eq!(
+            Path::new("/a/./b/c").parent().unwrap().as_os_str(),
+            OsStr::new("/a/./b")
+        );
+        assert_eq!(Path::new("/a/./b"), Path::new("/a/b"));
+
+        // `..` is kept, and `parent` cancels it against the name before it. `/a/b/..` is the
+        // location `/a`, whose parent is `/`, so `/a/b` is not an ancestor of anything here.
+        assert_eq!(
+            Path::new("/a/b/..").components().next_back(),
+            Some(Component::ParentDir)
+        );
+        assert_eq!(Path::new("/a/b/..").parent(), Some(Path::new("/a/b")));
     }
 }

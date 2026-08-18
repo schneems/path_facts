@@ -878,7 +878,7 @@ mod tests {
         std::fs::write(&file, "").unwrap();
 
         let absolute = AbsPath::new(&file).unwrap();
-        let parent = DirOk::new(absolute.parent().unwrap()).unwrap();
+        let parent = DirOk::new(absolute.lex_parent().unwrap()).unwrap();
         let canonical = CanonicalPath::new(&absolute).unwrap();
         let error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "simulated");
 
@@ -917,7 +917,7 @@ mod tests {
         std::fs::write(&file, "").unwrap();
 
         let absolute = AbsPath::new(&file).unwrap();
-        let parent = DirOk::new(absolute.parent().unwrap()).unwrap();
+        let parent = DirOk::new(absolute.lex_parent().unwrap()).unwrap();
         let canonical = CanonicalPath::new(&absolute).unwrap();
         let error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "simulated");
 

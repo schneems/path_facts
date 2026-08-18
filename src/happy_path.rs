@@ -111,7 +111,7 @@ pub(crate) enum UnknownPath {
 pub(crate) fn state(path: &Path) -> Result<KnownPath, Box<UnknownPath>> {
     let absolute = AbsPath::new(path).map_err(UnknownPath::AbsPathError)?;
     let abs_parent = absolute
-        .parent()
+        .lex_parent()
         .ok_or_else(|| UnknownPath::IsRoot(absolute.clone()))?;
     let expand = ExpandPath::new(&absolute).map_err(UnknownPath::CannotCanonicalizeAnything)?;
     let parent = DirOk::new(abs_parent.clone()).map_err(|error| UnknownPath::ParentProblem {

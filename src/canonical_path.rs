@@ -99,7 +99,7 @@ pub(crate) struct CannotCanonicalizeAnything {
 impl ExpandPath {
     pub(crate) fn new(abs_path: &AbsPath) -> Result<Self, CannotCanonicalizeAnything> {
         // Walk the original path, then each lexical ancestor up to root.
-        let ancestors = std::iter::successors(Some(abs_path.clone()), AbsPath::parent);
+        let ancestors = std::iter::successors(Some(abs_path.clone()), AbsPath::lex_parent);
 
         let mut last_failure = None;
         for path in ancestors.peekable() {

@@ -99,7 +99,18 @@ impl AbsPath {
     /// Similar semantics to [`Path::parent`], but returning a None here would guarantee self is the root path
     ///
     /// An `AbsPath` is not normalized so it may contain `..` and/or symlinks. This is a lexical operation.
-    pub(crate) fn parent(&self) -> Option<Self> {
+    /// A lexical parent might not be a physical ancestor i.e.
+    ///
+    ///     AbsPath::new("a/b/c/..").unwrap().lex_parent() -> Some("a/b/c")
+    ///
+    /// In this example, the lex_parent does not contain the child. The path `a/b/c/..` maps to the physical
+    /// location of `a/b` therefore the physical parent would be `a`.
+    ///
+    /// The `..` ([`std::path::Component::ParentDir`]) can also interact with
+    /// symlinks. If `a/b` is a symlink to `/x/y/z`, the kernel follows `a/b`
+    /// to `/x/y/z`, so `a/b/c/..` is resolved as `/x/y/z/c/..`, which expands
+    /// to `/x/y/z`. The physical parent would be `/x/y` and not `a`.
+    pub(crate) fn lex_parent(&self) -> Option<Self> {
         let parent = self.0.parent()?;
 
         Some(AbsPath(parent.to_path_buf()))
@@ -117,6 +128,12 @@ impl AsRef<Path> for AbsPath {
         self.0.as_ref()
     }
 }
+
+// pub(crate) enum MetadataRaw {
+//     File,
+//     Dir,
+//     Symlink,
+// }
 
 /// Returns Err if `read_link` fails
 /// Returns Ok(None) if the path is not a symlink or if [`std::fs::symlink_metadata`] fails

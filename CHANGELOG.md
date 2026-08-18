@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fix bug with readlink. A symlink such as `/a/b/c` → `d/e/f` (relative symlink) will be joined to the
+  dir of the file it's in, so the system would read it as `/a/b/d/e/f`. Previously this incorrectly reported
+  it was `/a/b/c/d/e/f`.
 - Add expanded path. Previously the library used absolute paths as a common demonimator. However the
   `std::fs::absolute` does not remove parent parts (`..`) and current dir `.` so two paths could represent
   the same path on disk, but have two different representations. An "expanded" path is either a canonical

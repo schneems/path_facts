@@ -8,7 +8,7 @@
 //! If the held path is a readable directory, all children are also absolute paths [`AbsPath::read_dir`].
 use std::{
     fmt::{Display, Formatter},
-    path::{Path, PathBuf, StripPrefixError},
+    path::{Component, Path, PathBuf, StripPrefixError},
 };
 
 /// Guaranteed to be relative
@@ -149,6 +149,11 @@ impl AbsPath {
 
         Some(AbsPath(parent.to_path_buf()))
     }
+
+    /// The same as `lex_parent` but will return root when trying to traverse beyond root
+    pub(crate) fn lex_parent_or_root(&self) -> Self {
+        self.lex_parent().unwrap_or_else(|| self.clone())
+    }
 }
 
 impl Display for AbsPath {
@@ -172,13 +177,30 @@ impl AsRef<Path> for AbsPath {
 /// Returns Err if `read_link` fails
 /// Returns Ok(None) if the path is not a symlink or if [`std::fs::symlink_metadata`] fails
 /// Otherwise returns Ok(Some(AbsPath)) with the target of the symlink
+///
+/// A relative target resolves against the directory holding the symlink, not against the
+/// symlink itself. A link at `/a/sub/rel` pointing at `gone` names `/a/sub/gone`.
+///
+/// The interface is wrong, it is displayed to the user such that it makes it seem that
+/// an absolute path is written to the symlink (when relative). When in reality the relative
+/// path can matter if the file is/was moved. TODO: Return (PathBuf, AbsPath) (or similar)
 pub(crate) fn try_readlink(absolute: &AbsPath) -> Result<Option<AbsPath>, std::io::Error> {
     let path = absolute.as_ref();
+    // Only returns true if the exact path is a symlink and ends in a normal part, would report
+    // `false` for anything ending in `..`
     if path.is_symlink() {
         std::fs::read_link(path)
             .map(|target| {
                 if target.is_relative() {
-                    AbsPath(absolute.as_ref().join(target))
+                    // `path.is_symlink()` only returns true for a path that is `Normal` i.e. never `..`
+                    // This assumption allows us to use `lex_parent()` even though it's not a physical
+                    // path based on details in `lex_parent()` docs.
+                    debug_assert!(!matches!(
+                        absolute.as_ref().components().next_back(),
+                        Some(Component::ParentDir),
+                    ));
+                    let base = absolute.lex_parent_or_root();
+                    AbsPath(base.0.join(target))
                 } else {
                     AbsPath(target)
                 }
@@ -193,4 +215,54 @@ pub(crate) fn try_readlink(absolute: &AbsPath) -> Result<Option<AbsPath>, std::i
 pub(crate) enum AbsPathError {
     PathIsEmpty(PathBuf),
     CannotReadCWD(PathBuf, std::io::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn abs(path: impl AsRef<Path>) -> AbsPath {
+        AbsPath::new(path).unwrap()
+    }
+
+    fn tempdir() -> (tempfile::TempDir, PathBuf) {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().canonicalize().unwrap();
+        (temp, dir)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_readlink_absolute_target_is_reported_verbatim() {
+        let (_temp, dir) = tempdir();
+        let symlink = dir.join("symlink");
+        let target = dir.join("target");
+        std::os::unix::fs::symlink(&target, &symlink).unwrap();
+
+        let readlink = try_readlink(&abs(&symlink)).unwrap().unwrap();
+        assert_eq!(readlink.as_ref(), target);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_readlink_relative_target_resolves_against_the_link_directory() {
+        let (_temp, dir) = tempdir();
+        let symlink = dir.join("symlink");
+        std::fs::create_dir_all(symlink.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink("target", &symlink).unwrap();
+
+        let readlink = try_readlink(&abs(&symlink)).unwrap().unwrap();
+        assert_eq!(readlink.as_ref(), dir.join("target"));
+    }
+
+    /// Only symlinks have targets. A path that exists but is not a link, and a path that
+    /// does not exist at all, are both "no target" rather than an error.
+    #[test]
+    fn test_readlink_without_a_symlink_is_none() {
+        let (_temp, dir) = tempdir();
+        std::fs::write(dir.join("f"), "").unwrap();
+
+        assert!(try_readlink(&abs(dir.join("f"))).unwrap().is_none());
+        assert!(try_readlink(&abs(dir.join("missing"))).unwrap().is_none());
+    }
 }

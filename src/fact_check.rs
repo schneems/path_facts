@@ -54,6 +54,15 @@ mod tests {
         }
     }
 
+    /// Two spellings reach one directory. Comparing the paths cannot answer this, since a
+    /// `..` or a symlink leaves them sharing no common prefix.
+    #[cfg(unix)]
+    fn is_same_dir(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
+        use std::os::unix::fs::MetadataExt;
+
+        left.dev() == right.dev() && left.ino() == right.ino()
+    }
+
     /// Directory missing execute means "cannot read metadata"
     ///
     /// The names of files in the directory can be listed but not traversed.
@@ -198,5 +207,57 @@ mod tests {
 
         // Canonical path answer diverges from input path
         std::fs::metadata(canonical.as_ref()).unwrap();
+    }
+
+    /// `symlink_metadata` resolves a trailing `..`, it does not report on it
+    ///
+    /// `lstat` withholds resolution from a *symlink* in the final position and nothing else.
+    /// A `..` is an ordinary entry naming the parent, so it resolves, and resolves
+    /// physically: `<dir>/link/..` follows `link` first and lands beside the target.
+    #[cfg(unix)]
+    #[test]
+    fn test_symlink_metadata_resolves_a_trailing_dot_dot() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().canonicalize().unwrap();
+        std::fs::create_dir_all(dir.join("x/y/z")).unwrap();
+        let link = dir.join("link");
+        std::os::unix::fs::symlink(dir.join("x/y/z"), &link).unwrap();
+        assert!(link.is_symlink());
+
+        // `intermediate` is created through the link, so it sits in the target and `..`
+        // lands back on the target
+        let dotted = link.join("intermediate").join("..");
+        std::fs::create_dir_all(dotted.parent().unwrap()).unwrap();
+        let dotted_meta = std::fs::symlink_metadata(&dotted).unwrap();
+        assert!(!dotted.is_symlink());
+        assert!(dotted_meta.is_dir());
+
+        // `lstat` on the link describes the link, `stat` describes the target
+        assert!(!is_same_dir(
+            &dotted_meta,
+            &std::fs::symlink_metadata(&link).unwrap()
+        ));
+        assert!(is_same_dir(
+            &dotted_meta,
+            &std::fs::metadata(&link).unwrap()
+        ));
+
+        // `<dir>/link/..` is `<dir>/x/y`. A lexical reading would have said `<dir>`.
+        let through_link = link.join("..");
+        let through_meta = std::fs::symlink_metadata(&through_link).unwrap();
+        assert!(!through_link.is_symlink());
+        assert!(is_same_dir(
+            &through_meta,
+            &std::fs::symlink_metadata(dir.join("x/y")).unwrap()
+        ));
+        assert!(!is_same_dir(
+            &through_meta,
+            &std::fs::symlink_metadata(&dir).unwrap()
+        ));
+
+        // a path that ends in `..` cannot point a broken symlink because for `link/dir/..` to
+        // be readable `link/dir` must exist, and if `link` is broken, it cannot. so symlink_metadata
+        // there would fail with ErrKind::NotFound
+    }
     }
 }

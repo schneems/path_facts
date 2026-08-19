@@ -305,4 +305,41 @@ mod tests {
         );
         assert_eq!(Path::new("/a/b/..").parent(), Some(Path::new("/a/b")));
     }
+
+    /// `create_dir_all("x/y/z/..")` creates `z`, even when `y` is missing
+    ///
+    /// Lexically `x/y/z/..` is `x/y`. `Path::parent` does not fold that way: the
+    /// parent of `x/y/z/..` is `x/y/z`. `create_dir_all` walks that chain, so a
+    /// missing `y` is filled by creating `x`, then `y`, then `z`. Only then does
+    /// it `mkdir` the `..`. That name already exists as a directory entry, so the
+    /// call returns `AlreadyExists`, and `is_dir("x/y/z/..")` is true because the
+    /// path is `x/y`.
+    ///
+    /// The operation succeeds, and leaves behind a `z` that a folded reading of
+    /// the path would never have asked for. `mkdir -p` does the same.
+    #[cfg(unix)]
+    #[test]
+    fn test_create_dir_all_trailing_dot_dot_creates_the_cancelled_name() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let y = dir.join("x").join("y");
+        let z = y.join("z");
+        let dotted = z.join("..");
+
+        assert_eq!(dotted.parent(), Some(z.as_path()));
+        assert!(!y.exists());
+        assert_err_kind(std::fs::create_dir(&dotted), std::io::ErrorKind::NotFound);
+
+        std::fs::create_dir_all(&dotted).unwrap();
+
+        assert!(y.is_dir());
+        assert!(
+            z.is_dir() && z.exists(),
+            "`z` is created even though a trailing `..` cancels it"
+        );
+        assert!(is_same_dir(
+            &std::fs::metadata(&dotted).unwrap(),
+            &std::fs::metadata(&y).unwrap(),
+        ));
+    }
 }

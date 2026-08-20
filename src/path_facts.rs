@@ -354,10 +354,19 @@ mod tests {
         }
     }
 
-    // Cross-platform "remove write permission" for tests. Unix drops the write mode
-    // bit (keeping read+execute so the directory is still traversable); Windows sets
-    // the read-only attribute. Both make `access(WRITE)` report the directory as
-    // not writable, which is what the tests observe.
+    // Cross-platform "remove write permission from a directory" for tests. Unix drops
+    // the write mode bit (keeping read+execute so the directory is still traversable).
+    //
+    // Windows ignores the read-only *attribute* on directories, and `faccess`'s
+    // directory path skips that attribute entirely — it evaluates the real DACL via the
+    // Win32 `AccessCheck` API. So `set_readonly(true)` would be a no-op for the write
+    // check. Instead we add an explicit deny-write ACE for the current user with
+    // `icacls /deny`. Unlike a traverse (execute) deny, a DACL deny-write ACE is honored
+    // by `AccessCheck` even under the admin token the CI runner uses, so this makes
+    // `access(WRITE)` report the directory as not writable.
+    //
+    // The deny ACE persists on the directory; `restore_write` removes it so the tempdir
+    // can be cleaned up.
     fn set_read_only<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
         #[cfg(unix)]
         {
@@ -365,10 +374,38 @@ mod tests {
         }
         #[cfg(windows)]
         {
-            let path = path.as_ref();
-            let mut perms = std::fs::metadata(path)?.permissions();
-            perms.set_readonly(true);
-            std::fs::set_permissions(path, perms)
+            icacls(path.as_ref(), "/deny", &format!("{}:(W)", current_user()?))
+        }
+    }
+
+    // Undo the deny-write ACE added by `set_read_only` on Windows so the tempdir can be
+    // removed. No-op on unix, where `tempfile` can clean up a mode-0o555 directory
+    // because the *parent* is still writable.
+    #[cfg(windows)]
+    fn restore_write<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
+        icacls(path.as_ref(), "/remove:d", &current_user()?)
+    }
+
+    #[cfg(windows)]
+    fn current_user() -> std::io::Result<String> {
+        std::env::var("USERNAME")
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::NotFound, "USERNAME not set"))
+    }
+
+    #[cfg(windows)]
+    fn icacls(path: &Path, flag: &str, spec: &str) -> std::io::Result<()> {
+        let output = std::process::Command::new("icacls")
+            .arg(path)
+            .arg(flag)
+            .arg(spec)
+            .output()?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(std::io::Error::other(format!(
+                "icacls {flag} {spec} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )))
         }
     }
 
@@ -744,11 +781,18 @@ mod tests {
 
         set_read_only(&readonly_dir).unwrap();
 
+        let output = PathFacts::new(readonly_dir.join("does_not_exist.txt"))
+            .to_string()
+            .replace(&dir.display().to_string(), "/path/to/directory")
+            .replace('\\', "/")
+            + "🛑";
+
+        // Remove the deny-write ACE so the tempdir can be cleaned up.
+        #[cfg(windows)]
+        restore_write(&readonly_dir).unwrap();
+
         insta::assert_snapshot!(
-            PathFacts::new(readonly_dir.join("does_not_exist.txt"))
-                .to_string()
-                .replace(&dir.display().to_string(), "/path/to/directory")
-                .replace('\\', "/") + "🛑",
+            output,
             @r"
         does not exist `/path/to/directory/readonly_dir/does_not_exist.txt`
          - Parent directory is missing write permissions (cannot create, delete, or modify files)

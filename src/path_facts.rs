@@ -325,6 +325,55 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
+    // Cross-platform symlink creation for tests. Unix has a single `symlink` that
+    // ignores the target's type; Windows splits it into `symlink_file` and
+    // `symlink_dir` and needs the right one chosen up front. These wrappers pick
+    // the correct call per OS so the tests below can run on both.
+    //
+    // Creating a symlink on Windows requires SeCreateSymbolicLinkPrivilege (admin
+    // or Developer Mode, which GitHub's runners enable).
+    fn symlink_file<P: AsRef<Path>, Q: AsRef<Path>>(target: P, link: Q) -> std::io::Result<()> {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link)
+        }
+        #[cfg(windows)]
+        {
+            std::os::windows::fs::symlink_file(target, link)
+        }
+    }
+
+    fn symlink_dir<P: AsRef<Path>, Q: AsRef<Path>>(target: P, link: Q) -> std::io::Result<()> {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link)
+        }
+        #[cfg(windows)]
+        {
+            std::os::windows::fs::symlink_dir(target, link)
+        }
+    }
+
+    // Cross-platform "remove write permission" for tests. Unix drops the write mode
+    // bit (keeping read+execute so the directory is still traversable); Windows sets
+    // the read-only attribute. Both make `access(WRITE)` report the directory as
+    // not writable, which is what the tests observe.
+    fn set_read_only<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
+        let path = path.as_ref();
+        #[cfg(unix)]
+        {
+            let mut perms = std::fs::metadata(path)?.permissions();
+            perms.set_mode(0o555); // read + execute, no write
+            std::fs::set_permissions(path, perms)
+        }
+        #[cfg(windows)]
+        {
+            let mut perms = std::fs::metadata(path)?.permissions();
+            perms.set_readonly(true);
+            std::fs::set_permissions(path, perms)
+        }
+    }
+
     #[test]
     fn test_prior_dir_problem_is_file() {
         let tempdir = tempfile::tempdir().unwrap();
@@ -338,7 +387,8 @@ mod tests {
                 "prior_dir_problem_is_file",
                 PathFacts::new(path)
                 .to_string()
-                .replace(&dir.display().to_string(), "/path/to/directory") + "🛑"
+                .replace(&dir.display().to_string(), "/path/to/directory")
+                .replace('\\', "/") + "🛑"
             );
         });
     }
@@ -367,7 +417,8 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(path)
                 .to_string()
-                .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
+                .replace(&dir.display().to_string(), "/path/to/directory")
+                .replace('\\', "/") + "🛑",
             @r"
         cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
          - Prior directory does not exist `/path/to/directory/a`
@@ -399,7 +450,8 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(path)
                 .to_string()
-                .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
+                .replace(&dir.display().to_string(), "/path/to/directory")
+                .replace('\\', "/") + "🛑",
             @r"
         exists `/path/to/directory/exists.txt`
          - `/path/to/directory`
@@ -444,7 +496,8 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(dir.join("does_not_exist.txt"))
                 .to_string()
-                .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
+                .replace(&dir.display().to_string(), "/path/to/directory")
+                .replace('\\', "/") + "🛑",
             @r"
         does not exist `/path/to/directory/does_not_exist.txt`
          - Missing `does_not_exist.txt` from parent directory:
@@ -484,7 +537,8 @@ mod tests {
                 "rename_two_missing_paths",
                 result.unwrap_err()
                     .to_string()
-                    .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory") + "🛑"
+                    .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
+                    .replace('\\', "/") + "🛑"
             );
         });
     }
@@ -501,7 +555,8 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(path)
                 .to_string()
-                .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory") + "🛑",
+                .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
+                .replace('\\', "/") + "🛑",
             @r"
         exists `exists.txt` → `/path/to/directory/exists.txt`
          - `/path/to/directory`
@@ -511,7 +566,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn test_symlink_to_file() {
         // Use two separate temp directories to guarantee different paths on all platforms
         let target_temp = tempfile::tempdir().unwrap();
@@ -525,7 +579,7 @@ mod tests {
 
         // Create symlink in second tempdir pointing to first tempdir
         let symlink_path = link_dir.join("link_to_target.txt");
-        std::os::unix::fs::symlink(&target_file, &symlink_path).unwrap();
+        symlink_file(&target_file, &symlink_path).unwrap();
 
         let output = PathFacts::new(&symlink_path)
             .to_string()
@@ -545,7 +599,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn test_symlink_to_directory() {
         // Use two separate temp directories to guarantee different paths on all platforms
         let target_temp = tempfile::tempdir().unwrap();
@@ -560,7 +613,7 @@ mod tests {
 
         // Create symlink in second tempdir pointing to first tempdir
         let symlink_path = link_dir.join("link_to_dir");
-        std::os::unix::fs::symlink(&target, &symlink_path).unwrap();
+        symlink_dir(&target, &symlink_path).unwrap();
 
         let output = PathFacts::new(&symlink_path)
             .to_string()
@@ -580,6 +633,17 @@ mod tests {
     }
 
     #[test]
+    // Unix-only test, though the failure it covers is not unix-only. `CannotReadCWD`
+    // fires whenever `std::env::current_dir()` fails, which can happen on Windows too
+    // (e.g. the working directory lived on a removable or network drive that went
+    // away, or its permissions were revoked out from under the process).
+    //
+    // What differs is how to *provoke* it deterministically in a test. On unix we
+    // just delete the CWD while sitting in it. Windows holds an open handle to the
+    // CWD and refuses to remove it (`remove_dir` returns an error), so that trick is
+    // unavailable, and the remaining triggers (yanking a drive, racing an ACL change)
+    // can't be staged reliably from a unit test. Hence unix-only exercises the path.
+    #[cfg(unix)]
     fn test_cannot_read_cwd() {
         let tempdir = tempfile::tempdir().unwrap();
         let dir = tempdir.path().canonicalize().unwrap();
@@ -602,12 +666,32 @@ mod tests {
         ");
     }
 
+    // Root detection is "the path has no lexical parent". The spelling of a root
+    // differs by platform, so each OS asserts its own: unix's `/` here, Windows's
+    // `C:\` in `test_is_root_windows`. On Windows `/` is root-but-relative (it has
+    // a RootDir component but no drive prefix), so it would not report as root.
     #[test]
+    #[cfg(unix)]
     fn test_is_root() {
         insta::assert_snapshot!(
             PathFacts::new("/").to_string() + "🛑",
             @r"
         is root `/`
+        🛑
+        "
+        );
+    }
+
+    // Windows analog of `test_is_root`. A drive root like `C:\` has a Prefix and a
+    // RootDir but no further components, so it has no lexical parent and reports as
+    // root, the same property `/` has on unix.
+    #[test]
+    #[cfg(windows)]
+    fn test_is_root_windows() {
+        insta::assert_snapshot!(
+            PathFacts::new(r"C:\").to_string() + "🛑",
+            @r"
+        is root `C:\`
         🛑
         "
         );
@@ -623,7 +707,8 @@ mod tests {
             // Create a relative path where the parent directories don't exist
             PathFacts::new(Path::new("a/b/c/does_not_exist.txt"))
                 .to_string()
-                .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
+                .replace(&dir.display().to_string(), "/path/to/directory")
+                .replace('\\', "/") + "🛑",
             @r"
         cannot access `a/b/c/does_not_exist.txt` → `/path/to/directory/a/b/c/does_not_exist.txt`
          - Prior directory does not exist `/path/to/directory/a`
@@ -635,22 +720,19 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn test_parent_directory_missing_write_permissions() {
         let tempdir = tempfile::tempdir().unwrap();
         let dir = tempdir.path().canonicalize().unwrap();
         let readonly_dir = dir.join("readonly_dir");
         std::fs::create_dir(&readonly_dir).unwrap();
 
-        // Remove write permissions from the directory
-        let mut perms = std::fs::metadata(&readonly_dir).unwrap().permissions();
-        perms.set_mode(0o555); // read + execute, no write
-        std::fs::set_permissions(&readonly_dir, perms).unwrap();
+        set_read_only(&readonly_dir).unwrap();
 
         insta::assert_snapshot!(
             PathFacts::new(readonly_dir.join("does_not_exist.txt"))
                 .to_string()
-                .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
+                .replace(&dir.display().to_string(), "/path/to/directory")
+                .replace('\\', "/") + "🛑",
             @r"
         does not exist `/path/to/directory/readonly_dir/does_not_exist.txt`
          - Parent directory is missing write permissions (cannot create, delete, or modify files)
@@ -663,7 +745,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn test_cannot_canonicalize_circular_symlink_absolute() {
         let tempdir = tempfile::tempdir().unwrap();
         let dir = tempdir.path().canonicalize().unwrap();
@@ -671,8 +752,8 @@ mod tests {
         let link2 = dir.join("link2");
 
         // Create circular symlinks
-        std::os::unix::fs::symlink(&link2, &link1).unwrap();
-        std::os::unix::fs::symlink(&link1, &link2).unwrap();
+        symlink_file(&link2, &link1).unwrap();
+        symlink_file(&link1, &link2).unwrap();
 
         insta::assert_snapshot!(
             PathFacts::new(&link1)
@@ -691,15 +772,14 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn test_cannot_canonicalize_circular_symlink_relative() {
         let tempdir = tempfile::tempdir().unwrap();
         let dir = tempdir.path().canonicalize().unwrap();
         std::env::set_current_dir(dir).unwrap();
 
         // Create circular symlinks with relative paths
-        std::os::unix::fs::symlink("link2", "link1").unwrap();
-        std::os::unix::fs::symlink("link1", "link2").unwrap();
+        symlink_file("link2", "link1").unwrap();
+        symlink_file("link1", "link2").unwrap();
 
         insta::assert_snapshot!(
             PathFacts::new(Path::new("link1"))
@@ -718,7 +798,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn test_cannot_canonicalize_broken_symlink_absolute() {
         let tempdir = tempfile::tempdir().unwrap();
         let dir = tempdir.path().canonicalize().unwrap();
@@ -726,7 +805,7 @@ mod tests {
         let nonexistent = dir.join("does_not_exist");
 
         // Create a symlink pointing to a non-existent target
-        std::os::unix::fs::symlink(&nonexistent, &broken_link).unwrap();
+        symlink_file(&nonexistent, &broken_link).unwrap();
 
         insta::assert_snapshot!(
             PathFacts::new(&broken_link)
@@ -744,14 +823,13 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn test_cannot_canonicalize_broken_symlink_relative() {
         let tempdir = tempfile::tempdir().unwrap();
         let dir = tempdir.path().canonicalize().unwrap();
         std::env::set_current_dir(dir).unwrap();
 
         // Create a symlink pointing to a non-existent target (relative path)
-        std::os::unix::fs::symlink("does_not_exist", "broken_link").unwrap();
+        symlink_file("does_not_exist", "broken_link").unwrap();
 
         insta::assert_snapshot!(
             PathFacts::new(Path::new("broken_link"))
@@ -769,6 +847,8 @@ mod tests {
     }
 
     #[test]
+    // Unix-only: relies on POSIX mode bits via `PermissionsExt::set_mode` (here
+    // dropping directory execute), which does not exist on Windows.
     #[cfg(unix)]
     fn test_cannot_canonicalize_no_execute_dir_with_file() {
         let tempdir = tempfile::tempdir().unwrap();
@@ -800,6 +880,8 @@ mod tests {
     }
 
     #[test]
+    // Unix-only: relies on POSIX mode bits via `PermissionsExt::set_mode` (here
+    // dropping directory write and execute), which does not exist on Windows.
     #[cfg(unix)]
     fn test_cannot_canonicalize_no_write_dir_with_file() {
         let tempdir = tempfile::tempdir().unwrap();
@@ -843,6 +925,8 @@ mod tests {
     }
 
     #[test]
+    // Unix-only: builds `AbsPath` from unix-rooted paths (`/` and `/pretend/...`),
+    // which are not valid absolute paths on Windows (roots look like `C:\`).
     #[cfg(unix)]
     fn test_cannot_canonicalize_anything() {
         let path = PathBuf::from(r"/pretend/root/does/not/exist/somehow");
@@ -898,7 +982,8 @@ mod tests {
             facts
                 .to_string()
                 .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
-                .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
+                .replace(&dir.display().to_string(), "/path/to/directory")
+                .replace('\\', "/") + "🛑",
             @r"
         exists `/path/to/directory/exists.txt`
          - Cannot read metadata due to error `simulated`
@@ -937,7 +1022,8 @@ mod tests {
             facts
                 .to_string()
                 .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
-                .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
+                .replace(&dir.display().to_string(), "/path/to/directory")
+                .replace('\\', "/") + "🛑",
             @r"
         exists `/path/to/directory/exists.txt`
          - Cannot readlink due to error `simulated`

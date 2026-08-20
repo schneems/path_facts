@@ -359,19 +359,27 @@ mod tests {
     // the read-only attribute. Both make `access(WRITE)` report the directory as
     // not writable, which is what the tests observe.
     fn set_read_only<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
-        let path = path.as_ref();
         #[cfg(unix)]
         {
-            let mut perms = std::fs::metadata(path)?.permissions();
-            perms.set_mode(0o555); // read + execute, no write
-            std::fs::set_permissions(path, perms)
+            set_mode(path, 0o555) // read + execute, no write
         }
         #[cfg(windows)]
         {
+            let path = path.as_ref();
             let mut perms = std::fs::metadata(path)?.permissions();
             perms.set_readonly(true);
             std::fs::set_permissions(path, perms)
         }
+    }
+
+    // Unix-only mode helpers. These set specific POSIX mode bits that have no
+    // Windows equivalent, so the tests that use them are `#[cfg(unix)]`.
+    #[cfg(unix)]
+    fn set_mode<P: AsRef<Path>>(path: P, mode: u32) -> std::io::Result<()> {
+        let path = path.as_ref();
+        let mut perms = std::fs::metadata(path)?.permissions();
+        perms.set_mode(mode);
+        std::fs::set_permissions(path, perms)
     }
 
     #[test]
@@ -585,6 +593,7 @@ mod tests {
             .to_string()
             .replace(&target_dir.display().to_string(), "/path/to/target")
             .replace(&link_dir.display().to_string(), "/path/to/link")
+            .replace('\\', "/")
             + "🛑";
 
         insta::assert_snapshot!(
@@ -619,6 +628,7 @@ mod tests {
             .to_string()
             .replace(&target_dir.display().to_string(), "/path/to/target")
             .replace(&link_dir.display().to_string(), "/path/to/link")
+            .replace('\\', "/")
             + "🛑";
 
         insta::assert_snapshot!(
@@ -759,7 +769,8 @@ mod tests {
             PathFacts::new(&link1)
                 .to_string()
                 .replace(&dir.display().to_string(), "/path/to/directory")
-                .replace(&std::fs::canonicalize(&link1).unwrap_err().to_string(), "{error}") + "🛑",
+                .replace(&std::fs::canonicalize(&link1).unwrap_err().to_string(), "{error}")
+                .replace('\\', "/") + "🛑",
             @r"
         exists `/path/to/directory/link1`
          - Cannot canonicalize due to error `{error}`
@@ -785,7 +796,8 @@ mod tests {
             PathFacts::new(Path::new("link1"))
                 .to_string()
                 .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
-                .replace(&std::fs::canonicalize("link1").unwrap_err().to_string(), "{error}") + "🛑",
+                .replace(&std::fs::canonicalize("link1").unwrap_err().to_string(), "{error}")
+                .replace('\\', "/") + "🛑",
             @r"
         exists `link1` → `/path/to/directory/link1`
          - Cannot canonicalize due to error `{error}`
@@ -811,7 +823,8 @@ mod tests {
             PathFacts::new(&broken_link)
                 .to_string()
                 .replace(&dir.display().to_string(), "/path/to/directory")
-                .replace(&std::fs::canonicalize(&broken_link).unwrap_err().to_string(), "{error}") + "🛑",
+                .replace(&std::fs::canonicalize(&broken_link).unwrap_err().to_string(), "{error}")
+                .replace('\\', "/") + "🛑",
             @r"
         exists `/path/to/directory/broken_link`
          - Cannot canonicalize due to error `{error}`
@@ -835,7 +848,8 @@ mod tests {
             PathFacts::new(Path::new("broken_link"))
                 .to_string()
                 .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
-                .replace(&std::fs::canonicalize("broken_link").unwrap_err().to_string(), "{error}") + "🛑",
+                .replace(&std::fs::canonicalize("broken_link").unwrap_err().to_string(), "{error}")
+                .replace('\\', "/") + "🛑",
             @r"
         exists `broken_link` → `/path/to/directory/broken_link`
          - Cannot canonicalize due to error `{error}`
@@ -860,9 +874,7 @@ mod tests {
         std::fs::write(&file, "content").unwrap();
 
         // Remove execute permission from directory (can read dir but not traverse)
-        let mut perms = std::fs::metadata(&no_exec_dir).unwrap().permissions();
-        perms.set_mode(0o644); // read + write, no execute
-        std::fs::set_permissions(&no_exec_dir, perms).unwrap();
+        set_mode(&no_exec_dir, 0o644).unwrap(); // read + write, no execute
 
         insta::assert_snapshot!(
             PathFacts::new(&file)
@@ -893,9 +905,7 @@ mod tests {
         std::fs::write(&file, "content").unwrap();
 
         // read only: no write (fires warning), no execute (canonicalize fails)
-        let mut perms = std::fs::metadata(&no_write_dir).unwrap().permissions();
-        perms.set_mode(0o444);
-        std::fs::set_permissions(&no_write_dir, perms).unwrap();
+        set_mode(&no_write_dir, 0o444).unwrap();
 
         let output = PathFacts::new(&file)
             .to_string()
@@ -907,9 +917,7 @@ mod tests {
             + "🛑";
 
         // Restore permissions so the tempdir can be cleaned up.
-        let mut perms = std::fs::metadata(&no_write_dir).unwrap().permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&no_write_dir, perms).unwrap();
+        set_mode(&no_write_dir, 0o755).unwrap();
 
         insta::assert_snapshot!(
             output,

@@ -644,8 +644,11 @@ mod tests {
 
         let output = PathFacts::new(&symlink_path)
             .to_string()
-            .replace(&target_dir.display().to_string(), "/path/to/target")
-            .replace(&link_dir.display().to_string(), "/path/to/link")
+            // Windows `canonicalize` yields a `\\?\` verbatim prefix, but `read_link` reports
+            // the target without it. Strip the prefix everywhere so both forms match.
+            .replace(r"\\?\", "")
+            .replace(&target_dir.display().to_string().replace(r"\\?\", ""), "/path/to/target")
+            .replace(&link_dir.display().to_string().replace(r"\\?\", ""), "/path/to/link")
             .replace('\\', "/")
             + "🛑";
 
@@ -679,8 +682,11 @@ mod tests {
 
         let output = PathFacts::new(&symlink_path)
             .to_string()
-            .replace(&target_dir.display().to_string(), "/path/to/target")
-            .replace(&link_dir.display().to_string(), "/path/to/link")
+            // Windows `canonicalize` yields a `\\?\` verbatim prefix, but `read_link` reports
+            // the target without it. Strip the prefix everywhere so both forms match.
+            .replace(r"\\?\", "")
+            .replace(&target_dir.display().to_string().replace(r"\\?\", ""), "/path/to/target")
+            .replace(&link_dir.display().to_string().replace(r"\\?\", ""), "/path/to/link")
             .replace('\\', "/")
             + "🛑";
 

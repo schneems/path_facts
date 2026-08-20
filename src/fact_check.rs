@@ -260,6 +260,54 @@ mod tests {
         // there would fail with ErrKind::NotFound
     }
 
+    /// Windows folds a trailing `..` after a symlink lexically, POSIX walks through the link
+    ///
+    /// This is the exact inverse of `test_symlink_metadata_resolves_a_trailing_dot_dot`. Same
+    /// setup: `link` is a directory symlink to `x\y\z`, and we ask where `link\..` lands.
+    ///
+    /// - On POSIX the kernel follows `link` to `x/y/z` first, then applies `..`, landing on
+    ///   `x/y` (proven by the unix test above).
+    /// - On Windows the Win32 layer collapses `link\..` to its lexical parent, `<dir>`, as a
+    ///   string operation before any I/O. The symlink is never followed. `symlink_metadata`
+    ///   stats `<dir>`, which is not `x\y`.
+    ///
+    /// The consequence for this crate: a trailing `..` cannot be trusted to have traversed
+    /// through the component it cancels, so the "read_link answering proves the last component
+    /// is Normal" reasoning in `abs_path::readlink` does not hold on Windows.
+    ///
+    /// Creating a symlink on Windows needs SeCreateSymbolicLinkPrivilege (admin or Developer
+    /// Mode). Without it the test cannot exercise the behavior, so it skips rather than
+    /// falsely passing.
+    #[cfg(windows)]
+    #[test]
+    fn test_windows_folds_a_trailing_dot_dot_after_a_symlink_lexically() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().canonicalize().unwrap();
+        let target = dir.join("x").join("y").join("z");
+        std::fs::create_dir_all(&target).unwrap();
+        let link = dir.join("link");
+
+        std::os::windows::fs::symlink_dir(&target, &link).unwrap();
+        assert!(link.is_symlink());
+
+        // `link\..` folds to `<dir>` lexically, without following `link` to its target.
+        let through_link = link.join("..");
+        let through_meta = std::fs::symlink_metadata(&through_link).unwrap();
+        assert!(!through_link.is_symlink());
+        assert!(through_meta.is_dir());
+
+        // Lands on `<dir>`, the lexical parent of `link` ...
+        assert_eq!(
+            std::fs::canonicalize(&through_link).unwrap(),
+            std::fs::canonicalize(&dir).unwrap(),
+        );
+        // ... and specifically NOT on `x\y`, where the POSIX kernel would have landed.
+        assert_ne!(
+            std::fs::canonicalize(&through_link).unwrap(),
+            std::fs::canonicalize(dir.join("x").join("y")).unwrap(),
+        );
+    }
+
     /// `Components` erases `.` and keeps `..`, which is why only one of them is safe
     ///
     /// A `.` needs no filesystem to interpret, so `Path` folds it away and is right to:

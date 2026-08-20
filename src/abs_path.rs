@@ -102,6 +102,8 @@ impl AbsPath {
     ///
     /// ## Trailing ParentDir part (`..`)
     ///
+    /// Not true for windows!
+    ///
     /// A lexical parent might not be a physical ancestor when the last path is `..` i.e.
     ///
     /// ```text
@@ -177,6 +179,11 @@ impl AsRef<Path> for AbsPath {
 /// Returns Err if `read_link` fails
 /// Returns Ok(None) if the path is not a symlink or if [`std::fs::symlink_metadata`] fails
 /// Otherwise returns Ok(Some(AbsPath)) with the target of the symlink
+/// Reads where a symlink points
+///
+/// The caller must already know `absolute` is a symlink. [`std::fs::read_link`] answers
+/// `InvalidInput` for anything that is not one, which arrives here indistinguishable from a
+/// genuine failure, so a caller that has not checked cannot read this result.
 ///
 /// A relative target resolves against the directory holding the symlink, not against the
 /// symlink itself. A link at `/a/sub/rel` pointing at `gone` names `/a/sub/gone`.
@@ -184,28 +191,31 @@ impl AsRef<Path> for AbsPath {
 /// The interface is wrong, it is displayed to the user such that it makes it seem that
 /// an absolute path is written to the symlink (when relative). When in reality the relative
 /// path can matter if the file is/was moved. TODO: Return (PathBuf, AbsPath) (or similar)
+pub(crate) fn readlink(absolute: &AbsPath) -> Result<AbsPath, std::io::Error> {
+    let target = std::fs::read_link(absolute.as_ref())?;
+
+    if target.is_relative() {
+        // `read_link` answering at all proves this path is a symlink, which proves its last
+        // component is `Normal`: a trailing `..` or `.` resolves through whatever precedes
+        // it and can never itself be a link. That is the condition `lex_parent` needs to be
+        // read physically rather than lexically, per its own docs.
+        //
+        // This doesn't hold for windows, so this is incorrect on that platform
+        let base = absolute.lex_parent_or_root();
+        Ok(AbsPath(base.0.join(target)))
+    } else {
+        Ok(AbsPath(target))
+    }
+}
+
+/// Returns Err if `read_link` fails
+/// Returns Ok(None) if the path is not a symlink or if [`std::fs::symlink_metadata`] fails
+/// Otherwise returns Ok(Some(AbsPath)) with the target of the symlink
 pub(crate) fn try_readlink(absolute: &AbsPath) -> Result<Option<AbsPath>, std::io::Error> {
-    let path = absolute.as_ref();
     // Only returns true if the exact path is a symlink and ends in a normal part, would report
     // `false` for anything ending in `..`
-    if path.is_symlink() {
-        std::fs::read_link(path)
-            .map(|target| {
-                if target.is_relative() {
-                    // `path.is_symlink()` only returns true for a path that is `Normal` i.e. never `..`
-                    // This assumption allows us to use `lex_parent()` even though it's not a physical
-                    // path based on details in `lex_parent()` docs.
-                    debug_assert!(!matches!(
-                        absolute.as_ref().components().next_back(),
-                        Some(Component::ParentDir),
-                    ));
-                    let base = absolute.lex_parent_or_root();
-                    AbsPath(base.0.join(target))
-                } else {
-                    AbsPath(target)
-                }
-            })
-            .map(Some)
+    if absolute.as_ref().is_symlink() {
+        readlink(absolute).map(Some)
     } else {
         Ok(None)
     }

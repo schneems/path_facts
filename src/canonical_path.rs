@@ -9,6 +9,7 @@
 //! May have un-normalized parts i.e. `..`
 use crate::abs_path::{AbsPath, RelativePath};
 use std::{
+    ffi::OsStr,
     fmt::Display,
     path::{Path, PathBuf},
 };
@@ -150,6 +151,16 @@ impl ExpandPath {
     }
 }
 
+/// What [`CanonicalPath::entry`] found at a name inside a directory
+#[derive(Debug)]
+#[allow(dead_code)] // Only reached through `Trace::new`, not wired into output yet
+pub(crate) enum Entry {
+    /// Not a symlink, so the path is canonical and the metadata describes it directly
+    Canonical(CanonicalPath, std::fs::Metadata),
+    /// A symlink, which has to be followed before anything canonical can be said about it
+    Symlink,
+}
+
 /// File exists, and is resolvable path, is fully normalized
 ///
 /// - All symlinks resolve and are visible
@@ -177,6 +188,38 @@ impl CanonicalPath {
     pub(crate) fn new(abs_path: &AbsPath) -> Result<Self, std::io::Error> {
         let canonical = abs_path.as_ref().canonicalize()?;
         Ok(CanonicalPath(canonical))
+    }
+
+    /// Looks up `name` in this directory
+    ///
+    /// Takes its own `symlink_metadata` rather than accepting one. Metadata handed in by a
+    /// caller says nothing about `name`, it could describe any path at all, so it cannot
+    /// stand as proof of anything about the value returned here.
+    ///
+    /// A non-symlink entry is canonical without a `realpath` call, meeting each part of the
+    /// contract on [`CanonicalPath`]:
+    ///
+    /// - Exists, because `symlink_metadata` succeeded on it.
+    /// - Fully normalized, because `self` holds no symlinks and no `.` or `..` parts, and
+    ///   `lstat` shows `name` is not a symlink. A `Normal` component adds no dot parts.
+    /// - Every directory involved is executable, because `self` already carried that and
+    ///   the lookup of `name` inside it just succeeded, which requires it.
+    ///
+    /// Which leaves resolvable: `realpath` would walk `self` (symlink free, searchable)
+    /// and then find `name` present and not a link, so it has nothing left to resolve.
+    ///
+    /// Carries the same TOCTOU caveat as everything else in this library: all of the above
+    /// was true when the syscall ran.
+    #[allow(dead_code)] // Only reached through `Trace::new`, not wired into output yet
+    pub(crate) fn entry(&self, name: &OsStr) -> Result<Entry, std::io::Error> {
+        let path = self.0.join(name);
+        let lstat = std::fs::symlink_metadata(&path)?;
+
+        if lstat.file_type().is_symlink() {
+            Ok(Entry::Symlink)
+        } else {
+            Ok(Entry::Canonical(CanonicalPath(path), lstat))
+        }
     }
 
     /// Returns list of all files that exist in the directory

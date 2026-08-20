@@ -156,6 +156,27 @@ impl AbsPath {
     pub(crate) fn lex_parent_or_root(&self) -> Self {
         self.lex_parent().unwrap_or_else(|| self.clone())
     }
+
+    /// The filesystem root this path hangs off
+    ///
+    /// Lexical, like the rest of the `lex_` family: it reads the [`Component::Prefix`] and
+    /// [`Component::RootDir`] parts off the front and asks the filesystem nothing. Every
+    /// `AbsPath` has one, which is what being absolute means, so this cannot fail. A root
+    /// is its own root.
+    ///
+    /// What comes back holds no `.` or `..` parts and no symlinks, which is normalized but
+    /// not reachable. `\\server\share` names a machine that can be off. A caller that needs
+    /// the root to *answer* has to canonicalize this and handle the failure.
+    pub(crate) fn lex_root(&self) -> Self {
+        let mut root = PathBuf::new();
+        for component in self.0.components() {
+            match component {
+                Component::Prefix(_) | Component::RootDir => root.push(component.as_os_str()),
+                _ => break,
+            }
+        }
+        AbsPath(root)
+    }
 }
 
 impl Display for AbsPath {
@@ -230,6 +251,40 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path().canonicalize().unwrap();
         (temp, dir)
+    }
+
+    /// Spelled through properties rather than through `/`, so the test says the same thing
+    /// on a platform where a root is a drive letter or a share.
+    #[test]
+    fn test_lex_root_is_the_part_of_the_path_before_any_name() {
+        let path = abs(tempdir().1.join("a").join("b"));
+
+        let root = path.lex_root();
+
+        assert!(path.as_ref().starts_with(root.as_ref()));
+        assert!(root
+            .as_ref()
+            .components()
+            .all(|part| matches!(part, Component::Prefix(_) | Component::RootDir)));
+    }
+
+    #[test]
+    fn test_lex_root_of_a_root_is_itself() {
+        let root = abs(tempdir().1).lex_root();
+
+        assert_eq!(root.lex_root(), root);
+    }
+
+    /// Unlike `lex_parent`, nothing about this needs the path to be normalized: the parts it
+    /// reads sit in front of anything that could be a `..` or a symlink.
+    #[test]
+    fn test_lex_root_ignores_the_rest_of_the_path() {
+        let dir = tempdir().1;
+
+        assert_eq!(
+            abs(dir.join("a").join("..").join("b")).lex_root(),
+            abs(&dir).lex_root()
+        );
     }
 
     #[cfg(unix)]

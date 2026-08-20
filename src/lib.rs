@@ -109,8 +109,13 @@
 //!   and <https://www.redhat.com/sysadmin/suid-sgid-sticky-bit>
 //! - Fact: Different operating systems have different permissions models. Even on Linux, there are
 //!   additional ways to restrict file capabilities, such as Access Control Lists (ACLs).
-//! - This library is OS independent but prioritizes posix systems (Linux, Mac) and, to a lesser
-//!   degree, Windows.
+//!  - This library is OS independent but prioritizes posix systems (Linux, Mac) and, to a lesser
+//!    degree, Windows.
+//!- Fact: A path is both lexical representation (the characters and separators that make up
+//!  an input), and a physical representation (contents on disk).
+//!- Fact: On POSIX systems, the lexical `..` (parent dir) is resolved physically, the kernel walks it
+//!  as a real path component. This means `b` in `/a/b/..` must exist, be a directory, and be searchable
+//!  (executable permission). On Windows, the Win32 layer collapses `..` lexically before the kernel sees the path.
 //! - Fact: The first paths were made by animals. Source: [top 10 facts about ~~paths~~ roads](https://www.funkidslive.com/learn/top-10-facts/top-ten-facts-about-roads/)
 //!
 //! ## Usage considerations
@@ -187,6 +192,7 @@ mod happy_path;
 mod path_facts;
 mod resolved_metadata;
 mod style;
+mod trace;
 
 pub use path_facts::PathFacts;
 

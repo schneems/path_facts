@@ -170,15 +170,6 @@ impl AsRef<Path> for AbsPath {
     }
 }
 
-// pub(crate) enum MetadataRaw {
-//     File,
-//     Dir,
-//     Symlink,
-// }
-
-/// Returns Err if `read_link` fails
-/// Returns Ok(None) if the path is not a symlink or if [`std::fs::symlink_metadata`] fails
-/// Otherwise returns Ok(Some(AbsPath)) with the target of the symlink
 /// Reads where a symlink points
 ///
 /// The caller must already know `absolute` is a symlink. [`std::fs::read_link`] answers

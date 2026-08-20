@@ -511,6 +511,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn test_symlink_to_file() {
         // Use two separate temp directories to guarantee different paths on all platforms
         let target_temp = tempfile::tempdir().unwrap();
@@ -544,6 +545,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn test_symlink_to_directory() {
         // Use two separate temp directories to guarantee different paths on all platforms
         let target_temp = tempfile::tempdir().unwrap();

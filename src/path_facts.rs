@@ -372,9 +372,9 @@ mod tests {
         }
     }
 
-    // Unix-only mode helper: sets specific POSIX mode bits, which have no direct
-    // Windows equivalent. Callers that need cross-platform behavior go through the
-    // named helpers below (`set_read_only`, `deny_traverse`) instead.
+    // Unix-only mode helper: sets specific POSIX mode bits. The tests that use it to
+    // remove directory execute/traverse are `#[cfg(unix)]`; see those tests for why
+    // the behavior can't be reproduced on the Windows CI runner.
     #[cfg(unix)]
     fn set_mode<P: AsRef<Path>>(path: P, mode: u32) -> std::io::Result<()> {
         let path = path.as_ref();
@@ -382,79 +382,6 @@ mod tests {
         perms.set_mode(mode);
         std::fs::set_permissions(path, perms)
     }
-
-    // Cross-platform "make this directory non-traversable" for tests: a directory you
-    // can still list but not descend into, so canonicalizing a child fails and the
-    // directory reports no execute/traverse right.
-    //
-    // Unix models traverse as the execute bit, dropped here (keeping read so the
-    // directory is still listable): 0o644. Windows models it as the "Traverse folder /
-    // execute file" ACL right; std cannot set an individual ACL right through
-    // `Permissions`, but `std::process::Command` can run `icacls /deny`, which is still
-    // std. `faccess` reads effective ACL rights, so the crate's `access(EXECUTE)` check
-    // observes the denial the same way it observes a missing unix execute bit.
-    fn deny_traverse<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
-        #[cfg(unix)]
-        {
-            set_mode(path, 0o644) // read + write, no execute (no traverse)
-        }
-        #[cfg(windows)]
-        {
-            // Deny only execute/traverse (X); leave read so the directory is still listable.
-            icacls(path.as_ref(), "/deny", "(X)")
-        }
-    }
-
-    // Cross-platform "no write and no traverse": the directory can be listed but not
-    // written to and not descended into. Unix drops both bits (0o444); Windows denies
-    // the write and execute/traverse ACL rights, leaving read.
-    fn deny_write_and_traverse<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
-        #[cfg(unix)]
-        {
-            set_mode(path, 0o444) // read only: no write, no execute
-        }
-        #[cfg(windows)]
-        {
-            icacls(path.as_ref(), "/deny", "(W,X)")
-        }
-    }
-
-    // Cross-platform "restore full access" so a temp dir can be cleaned up after a test
-    // tightened its permissions. Unix restores 0o755; Windows removes the deny ACE the
-    // test added.
-    fn restore_access<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
-        #[cfg(unix)]
-        {
-            set_mode(path, 0o755)
-        }
-        #[cfg(windows)]
-        {
-            icacls(path.as_ref(), "/remove:d", "")
-        }
-    }
-
-    // Run `icacls <path> <op> <user><rights>` for the current user. `op` is "/deny" or
-    // "/remove:d"; `rights` is the parenthesized simple-rights string for /deny (e.g.
-    // "(RX)") or empty for /remove:d. icacls exits nonzero on failure, surfaced as an error.
-    #[cfg(windows)]
-    fn icacls(path: &Path, op: &str, rights: &str) -> std::io::Result<()> {
-        let user = std::env::var("USERNAME")
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-        let status = std::process::Command::new("icacls")
-            .arg(path)
-            .arg(op)
-            .arg(format!("{user}:{rights}"))
-            .status()?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("icacls {op} failed with {status}"),
-            ))
-        }
-    }
-
 
     #[test]
     fn test_prior_dir_problem_is_file() {
@@ -934,10 +861,22 @@ mod tests {
         );
     }
 
-    // A directory you can list but not descend into: the child file exists, yet
-    // canonicalizing it fails and the directory reports no execute/traverse right.
-    // Unix drops the execute bit; Windows denies the traverse ACL (see `deny_traverse`).
+    // Unix-only: the behavior is not reproducible on the Windows CI runner.
+    //
+    // The test needs "a directory you can list but not descend into" so that
+    // canonicalizing a child fails. Unix models this as the directory execute bit,
+    // dropped here with `set_mode(0o644)`.
+    //
+    // Windows models it as the "Traverse folder / execute file" ACL right. We tried
+    // denying it with `icacls /deny <user>:(X)` (100% std via `std::process::Command`):
+    // icacls reports success, but `canonicalize` still resolves the child. GitHub's
+    // Windows runner executes as an administrator (`runneradmin`), and an admin token
+    // bypasses per-user traverse denials, so the deny has no effect on the very process
+    // running the test. Dropping that privilege mid-test is not something a unit test
+    // can do reliably, so there is no way to provoke this state on the runner — with or
+    // without std. Hence `#[cfg(unix)]`.
     #[test]
+    #[cfg(unix)]
     fn test_cannot_canonicalize_no_execute_dir_with_file() {
         let tempdir = tempfile::tempdir().unwrap();
         let dir = tempdir.path().canonicalize().unwrap();
@@ -947,24 +886,14 @@ mod tests {
         let file = no_exec_dir.join("file.txt");
         std::fs::write(&file, "content").unwrap();
 
-        // Remove traverse from directory (can list it but not descend into it)
-        deny_traverse(&no_exec_dir).unwrap();
-
-        let output = PathFacts::new(&file)
-            .to_string()
-            .replace(&dir.display().to_string(), "/path/to/directory")
-            .replace(
-                &std::fs::canonicalize(&file).unwrap_err().to_string(),
-                "{error}",
-            )
-            .replace('\\', "/")
-            + "🛑";
-
-        // Restore access so the tempdir can be cleaned up.
-        restore_access(&no_exec_dir).unwrap();
+        // Remove execute permission from directory (can read dir but not traverse)
+        set_mode(&no_exec_dir, 0o644).unwrap(); // read + write, no execute
 
         insta::assert_snapshot!(
-            output,
+            PathFacts::new(&file)
+                .to_string()
+                .replace(&dir.display().to_string(), "/path/to/directory")
+                .replace(&std::fs::canonicalize(&file).unwrap_err().to_string(), "{error}") + "🛑",
             @r"
         exists `/path/to/directory/no_exec_dir/file.txt`
          - Cannot canonicalize due to error `{error}`
@@ -975,10 +904,13 @@ mod tests {
         );
     }
 
-    // A directory that can be listed but neither written to nor descended into: the
-    // write warning fires and canonicalizing the child fails. Unix drops write+execute
-    // (0o444); Windows denies the write and traverse ACL rights (see `deny_write_and_traverse`).
+    // Unix-only for the same reason as `test_cannot_canonicalize_no_execute_dir_with_file`:
+    // it removes directory traverse (0o444) so canonicalizing a child fails, and the
+    // Windows CI runner is an administrator whose token bypasses a per-user traverse deny,
+    // so `icacls /deny` (tried, 100% std) leaves canonicalize succeeding. Not reproducible
+    // on the runner, hence `#[cfg(unix)]`.
     #[test]
+    #[cfg(unix)]
     fn test_cannot_canonicalize_no_write_dir_with_file() {
         let tempdir = tempfile::tempdir().unwrap();
         let dir = tempdir.path().canonicalize().unwrap();
@@ -989,7 +921,7 @@ mod tests {
         std::fs::write(&file, "content").unwrap();
 
         // read only: no write (fires warning), no execute (canonicalize fails)
-        deny_write_and_traverse(&no_write_dir).unwrap();
+        set_mode(&no_write_dir, 0o444).unwrap();
 
         let output = PathFacts::new(&file)
             .to_string()
@@ -998,11 +930,10 @@ mod tests {
                 &std::fs::canonicalize(&file).unwrap_err().to_string(),
                 "{error}",
             )
-            .replace('\\', "/")
             + "🛑";
 
-        // Restore access so the tempdir can be cleaned up.
-        restore_access(&no_write_dir).unwrap();
+        // Restore permissions so the tempdir can be cleaned up.
+        set_mode(&no_write_dir, 0o755).unwrap();
 
         insta::assert_snapshot!(
             output,

@@ -300,6 +300,36 @@ mod tests {
         assert_eq!(Path::new("/a/b/..").parent(), Some(Path::new("/a/b")));
     }
 
+    /// Windows `PathBuf::push` folds `..` away when the base ends in a `Normal`
+    /// component, so `join("..")` never leaves a `ParentDir` in the component stream.
+    ///
+    /// This is the opposite of Posix, where `push` is purely textual. The three
+    /// `trace::tests::test_dot_dot_*` failures on Windows come from here: a test that
+    /// builds `<dir>/a/b/../c` with `.join("..")` actually hands the walk `<dir>/a/c`,
+    /// with the `b` and the `..` already gone, so the walk never sees the hole or the
+    /// `..` the test is about.
+    #[test]
+    fn test_pathbuf_push_folds_parent_dir_on_windows_only() {
+        use std::path::{Component, PathBuf};
+
+        let joined = PathBuf::from("base").join("a").join("b").join("..").join("c");
+        let has_parent_dir = joined
+            .components()
+            .any(|component| matches!(component, Component::ParentDir));
+
+        #[cfg(windows)]
+        {
+            // `..` is folded at construction: `base\a\b\..\c` collapses to `base\a\c`
+            assert!(!has_parent_dir, "windows folds `..` in push, got {:?}", joined);
+            assert_eq!(joined, PathBuf::from("base").join("a").join("c"));
+        }
+        #[cfg(unix)]
+        {
+            // `..` survives untouched: push is textual
+            assert!(has_parent_dir, "unix keeps `..` in push, got {:?}", joined);
+        }
+    }
+
     /// `create_dir_all("x/y/z/..")` creates `z`, even when `y` is missing
     ///
     /// Lexically `x/y/z/..` is `x/y`. `Path::parent` does not fold that way: the

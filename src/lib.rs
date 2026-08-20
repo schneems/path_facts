@@ -20,10 +20,10 @@
 //! When you could be seeing this?
 //!
 //! ```text
-//! cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
-//!  - Prior path is not a directory `/path/to/directory/a`
+//! cannot access `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+//!  - Prior path is not a directory `/path/to/directory/a.txt`
 //!     - `/path/to/directory`
-//!         └── `a` file [✅ read, ✅ write, ❌ execute]
+//!         └── `a.txt` file [✅ read, ✅ write, ❌ execute]
 //! ```
 //!
 //! Then start using path facts today!

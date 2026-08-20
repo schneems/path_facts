@@ -387,9 +387,14 @@ mod tests {
     fn test_prior_dir_problem_is_file() {
         let tempdir = tempfile::tempdir().unwrap();
         let dir = tempdir.path().canonicalize().unwrap();
-        let path = dir.join("a").join("b").join("c").join("does_not_exist.txt");
+        let path = dir
+            .join("a.txt")
+            .join("b")
+            .join("c")
+            .join("does_not_exist.txt");
 
-        std::fs::write(dir.join("a"), "").unwrap();
+        let file = dir.join("a.txt");
+        std::fs::write(&file, "").unwrap();
 
         insta::with_settings!({prepend_module_to_snapshot => false}, {
             insta::assert_snapshot!(

@@ -2,8 +2,8 @@
 source: src/path_facts.rs
 expression: "PathFacts::new(path).to_string().replace(&tempdir.path().display().to_string(),\n\"/path/to/directory\") + \"🛑\""
 ---
-cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
- - Prior path is not a directory `/path/to/directory/a`
+cannot access `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+ - Prior path is not a directory `/path/to/directory/a.txt`
     - `/path/to/directory`
-        └── `a` file [✅ read, ✅ write, ❌ execute]
+        └── `a.txt` file [✅ read, ✅ write, ❌ execute]
 🛑

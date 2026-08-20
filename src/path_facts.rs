@@ -365,6 +365,12 @@ mod tests {
     // by `AccessCheck` even under the admin token the CI runner uses, so this makes
     // `access(WRITE)` report the directory as not writable.
     //
+    // We deny the granular write rights (WD,AD,WEA,WA) rather than the `(W)` simple-rights
+    // alias. `(W)` maps to `FILE_GENERIC_WRITE`, which shares `READ_CONTROL` and
+    // `SYNCHRONIZE` with `FILE_GENERIC_EXECUTE` — denying those collaterally fails
+    // faccess's `EXECUTE` check. The granular deny touches only write-data/append/EA/attr
+    // rights, so execute still reads `✅`, matching the Unix 0o555 behavior.
+    //
     // The deny ACE persists on the directory; `restore_write` removes it so the tempdir
     // can be cleaned up.
     fn set_read_only<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
@@ -374,7 +380,11 @@ mod tests {
         }
         #[cfg(windows)]
         {
-            icacls(path.as_ref(), "/deny", &format!("{}:(W)", current_user()?))
+            icacls(
+                path.as_ref(),
+                "/deny",
+                &format!("{}:(WD,AD,WEA,WA)", current_user()?),
+            )
         }
     }
 

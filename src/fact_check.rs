@@ -209,102 +209,48 @@ mod tests {
         std::fs::metadata(canonical.as_ref()).unwrap();
     }
 
-    /// `symlink_metadata` resolves a trailing `..`, it does not report on it
-    ///
-    /// `lstat` withholds resolution from a *symlink* in the final position and nothing else.
-    /// A `..` is an ordinary entry naming the parent, so it resolves, and resolves
-    /// physically: `<dir>/link/..` follows `link` first and lands beside the target.
-    #[cfg(unix)]
+    /// Posix: A trailing `..` reports as a dir (not a symlink) even when it points at a symlink
+    /// Windows: A trailing `..` reports as a symlink because it is folded in
+    ///          first before the check.
+    ///          It's Path#is_dir() and symlink_metadat::is_dir() disagree
     #[test]
-    fn test_symlink_metadata_resolves_a_trailing_dot_dot() {
-        let temp = tempfile::tempdir().unwrap();
-        let dir = temp.path().canonicalize().unwrap();
-        std::fs::create_dir_all(dir.join("x/y/z")).unwrap();
-        let link = dir.join("link");
-        std::os::unix::fs::symlink(dir.join("x/y/z"), &link).unwrap();
-        assert!(link.is_symlink());
-
-        // `intermediate` is created through the link, so it sits in the target and `..`
-        // lands back on the target
-        let dotted = link.join("intermediate").join("..");
-        std::fs::create_dir_all(dotted.parent().unwrap()).unwrap();
-        let dotted_meta = std::fs::symlink_metadata(&dotted).unwrap();
-        assert!(!dotted.is_symlink());
-        assert!(dotted_meta.is_dir());
-
-        // `lstat` on the link describes the link, `stat` describes the target
-        assert!(!is_same_dir(
-            &dotted_meta,
-            &std::fs::symlink_metadata(&link).unwrap()
-        ));
-        assert!(is_same_dir(
-            &dotted_meta,
-            &std::fs::metadata(&link).unwrap()
-        ));
-
-        // `<dir>/link/..` is `<dir>/x/y`. A lexical reading would have said `<dir>`.
-        let through_link = link.join("..");
-        let through_meta = std::fs::symlink_metadata(&through_link).unwrap();
-        assert!(!through_link.is_symlink());
-        assert!(is_same_dir(
-            &through_meta,
-            &std::fs::symlink_metadata(dir.join("x/y")).unwrap()
-        ));
-        assert!(!is_same_dir(
-            &through_meta,
-            &std::fs::symlink_metadata(&dir).unwrap()
-        ));
-
-        // a path that ends in `..` cannot point a broken symlink because for `link/dir/..` to
-        // be readable `link/dir` must exist, and if `link` is broken, it cannot. so symlink_metadata
-        // there would fail with ErrKind::NotFound
-    }
-
-    /// Windows folds a trailing `..` after a symlink lexically, POSIX walks through the link
-    ///
-    /// This is the exact inverse of `test_symlink_metadata_resolves_a_trailing_dot_dot`. Same
-    /// setup: `link` is a directory symlink to `x\y\z`, and we ask where `link\..` lands.
-    ///
-    /// - On POSIX the kernel follows `link` to `x/y/z` first, then applies `..`, landing on
-    ///   `x/y` (proven by the unix test above).
-    /// - On Windows the Win32 layer collapses `link\..` to its lexical parent, `<dir>`, as a
-    ///   string operation before any I/O. The symlink is never followed. `symlink_metadata`
-    ///   stats `<dir>`, which is not `x\y`.
-    ///
-    /// The consequence for this crate: a trailing `..` cannot be trusted to have traversed
-    /// through the component it cancels, so the "read_link answering proves the last component
-    /// is Normal" reasoning in `abs_path::readlink` does not hold on Windows.
-    ///
-    /// Creating a symlink on Windows needs SeCreateSymbolicLinkPrivilege (admin or Developer
-    /// Mode). Without it the test cannot exercise the behavior, so it skips rather than
-    /// falsely passing.
-    #[cfg(windows)]
-    #[test]
-    fn test_windows_folds_a_trailing_dot_dot_after_a_symlink_lexically() {
+    fn test_symlink_metadata_never_reports_is_symlink_for_a_path_ending_in_dot_dot() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path().canonicalize().unwrap();
         let target = dir.join("x").join("y").join("z");
         std::fs::create_dir_all(&target).unwrap();
         let link = dir.join("link");
 
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        #[cfg(windows)]
         std::os::windows::fs::symlink_dir(&target, &link).unwrap();
+
         assert!(link.is_symlink());
+        assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
 
-        // `link\..` folds to `<dir>` lexically, without following `link` to its target.
-        let through_link = link.join("..");
-        let through_meta = std::fs::symlink_metadata(&through_link).unwrap();
-        assert!(!through_link.is_symlink());
-        assert!(through_meta.is_dir());
+        let trailing = link.join("eaten").join("..");
+        std::fs::create_dir_all(trailing.parent().unwrap()).unwrap();
+        let meta = std::fs::symlink_metadata(&trailing).unwrap();
 
-        // Lands on `<dir>`, the lexical parent of `link` ...
+        let trailing_tuple = (trailing.is_symlink(), trailing.is_dir(), trailing.is_file());
+        let meta_tuple = (meta.is_symlink(), meta.is_dir(), meta.is_file());
+        #[cfg(unix)]
+        {
+            assert_eq!(trailing_tuple, (false, true, false));
+            assert_eq!(meta_tuple, (false, true, false));
+        }
+        #[cfg(windows)]
+        {
+            assert_eq!(trailing_tuple, (true, true, false));
+            // Diverges from Path::is_dir()
+            assert_eq!(meta_tuple, (true, false, false));
+        }
+
+        // Check it would have reported as a symlink otherwiwse
         assert_eq!(
-            std::fs::canonicalize(&through_link).unwrap(),
-            std::fs::canonicalize(&dir).unwrap(),
-        );
-        // ... and specifically NOT on `x\y`, where the POSIX kernel would have landed.
-        assert_ne!(
-            std::fs::canonicalize(&through_link).unwrap(),
-            std::fs::canonicalize(dir.join("x").join("y")).unwrap(),
+            trailing.canonicalize().unwrap(),
+            target.canonicalize().unwrap()
         );
     }
 

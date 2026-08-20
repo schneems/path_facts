@@ -16,9 +16,12 @@ WORKDIR /home/runner/workspace
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/home/runner/.cargo/bin:${PATH}"
 
+# bin/test runs via cargo nextest (per-test process isolation) plus doctests
+RUN curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C "${HOME}/.cargo/bin"
+
 # Copy project files
 COPY --chown=runner:runner . .
 
 # Build and run tests
-CMD ["cargo", "test", "--", "--nocapture"]
+CMD ["bin/test"]
 

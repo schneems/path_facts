@@ -176,7 +176,6 @@ mod tests {
         let dotted = AbsPath::new(file.join("..")).unwrap();
 
         assert!(std::fs::metadata(dotted.as_ref()).is_err());
-
         assert!(std::fs::symlink_metadata(dotted.as_ref()).is_err());
 
         // Rust 1.83
@@ -214,7 +213,7 @@ mod tests {
     ///          first before the check.
     ///          It's Path#is_dir() and symlink_metadat::is_dir() disagree
     #[test]
-    fn test_symlink_metadata_never_reports_is_symlink_for_a_path_ending_in_dot_dot() {
+    fn test_symlink_metadata_for_a_path_ending_in_dot_dot() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path().canonicalize().unwrap();
         let target = dir.join("x").join("y").join("z");

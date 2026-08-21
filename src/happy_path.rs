@@ -5,7 +5,7 @@ use crate::{
     abs_path::{self, AbsPath, RelativePath},
     canonical_path::{CannotCanonicalizeAnything, CanonicalPath, ExpandPath},
     resolved_metadata::{ResolvedMetadata, ResolvedType},
-    trace::Trace,
+    trace::{PhysicalNode, Trace},
 };
 use faccess::{AccessMode, PathExt};
 use std::path::Path;
@@ -103,14 +103,6 @@ pub(crate) enum UnknownPath {
         parent: DirOk,
         error: std::io::Error,
     },
-    /// Path exists, but and is reportedly a symlink but readlink fails
-    /// Probably TOCTOU otherwise the canonical path would have errored
-    CannotReadLink {
-        absolute: AbsPath,
-        canonical: CanonicalPath,
-        parent: DirOk,
-        error: std::io::Error,
-    },
 }
 
 pub(crate) fn state(path: &Path) -> Result<KnownPath, Box<UnknownPath>> {
@@ -158,13 +150,13 @@ pub(crate) fn state(path: &Path) -> Result<KnownPath, Box<UnknownPath>> {
             error,
         })?
         .resolved_type();
-    let symlink_target =
-        abs_path::try_readlink(&absolute).map_err(|error| UnknownPath::CannotReadLink {
-            absolute: absolute.clone(),
-            canonical: canonical.clone(),
-            parent: parent.clone(),
-            error,
-        })?;
+    // The walk already read this component. If it is a symlink, the `readlink` it issued is
+    // recorded as the target, so there is nothing to ask the filesystem again. A trailing
+    // `..` or `.` can never be a symlink, so those never land here.
+    let symlink_target = match &trace.last_step().contents {
+        PhysicalNode::Symlink { target, .. } => Some(target.clone()),
+        _ => None,
+    };
 
     let read = canonical.as_ref().access(AccessMode::READ).is_ok();
     let write = canonical.as_ref().access(AccessMode::WRITE).is_ok();

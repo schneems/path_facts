@@ -128,28 +128,6 @@ impl PathFacts {
                     style::bullet(format!("Cannot read metadata due to error `{error}`",))
                 )?;
             }
-            Err(UnknownPath::CannotReadLink {
-                absolute,
-                canonical,
-                parent,
-                error,
-            }) => {
-                let expanded = ExpandPath::from(canonical.clone());
-                if parent.has_entry(absolute) {
-                    writeln!(f, "exists {}", style::expanded(&self.path, &expanded))?;
-                } else {
-                    writeln!(
-                        f,
-                        "does not exist {}",
-                        style::expanded(&self.path, &expanded)
-                    )?;
-                }
-                writeln!(
-                    f,
-                    "{}",
-                    style::bullet(format!("Cannot readlink due to error `{error}`",))
-                )?;
-            }
         }
 
         Ok(())
@@ -266,12 +244,6 @@ impl PathFacts {
                 error: _,
             })
             | Err(UnknownPath::CannotMetadata {
-                absolute,
-                canonical: _,
-                parent,
-                error: _,
-            })
-            | Err(UnknownPath::CannotReadLink {
                 absolute,
                 canonical: _,
                 parent,
@@ -1088,46 +1060,6 @@ mod tests {
             @r"
         exists `/path/to/directory/exists.txt`
          - Cannot read metadata due to error `simulated`
-         - `/path/to/directory`
-             └── `exists.txt` (exists)
-        🛑
-        "
-        );
-    }
-
-    #[test]
-    fn test_cannot_read_link_exists() {
-        // `CannotReadLink` is only reachable at runtime via a TOCTOU race, so we
-        // construct the error state directly to exercise the Display branch.
-        let tempdir = tempfile::tempdir().unwrap();
-        let dir = tempdir.path().canonicalize().unwrap();
-        let file = dir.join("exists.txt");
-        std::fs::write(&file, "").unwrap();
-
-        let absolute = AbsPath::new(&file).unwrap();
-        let parent = DirOk::new(absolute.lex_parent().unwrap()).unwrap();
-        let canonical = CanonicalPath::new(&absolute).unwrap();
-        let error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "simulated");
-
-        let facts = PathFacts {
-            path: file.clone(),
-            state: Err(Box::new(UnknownPath::CannotReadLink {
-                absolute,
-                canonical,
-                parent,
-                error,
-            })),
-        };
-
-        insta::assert_snapshot!(
-            facts
-                .to_string()
-                .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
-                .replace(&dir.display().to_string(), "/path/to/directory")
-                .replace('\\', "/") + "🛑",
-            @r"
-        exists `/path/to/directory/exists.txt`
-         - Cannot readlink due to error `simulated`
          - `/path/to/directory`
              └── `exists.txt` (exists)
         🛑

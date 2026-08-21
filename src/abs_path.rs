@@ -220,19 +220,6 @@ pub(crate) fn readlink(absolute: &AbsPath) -> Result<AbsPath, std::io::Error> {
     }
 }
 
-/// Returns Err if `read_link` fails
-/// Returns Ok(None) if the path is not a symlink or if [`std::fs::symlink_metadata`] fails
-/// Otherwise returns Ok(Some(AbsPath)) with the target of the symlink
-pub(crate) fn try_readlink(absolute: &AbsPath) -> Result<Option<AbsPath>, std::io::Error> {
-    // Only returns true if the exact path is a symlink and ends in a normal part, would report
-    // `false` for anything ending in `..`
-    if absolute.as_ref().is_symlink() {
-        readlink(absolute).map(Some)
-    } else {
-        Ok(None)
-    }
-}
-
 #[derive(Debug)]
 pub(crate) enum AbsPathError {
     PathIsEmpty(PathBuf),
@@ -295,7 +282,7 @@ mod tests {
         let target = dir.join("target");
         std::os::unix::fs::symlink(&target, &symlink).unwrap();
 
-        let readlink = try_readlink(&abs(&symlink)).unwrap().unwrap();
+        let readlink = readlink(&abs(&symlink)).unwrap();
         assert_eq!(readlink.as_ref(), target);
     }
 
@@ -307,7 +294,7 @@ mod tests {
         std::fs::create_dir_all(symlink.parent().unwrap()).unwrap();
         std::os::unix::fs::symlink("target", &symlink).unwrap();
 
-        let readlink = try_readlink(&abs(&symlink)).unwrap().unwrap();
+        let readlink = readlink(&abs(&symlink)).unwrap();
         assert_eq!(readlink.as_ref(), dir.join("target"));
     }
 
@@ -318,7 +305,7 @@ mod tests {
         let (_temp, dir) = tempdir();
         std::fs::write(dir.join("f"), "").unwrap();
 
-        assert!(try_readlink(&abs(dir.join("f"))).unwrap().is_none());
-        assert!(try_readlink(&abs(dir.join("missing"))).unwrap().is_none());
+        assert!(readlink(&abs(dir.join("f"))).is_err());
+        assert!(readlink(&abs(dir.join("missing"))).is_err());
     }
 }

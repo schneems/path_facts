@@ -230,7 +230,7 @@ pub(crate) struct Step {
     /// symlink.
     pub(crate) at: Option<AbsPath>,
 
-    pub(crate) saw: PhysicalNode,
+    pub(crate) contents: PhysicalNode,
 }
 
 /// A directory that can be listed, and the name to point at inside it
@@ -342,49 +342,25 @@ impl Trace {
             steps,
         })
     }
-}
 
-/// Points each step back at the component of `input` it came from
-///
-/// Aligned from the end, by name. The two lists are not parallel from the front: anchoring
-/// a relative path prepends components the caller never wrote, and it drops the `.` parts
-/// they did write. They do share a tail, because anchoring only ever prepends.
-///
-/// Matching names rather than counting is what makes this safe. Anchoring is
-/// [`std::path::absolute`], whose normalization differs across platforms, and a
-/// disagreement here should cost a step its attribution rather than point a future caret
-/// at the wrong component. So the walk stops at the first name that does not line up.
-fn attribute(steps: &mut [Step], input: &Path) {
-    // The walk records no step for a `.`, so skipping them here keeps one in the middle of
-    // a path from knocking everything before it out of alignment.
-    let components = input
-        .components()
-        .enumerate()
-        .filter(|(_, component)| !matches!(component, Component::CurDir))
-        .collect::<Vec<_>>();
-
-    for (step, (index, component)) in steps.iter_mut().rev().zip(components.into_iter().rev()) {
-        if step.name != component.as_os_str() {
-            break;
-        }
-        step.input = Some(index);
-    }
-}
-
-impl Trace {
     /// Where the path lands, when every component resolved
     ///
     /// `Some` exactly when [`Trace::stopped_at`] is `None`.
-    pub(crate) fn location(&self) -> Option<CanonicalPath> {
-        if self.stopped_at().is_some() {
+    pub(crate) fn physical_location(&self) -> Option<CanonicalPath> {
+        if self.stopped_early_at().is_some() {
             return None;
         }
 
         match self.steps.last() {
             // Nothing but a root, which the walk proved before it started
             None => Some(self.root.clone()),
-            Some(last) => last.saw.resolved_to().cloned(),
+            Some(last) => last.contents.resolved_to().cloned(),
         }
+    }
+
+    // The step of the last part of the input path
+    pub(crate) fn last_step(&self) -> &Step {
+        self.steps.last().expect("path input is not empty")
     }
 
     /// The step the walk could not continue past
@@ -392,13 +368,13 @@ impl Trace {
     /// `None` exactly when every component resolved, which is when [`Trace::location`]
     /// answers. Every step after this one is [`PhysicalNode::NotReached`], so this single
     /// observation explains all of them.
-    pub(crate) fn stopped_at(&self) -> Option<&Step> {
+    pub(crate) fn stopped_early_at(&self) -> Option<&Step> {
         let index = self.examined()?;
         let step = &self.steps[index];
 
         // Arriving at a file, a link, or an absence is an answer when the path ends there,
         // and a dead end when more components follow.
-        let stopped = index + 1 != self.steps.len() || step.saw.resolved_to().is_none();
+        let stopped = index + 1 != self.steps.len() || step.contents.resolved_to().is_none();
         stopped.then_some(step)
     }
 
@@ -420,7 +396,7 @@ impl Trace {
 
         // `..` is not an entry in any directory listing, so name the location it moved to
         // rather than the two dots that were written.
-        if let PhysicalNode::Up { to, .. } = &step.saw {
+        if let PhysicalNode::Up { to, .. } = &step.contents {
             return Some(Listing {
                 dir: to.parent()?,
                 entry: to.as_ref().file_name()?.to_os_string(),
@@ -430,7 +406,7 @@ impl Trace {
         let dir = match index.checked_sub(1) {
             None => self.root.clone(),
             Some(previous) => self.steps[previous]
-                .saw
+                .contents
                 .resolved_to()
                 .expect("the walk only examines a component from a directory it resolved")
                 .clone(),
@@ -477,7 +453,34 @@ impl Trace {
     fn examined(&self) -> Option<usize> {
         self.steps
             .iter()
-            .rposition(|step| !matches!(step.saw, PhysicalNode::NotReached))
+            .rposition(|step| !matches!(step.contents, PhysicalNode::NotReached))
+    }
+}
+
+/// Points each step back at the component of `input` it came from
+///
+/// Aligned from the end, by name. The two lists are not parallel from the front: anchoring
+/// a relative path prepends components the caller never wrote, and it drops the `.` parts
+/// they did write. They do share a tail, because anchoring only ever prepends.
+///
+/// Matching names rather than counting is what makes this safe. Anchoring is
+/// [`std::path::absolute`], whose normalization differs across platforms, and a
+/// disagreement here should cost a step its attribution rather than point a future caret
+/// at the wrong component. So the walk stops at the first name that does not line up.
+fn attribute(steps: &mut [Step], input: &Path) {
+    // The walk records no step for a `.`, so skipping them here keeps one in the middle of
+    // a path from knocking everything before it out of alignment.
+    let components = input
+        .components()
+        .enumerate()
+        .filter(|(_, component)| !matches!(component, Component::CurDir))
+        .collect::<Vec<_>>();
+
+    for (step, (index, component)) in steps.iter_mut().rev().zip(components.into_iter().rev()) {
+        if step.name != component.as_os_str() {
+            break;
+        }
+        step.input = Some(index);
     }
 }
 
@@ -504,7 +507,7 @@ fn enter(position: Reached, name: &OsStr) -> (Step, Reached) {
                 input: None,
                 name,
                 at: None,
-                saw: PhysicalNode::NotReached,
+                contents: PhysicalNode::NotReached,
             },
             Reached::Lost,
         ),
@@ -517,7 +520,7 @@ fn enter(position: Reached, name: &OsStr) -> (Step, Reached) {
                     input: None,
                     name,
                     at: Some(at.clone()),
-                    saw: PhysicalNode::NotReached,
+                    contents: PhysicalNode::NotReached,
                 },
                 Reached::Ghost(at),
             )
@@ -530,7 +533,7 @@ fn enter(position: Reached, name: &OsStr) -> (Step, Reached) {
                     input: None,
                     name,
                     at: Some(at),
-                    saw,
+                    contents: saw,
                 },
                 next,
             )
@@ -673,7 +676,7 @@ fn up(position: Reached, name: &OsStr) -> (Step, Reached) {
                     input: None,
                     name,
                     at: Some(AbsPath::from(to.clone())),
-                    saw: PhysicalNode::Up {
+                    contents: PhysicalNode::Up {
                         from,
                         to: to.clone(),
                     },
@@ -689,7 +692,7 @@ fn up(position: Reached, name: &OsStr) -> (Step, Reached) {
                 input: None,
                 name,
                 at: None,
-                saw: PhysicalNode::NotReached,
+                contents: PhysicalNode::NotReached,
             },
             Reached::Lost,
         ),
@@ -717,7 +720,7 @@ mod tests {
                 input: None,
                 name: OsString::from(name),
                 at: None,
-                saw: PhysicalNode::NotReached,
+                contents: PhysicalNode::NotReached,
             })
             .collect()
     }
@@ -748,7 +751,7 @@ mod tests {
 
     /// The step the walk stopped at, which has to exist for the test to be about anything
     fn stopped(trace: &Trace) -> &Step {
-        trace.stopped_at().expect("the walk to have stopped")
+        trace.stopped_early_at().expect("the walk to have stopped")
     }
 
     /// Append components to `base` without folding a `..` away.
@@ -776,8 +779,8 @@ mod tests {
         std::fs::write(&path, "").unwrap();
 
         let trace = walk(&path);
-        assert!(trace.stopped_at().is_none());
-        assert_eq!(trace.location().unwrap().as_ref(), path);
+        assert!(trace.stopped_early_at().is_none());
+        assert_eq!(trace.physical_location().unwrap().as_ref(), path);
         assert_eq!(listing(&trace), (dir.join("a").join("b"), "c".into()));
     }
 
@@ -790,8 +793,8 @@ mod tests {
         std::fs::create_dir_all(&b).unwrap();
 
         let trace = walk(b.join("c"));
-        assert!(trace.location().is_none());
-        assert!(matches!(stopped(&trace).saw, PhysicalNode::Missing(_)));
+        assert!(trace.physical_location().is_none());
+        assert!(matches!(stopped(&trace).contents, PhysicalNode::Missing(_)));
         assert_eq!(listing(&trace), (b.clone(), "c".into()));
         assert_eq!(trace.parent_name().unwrap().as_ref(), b);
     }
@@ -806,8 +809,8 @@ mod tests {
         std::os::unix::fs::symlink(&target, dir.join("c")).unwrap();
 
         let trace = walk(dir.join("c"));
-        assert!(trace.location().is_none());
-        match &stopped(&trace).saw {
+        assert!(trace.physical_location().is_none());
+        match &stopped(&trace).contents {
             PhysicalNode::Symlink {
                 target: to,
                 resolved,
@@ -834,7 +837,7 @@ mod tests {
         std::os::unix::fs::symlink("loop1", dir.join("loop2")).unwrap();
 
         let trace = walk(dir.join("loop1"));
-        match &stopped(&trace).saw {
+        match &stopped(&trace).contents {
             PhysicalNode::Symlink { target, resolved } => {
                 assert_eq!(target.as_ref(), dir.join("loop2"));
                 assert!(resolved.is_err());
@@ -854,7 +857,7 @@ mod tests {
 
         let trace = walk(b.join("c"));
         let stop = stopped(&trace);
-        assert!(matches!(stop.saw, PhysicalNode::Missing(_)));
+        assert!(matches!(stop.contents, PhysicalNode::Missing(_)));
         assert_eq!(stop.at.as_ref().unwrap().as_ref(), b);
 
         // The listing points at the missing name itself, inside a directory that exists
@@ -887,7 +890,7 @@ mod tests {
 
         let trace = walk(join_unfolded(&c, &[".."]));
         let stop = stopped(&trace);
-        assert!(matches!(stop.saw, PhysicalNode::Missing(_)));
+        assert!(matches!(stop.contents, PhysicalNode::Missing(_)));
         assert_eq!(stop.at.as_ref().unwrap().as_ref(), c);
         assert_eq!(listing(&trace), (b, "c".into()));
 
@@ -920,7 +923,7 @@ mod tests {
         std::os::unix::fs::symlink(&target, &link).unwrap();
 
         let trace = walk(link.join("c"));
-        assert!(trace.location().is_none());
+        assert!(trace.physical_location().is_none());
         assert_eq!(listing(&trace), (target.clone(), "c".into()));
         assert_eq!(trace.parent_name().unwrap().as_ref(), target);
 
@@ -947,7 +950,7 @@ mod tests {
         let trace = walk(link.join("c"));
         let stop = stopped(&trace);
         assert_eq!(stop.at.as_ref().unwrap().as_ref(), link);
-        match &stop.saw {
+        match &stop.contents {
             PhysicalNode::Symlink {
                 target: to,
                 resolved,
@@ -975,7 +978,7 @@ mod tests {
         std::os::unix::fs::symlink("missing", &link).unwrap();
 
         let trace = walk(link.join("c"));
-        match &stopped(&trace).saw {
+        match &stopped(&trace).contents {
             PhysicalNode::Symlink { target, .. } => {
                 assert_eq!(target.as_ref(), dir.join("missing"))
             }
@@ -1084,7 +1087,7 @@ mod tests {
 
         let trace = walk(closed.join("inner").join("leaf"));
         let stop = stopped(&trace);
-        assert!(matches!(stop.saw, PhysicalNode::Denied(_)));
+        assert!(matches!(stop.contents, PhysicalNode::Denied(_)));
         assert_eq!(stop.at.as_ref().unwrap().as_ref(), closed.join("inner"));
         assert!(closed.join("inner").access(AccessMode::EXECUTE).is_err());
 
@@ -1098,7 +1101,7 @@ mod tests {
         std::fs::write(dir.join("f"), "").unwrap();
 
         let trace = walk(dir.join("f").join("c"));
-        match &stopped(&trace).saw {
+        match &stopped(&trace).contents {
             PhysicalNode::File(file) => assert_eq!(file.as_ref(), dir.join("f")),
             other => panic!("expected File got {:?}", other),
         }
@@ -1114,8 +1117,8 @@ mod tests {
         std::fs::write(dir.join("f"), "").unwrap();
 
         let trace = walk(join_unfolded(&dir, &["f", ".."]));
-        assert!(trace.location().is_none());
-        match &stopped(&trace).saw {
+        assert!(trace.physical_location().is_none());
+        match &stopped(&trace).contents {
             PhysicalNode::File(file) => assert_eq!(file.as_ref(), dir.join("f")),
             other => panic!("expected File got {:?}", other),
         }
@@ -1130,7 +1133,7 @@ mod tests {
         std::os::unix::fs::symlink(dir.join("f"), dir.join("flink")).unwrap();
 
         let trace = walk(dir.join("flink").join("c"));
-        match &stopped(&trace).saw {
+        match &stopped(&trace).contents {
             PhysicalNode::Symlink { resolved, .. } => {
                 assert_eq!(resolved.as_ref().unwrap().as_ref(), dir.join("f"))
             }
@@ -1149,7 +1152,7 @@ mod tests {
         std::fs::create_dir_all(&b).unwrap();
 
         let trace = walk(b.join(".."));
-        assert_eq!(trace.location().unwrap().as_ref(), dir.join("a"));
+        assert_eq!(trace.physical_location().unwrap().as_ref(), dir.join("a"));
         assert_eq!(listing(&trace), (dir.clone(), "a".into()));
         assert_eq!(trace.parent_name().unwrap().as_ref(), dir);
     }
@@ -1159,7 +1162,7 @@ mod tests {
         let (_temp, dir) = tempdir();
         let trace = walk(root_of(&dir));
 
-        assert_eq!(trace.location().unwrap().as_ref(), root_of(&dir));
+        assert_eq!(trace.physical_location().unwrap().as_ref(), root_of(&dir));
         assert!(trace.listing().is_none());
         assert!(trace.parent_name().is_none());
     }
@@ -1169,7 +1172,7 @@ mod tests {
         let (_temp, dir) = tempdir();
         let trace = walk(root_of(&dir).join(".."));
 
-        assert_eq!(trace.location().unwrap().as_ref(), root_of(&dir));
+        assert_eq!(trace.physical_location().unwrap().as_ref(), root_of(&dir));
         assert!(trace.listing().is_none());
     }
 
@@ -1189,7 +1192,7 @@ mod tests {
         let top = root_of(&dir).join(first.as_os_str());
 
         let trace = walk(top.join(".."));
-        assert_eq!(trace.location().unwrap().as_ref(), root_of(&dir));
+        assert_eq!(trace.physical_location().unwrap().as_ref(), root_of(&dir));
         assert!(trace.listing().is_none());
     }
 

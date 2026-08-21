@@ -17,18 +17,19 @@ exists `exists.txt` → `/path/to/directory/exists.txt`
      └── `exists.txt` file [✅ read, ✅ write, ❌ execute]
 ```
 
-- Fix representing a file in a directory when it has a `.` or `..` in it. Previously equality comparisons
-  were made based on Absolute path, which is un-normalized. They're not made based on expanded paths which
-  can still diverge in some cases but are much more robust when comparing directory entries (as they all
-  exist on disk).
-
+- Fix the parent-directory listing for a path ending in `..`. The listing is now built from the directory
+  the walk physically resolves, rather than the lexical parent of the un-normalized
+  absolute path. Previously `/path/to/directory/a/b/..` listed `/path/to/directory/a/b` and failed to
+  annotate the resolved entry, because the annotation compared directory entries against the un-normalized
+  absolute path, which no real entry equals. Entries are now compared against the resolved entry as it
+  appears in that directory's listing.
 
 Before:
 
 ```
 exists `/path/to/directory/a/b/..` → `/path/to/directory/a`
  - `/path/to/directory/a/b`
-     └── `inside.txt`
+     └── `inside_b.txt`
 ```
 
 After:
@@ -37,7 +38,7 @@ After:
 exists `/path/to/directory/a/b/..` → `/path/to/directory/a`
  - `/path/to/directory`
      ├── `a` directory [✅ read, ✅ write, ✅ execute]
-     └── `other.txt`
+     └── `inside_dir.txt`
 ```
 
 ## 0.2.2

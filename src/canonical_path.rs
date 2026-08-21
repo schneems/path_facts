@@ -230,6 +230,7 @@ impl CanonicalPath {
     /// aren't guaranteed to be resolvable.
     ///
     /// Errors if path is not a directory or is not readable
+    #[allow(dead_code)]
     pub(crate) fn read_dir(&self) -> Result<Vec<ExpandPath>, std::io::Error> {
         let parent: AbsPath = self.clone().into();
         #[cfg_attr(not(test), allow(unused_mut))]

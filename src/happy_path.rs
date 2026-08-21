@@ -2,9 +2,10 @@
 //!
 //! Holds [`HappyPath`] and [`DirOk`]
 use crate::{
-    abs_path::{self, AbsPath},
+    abs_path::{self, AbsPath, RelativePath},
     canonical_path::{CannotCanonicalizeAnything, CanonicalPath, ExpandPath},
     resolved_metadata::{ResolvedMetadata, ResolvedType},
+    trace::Trace,
 };
 use faccess::{AccessMode, PathExt};
 use std::path::Path;
@@ -14,8 +15,12 @@ use std::path::Path;
 /// For a path to be happy, it's parent (directory) must be good too, represented by a [`DirOk`]
 #[derive(Debug)]
 pub(crate) struct KnownPath {
-    pub(crate) absolute: AbsPath,
     pub(crate) canonical: CanonicalPath,
+    /// The resolved path as an entry in [`KnownPath::parent`]'s listing
+    ///
+    /// The name to annotate in the parent directory. Not [`KnownPath::canonical`]: for a
+    /// symlink that is the target, not the link's own name in the parent.
+    pub(crate) entry: AbsPath,
     pub(crate) symlink_target: Option<AbsPath>,
     pub(crate) resolved_type: ResolvedType,
     pub(crate) parent: DirOk,
@@ -109,7 +114,14 @@ pub(crate) enum UnknownPath {
 }
 
 pub(crate) fn state(path: &Path) -> Result<KnownPath, Box<UnknownPath>> {
-    let absolute = AbsPath::new(path).map_err(UnknownPath::AbsPathError)?;
+    let trace = Trace::new(path).map_err(|error| match error {
+        crate::trace::CannotTrace::Anchor(error) => Box::new(UnknownPath::AbsPathError(error)),
+        crate::trace::CannotTrace::Root(error) => {
+            Box::new(UnknownPath::CannotCanonicalizeAnything(error))
+        }
+    })?;
+    let absolute = trace.absolute().clone();
+
     let abs_parent = absolute
         .lex_parent()
         .ok_or_else(|| UnknownPath::IsRoot(absolute.clone()))?;
@@ -158,9 +170,28 @@ pub(crate) fn state(path: &Path) -> Result<KnownPath, Box<UnknownPath>> {
     let write = canonical.as_ref().access(AccessMode::WRITE).is_ok();
     let execute = canonical.as_ref().access(AccessMode::EXECUTE).is_ok();
 
+    // The path resolved, so it sits inside the directory the walk actually reached rather
+    // than its lexical parent. These differ for a trailing `..`: `<dir>/a/b/..` is spelled
+    // under `<dir>/a/b` but lives in `<dir>` as the entry `a`. `entry` is that entry as it
+    // appears in `parent`'s listing, which is the name to annotate and not `canonical` (a
+    // symlink's `canonical` is its target, not the link's name in the parent).
+    let listing = trace
+        .listing()
+        .ok_or_else(|| UnknownPath::IsRoot(absolute.clone()))?;
+    let entry = AbsPath::from(listing.dir.clone()).join_relative(
+        &RelativePath::new(&listing.entry).expect("a directory entry name is a relative path"),
+    );
+    let parent =
+        DirOk::new(AbsPath::from(listing.dir)).map_err(|error| UnknownPath::ParentProblem {
+            absolute: absolute.clone(),
+            expand: expand.clone(),
+            parent: abs_parent.clone(),
+            _error: error,
+        })?;
+
     Ok(KnownPath {
-        absolute,
         canonical,
+        entry,
         symlink_target,
         resolved_type,
         parent,

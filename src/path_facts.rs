@@ -162,7 +162,7 @@ impl PathFacts {
                     f,
                     "{}",
                     style::bullet(style::fmt_dir(&happy.parent, |entry| {
-                        if entry == &happy.absolute {
+                        if entry == &happy.entry {
                             Some(format!(
                                 "{file_type} {permissions}",
                                 file_type = happy.resolved_type,
@@ -521,34 +521,34 @@ mod tests {
         ")
     }
 
-    // #[test]
-    // fn test_exists_dot_dot_annotates_resolved_entry() {
-    //     let tempdir = tempfile::tempdir().unwrap();
-    //     let dir = tempdir.path().canonicalize().unwrap();
-    //     let b = dir.join("a").join("b");
-    //     std::fs::create_dir_all(&b).unwrap();
-    //     std::fs::write(b.join("inside.txt"), "").unwrap();
-    //     std::fs::write(dir.join("other.txt"), "").unwrap();
+    #[test]
+    fn test_exists_dot_dot_annotates_resolved_entry() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let dir = tempdir.path().canonicalize().unwrap();
+        let b = dir.join("a").join("b");
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::write(b.join("inside.txt"), "").unwrap();
+        std::fs::write(dir.join("other.txt"), "").unwrap();
 
-    //     // `<dir>/a/b/..` resolves to the directory `<dir>/a`, so the parent facts should list
-    //     // `<dir>` and annotate the `a` entry. Parent facts come from the lexical parent
-    //     // (`<dir>/a/b`) rather than the resolved path, so the wrong directory is listed and
-    //     // `read_dir` never yields a `..` entry to match the un-normalized absolute path,
-    //     // dropping the file type and permissions annotation.
-    //     let path = b.join("..");
+        // `<dir>/a/b/..` resolves to the directory `<dir>/a`, so the parent facts should list
+        // `<dir>` and annotate the `a` entry. Parent facts come from the lexical parent
+        // (`<dir>/a/b`) rather than the resolved path, so the wrong directory is listed and
+        // `read_dir` never yields a `..` entry to match the un-normalized absolute path,
+        // dropping the file type and permissions annotation.
+        let path = b.join("..");
 
-    //     insta::assert_snapshot!(
-    //         PathFacts::new(&path)
-    //             .to_string()
-    //             .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
-    //         @r"
-    //     exists `/path/to/directory/a/b/..` → `/path/to/directory/a`
-    //      - `/path/to/directory`
-    //          ├── `a` directory [✅ read, ✅ write, ✅ execute]
-    //          └── `other.txt`
-    //     🛑
-    //     ")
-    // }
+        insta::assert_snapshot!(
+            PathFacts::new(&path)
+                .to_string()
+                .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
+            @r"
+        exists `/path/to/directory/a/b/..` → `/path/to/directory/a`
+         - `/path/to/directory`
+             ├── `a` directory [✅ read, ✅ write, ✅ execute]
+             └── `other.txt`
+        🛑
+        ")
+    }
 
     #[test]
     fn test_parent_exists_missing_file() {

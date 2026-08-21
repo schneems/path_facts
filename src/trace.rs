@@ -751,6 +751,23 @@ mod tests {
         trace.stopped_at().expect("the walk to have stopped")
     }
 
+    /// Append components to `base` without folding a `..` away.
+    ///
+    /// `Path::join`/`PathBuf::push` normalize `.` and `..` at construction when the
+    /// receiver has a verbatim (`\\?\`) prefix, which is exactly what `tempdir()` hands
+    /// back on Windows. That fold happens before the walk ever runs, so a test that spells
+    /// `base.join("..")` to exercise `..` handling would find the `..` already gone. Building
+    /// the `OsString` by hand with explicit separators skips the fold, so the `..` survives
+    /// into `components()` on every platform. See `fact_check.rs` for the underlying fact.
+    fn join_unfolded(base: &Path, parts: &[&str]) -> PathBuf {
+        let mut raw = base.as_os_str().to_os_string();
+        for part in parts {
+            raw.push(std::path::MAIN_SEPARATOR_STR);
+            raw.push(part);
+        }
+        PathBuf::from(raw)
+    }
+
     #[test]
     fn test_entry_that_exists_resolves() {
         let (_temp, dir) = tempdir();
@@ -868,7 +885,7 @@ mod tests {
         std::fs::create_dir_all(&b).unwrap();
         let c = b.join("c");
 
-        let trace = walk(c.join(".."));
+        let trace = walk(join_unfolded(&c, &[".."]));
         let stop = stopped(&trace);
         assert!(matches!(stop.saw, PhysicalNode::Missing(_)));
         assert_eq!(stop.at.as_ref().unwrap().as_ref(), c);
@@ -886,7 +903,7 @@ mod tests {
         std::fs::create_dir(dir.join("a")).unwrap();
         let b = dir.join("a").join("b");
 
-        let trace = walk(b.join("..").join("c"));
+        let trace = walk(join_unfolded(&b, &["..", "c"]));
         assert_eq!(stopped(&trace).at.as_ref().unwrap().as_ref(), b);
         assert_eq!(listing(&trace), (dir.join("a"), "b".into()));
         assert!(trace.parent_name().is_none());

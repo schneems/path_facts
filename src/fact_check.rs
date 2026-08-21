@@ -4,7 +4,7 @@
 #[cfg(test)]
 mod tests {
     use crate::{abs_path::AbsPath, canonical_path::CanonicalPath, happy_path::DirOk};
-    use std::path::Path;
+    use std::path::{Component, Path};
 
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
@@ -300,26 +300,53 @@ mod tests {
         assert_eq!(Path::new("/a/b/..").parent(), Some(Path::new("/a/b")));
     }
 
-    /// INSTRUMENTATION: dump the walk of `<dir>/a/b/../c` (b missing) so Windows CI shows
-    /// where it diverges. Intentionally fails to surface the `{:#?}` dump in the log.
+    /// `Path::join` folds a `..` away when the receiver has a verbatim (`\\?\`)
+    /// prefix, but appends it literally on any non-verbatim receiver.
+    ///
+    /// > if `self` has a verbatim prefix (e.g. `\\?\C:\windows`) and `path` is not
+    /// > empty, the new path is normalized: all references to `.` and `..` are
+    /// > removed.
+    ///
+    /// <https://doc.rust-lang.org/std/path/struct.PathBuf.html#method.push>
+    ///
+    /// `\\?\` prefixes only exist on Windows, so the verbatim half is
+    /// `#[cfg(windows)]`; the non-verbatim half holds on every platform.
     #[test]
-    fn instrument_dot_dot_below_missing() {
-        use crate::trace::Trace;
-
-        let temp = tempfile::tempdir().unwrap();
-        let dir = temp.path().canonicalize().unwrap();
-        std::fs::create_dir(dir.join("a")).unwrap();
-        let path = dir.join("a").join("b").join("..").join("c");
-
-        let trace = Trace::new(&path).unwrap();
-
-        panic!(
-            "INPUT={:?}\nABSOLUTE={:?}\nSTEPS={:#?}\nLISTING={:?}",
-            trace.input(),
-            trace.absolute(),
-            trace.steps(),
-            trace.listing(),
+    fn test_path_join_folds_parent_dir_only_on_a_verbatim_receiver() {
+        // Non-verbatim receiver: the `..` survives as a real component. Uses a
+        // relative base so the assertion is identical on every platform.
+        let plain = Path::new("base").join("a").join("b").join("..").join("c");
+        assert!(
+            plain
+                .components()
+                .any(|component| matches!(component, Component::ParentDir)),
+            "join kept `..` on a non-verbatim base, got {:?}",
+            plain
         );
+
+        // Verbatim receiver: the `..` is folded at construction, so it never
+        // reaches `components()`.
+        #[cfg(windows)]
+        {
+            let verbatim = Path::new(r"\\?\C:\base\a\b").join("..").join("c");
+            assert!(
+                !verbatim
+                    .components()
+                    .any(|component| matches!(component, Component::ParentDir)),
+                "join folded `..` on a verbatim base, got {:?}",
+                verbatim
+            );
+            assert_eq!(verbatim, std::path::PathBuf::from(r"\\?\C:\base\a\c"));
+
+            let literal = Path::new(r"\\?\C:\base\a\b\..\c");
+            assert!(
+                literal
+                    .components()
+                    .any(|component| matches!(component, Component::ParentDir)),
+                "literal `..` on a verbatim base, got {:?}",
+                literal
+            );
+        }
     }
 
     /// `create_dir_all("x/y/z/..")` creates `z`, even when `y` is missing

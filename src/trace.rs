@@ -1113,7 +1113,7 @@ mod tests {
         let (_temp, dir) = tempdir();
         std::fs::write(dir.join("f"), "").unwrap();
 
-        let trace = walk(dir.join("f").join(".."));
+        let trace = walk(join_unfolded(&dir, &["f", ".."]));
         assert!(trace.location().is_none());
         match &stopped(&trace).saw {
             PhysicalNode::File(file) => assert_eq!(file.as_ref(), dir.join("f")),

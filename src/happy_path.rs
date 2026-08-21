@@ -125,11 +125,9 @@ pub(crate) fn state(path: &Path) -> Result<KnownPath, Box<UnknownPath>> {
         _error: error,
     })?;
     let path_does_not_exist = !parent.has_entry(&absolute);
-    // The walk already read this component. If it is a symlink, the `readlink` it issued is
-    // recorded as the target, so there is nothing to ask the filesystem again. A trailing
-    // `..` or `.` can never be a symlink, so those never land here.
     let symlink_target = match &trace.last_step().contents {
-        PhysicalNode::Symlink { target, .. } => Some(target.clone()),
+        // TODO represent the fact a readlink can fail to the end user somehow
+        PhysicalNode::Symlink { target, .. } => target.as_ref().ok().cloned(),
         _ => None,
     };
     let canonical = CanonicalPath::new(&absolute).map_err(|error| {

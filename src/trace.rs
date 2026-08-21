@@ -96,6 +96,13 @@ pub(crate) enum PhysicalNode {
     /// it. `resolved` is where following it lands, and carries the error when it lands
     /// nowhere.
     ///
+    /// Both are results because `lstat` calling a name a symlink does not promise that
+    /// either call succeeds. Apple's libc checks the link's own permission bits on
+    /// `readlink` while `lstat` needs only search on the parent, so a link can read as a
+    /// symlink and still refuse to say where it points. That is a fact about the link, not
+    /// a contradiction in the walk: `target` carries the refusal rather than
+    /// [`PhysicalNode::Raced`] swallowing the whole step.
+    ///
     /// The error is kept rather than classified. A circular link, a dangling one, and one
     /// whose target is unreadable are all "this link did not resolve, and here is what the
     /// system said about it", which spares us matching on error codes to reword what the
@@ -104,8 +111,7 @@ pub(crate) enum PhysicalNode {
     /// A link that does not resolve is reported rather than chased: the target's own chain
     /// may not resolve either, and symlinks can be made to point in a circle.
     Symlink {
-        // TODO: also record original, un-modified readlink target path
-        target: AbsPath,
+        target: Result<AbsPath, std::io::Error>,
         resolved: Result<CanonicalPath, std::io::Error>,
     },
 
@@ -606,21 +612,13 @@ fn no_longer_a_directory(dir: &CanonicalPath) -> Option<&'static str> {
 /// own chain are libc's problem rather than ours. Whatever it refuses on comes back as the
 /// error, unexamined.
 fn follow(link: &AbsPath) -> (PhysicalNode, Reached) {
-    let target = match readlink(link) {
-        Ok(target) => target,
-        // Only a symlink has a target to read, and `lstat` called this one a symlink a
-        // moment ago, so this is the two of them disagreeing rather than a fact about the
-        // link.
-        Err(error) => {
-            return (
-                PhysicalNode::Raced {
-                    why: "lstat reported a symlink here, readlink refused to read it",
-                    error,
-                },
-                Reached::Lost,
-            )
-        }
-    };
+    // `readlink` and `realpath` are two more looks at a name `lstat` already called a
+    // symlink, and either can be refused (Apple checks the link's own permission bits on
+    // `readlink`). A link whose target cannot be read is a fact about the link, so the
+    // refusal is carried on `target` rather than folded into a `Raced` step. Both are kept
+    // because "cannot read where it points" and "cannot resolve where it lands" are
+    // different failures about the same link.
+    let target = readlink(link);
 
     let resolved = match CanonicalPath::new(link) {
         Ok(resolved) => resolved,
@@ -815,7 +813,7 @@ mod tests {
                 target: to,
                 resolved,
             } => {
-                assert_eq!(to.as_ref(), target);
+                assert_eq!(to.as_ref().unwrap().as_ref(), target);
                 assert_eq!(
                     resolved.as_ref().unwrap_err().kind(),
                     std::io::ErrorKind::NotFound
@@ -839,7 +837,7 @@ mod tests {
         let trace = walk(dir.join("loop1"));
         match &stopped(&trace).contents {
             PhysicalNode::Symlink { target, resolved } => {
-                assert_eq!(target.as_ref(), dir.join("loop2"));
+                assert_eq!(target.as_ref().unwrap().as_ref(), dir.join("loop2"));
                 assert!(resolved.is_err());
             }
             other => panic!("expected Symlink got {:?}", other),
@@ -955,7 +953,7 @@ mod tests {
                 target: to,
                 resolved,
             } => {
-                assert_eq!(to.as_ref(), target);
+                assert_eq!(to.as_ref().unwrap().as_ref(), target);
                 assert!(resolved.is_err());
             }
             other => panic!("expected Symlink got {:?}", other),
@@ -980,7 +978,7 @@ mod tests {
         let trace = walk(link.join("c"));
         match &stopped(&trace).contents {
             PhysicalNode::Symlink { target, .. } => {
-                assert_eq!(target.as_ref(), dir.join("missing"))
+                assert_eq!(target.as_ref().unwrap().as_ref(), dir.join("missing"))
             }
             other => panic!("expected Symlink got {:?}", other),
         }

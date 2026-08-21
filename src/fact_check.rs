@@ -39,6 +39,37 @@ mod tests {
         Ok(())
     }
 
+    /// Sets a symlink's own mode bits, without following it
+    ///
+    /// `std::fs::set_permissions` follows symlinks, so it can only change the target's
+    /// mode, never the link's. `fchmodat` with `AT_SYMLINK_NOFOLLOW` is the no-follow form,
+    /// and std does not expose it, hence the `libc` call.
+    ///
+    /// Whether this does anything is itself the platform fact under test. The BSD family
+    /// (macOS included) honors a symlink's permissions, so this succeeds and those bits then
+    /// gate `readlink`. Linux does not use symlink modes at all (`man 7 symlink`), and its
+    /// `fchmodat` refuses the no-follow flag outright with `EOPNOTSUPP`. The error is
+    /// returned rather than unwrapped so the caller can branch on which platform it is on.
+    #[cfg(unix)]
+    fn lchmod<P: AsRef<Path>>(path: P, mode: u32) -> std::io::Result<()> {
+        use std::os::unix::ffi::OsStrExt;
+
+        let c_path = std::ffi::CString::new(path.as_ref().as_os_str().as_bytes()).unwrap();
+        let rc = unsafe {
+            libc::fchmodat(
+                libc::AT_FDCWD,
+                c_path.as_ptr(),
+                mode as libc::mode_t,
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+
     /// Asserts which error came back, not merely that one did
     ///
     /// The two tests below disagree on the kind for the same operation, so
@@ -383,5 +414,86 @@ mod tests {
             &std::fs::metadata(&dotted).unwrap(),
             &std::fs::metadata(&y).unwrap(),
         ));
+    }
+
+    /// Whether `lstat` and `readlink` can disagree about one symlink is platform-specific
+    ///
+    /// The intuition worth pinning: a name `symlink_metadata` reports as a symlink is not a
+    /// name `read_link` is guaranteed to read — but only on some systems. This asserts both
+    /// realities and lets the platform decide which arm it takes, so the same test documents
+    /// the split and each side is proven where it runs (`bin/test` runs it on Linux under
+    /// Docker, see the README).
+    ///
+    /// A symlink carries its own permission bits on the BSD family (macOS included), and
+    /// `readlink` checks them while `lstat` needs only search on the parent. So stripping
+    /// read off the link with `lchmod` (`set_permissions` would follow it and touch the
+    /// target) leaves `symlink_metadata` still calling it a symlink while `read_link` is
+    /// refused with `EACCES`. [`PhysicalNode::Symlink`] holds this on its `target`: a link
+    /// whose target cannot be read is a fact about the link, not a contradiction in the
+    /// walk, so the refusal rides along as `target: Err` rather than collapsing the step.
+    ///
+    /// Linux does not honor symlink modes at all (`man 7 symlink`), and its `fchmodat`
+    /// refuses the no-follow flag with `EOPNOTSUPP`. So the disagreement cannot be
+    /// manufactured, `read_link` still answers, and the walk sees an ordinary (here
+    /// dangling) symlink.
+    #[cfg(unix)]
+    #[test]
+    fn test_symlink_lstat_can_read_but_readlink_cannot_records_the_refusal() {
+        use crate::trace::{PhysicalNode, Trace};
+
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().canonicalize().unwrap();
+        let link = dir.join("link");
+        // The target does not exist, so on Linux the walk sees a dangling symlink.
+        std::os::unix::fs::symlink(dir.join("target"), &link).unwrap();
+
+        // `lstat` sees a symlink on every platform; that never changes below.
+        assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+
+        #[cfg(target_vendor = "apple")]
+        {
+            lchmod(&link, 0o000).unwrap();
+            assert_err_kind(
+                std::fs::read_link(&link),
+                std::io::ErrorKind::PermissionDenied,
+            );
+
+            let trace = Trace::new(&link).unwrap();
+            match &trace.last_step().contents {
+                // The refused `readlink` rides on `target`; `resolved` errors too,
+                // because `realpath` has to read the same link it was refused on.
+                PhysicalNode::Symlink { target, resolved } => {
+                    assert_eq!(
+                        target.as_ref().unwrap_err().kind(),
+                        std::io::ErrorKind::PermissionDenied
+                    );
+                    assert!(resolved.is_err());
+                }
+                other => panic!("expected Symlink, got {:?}", other),
+            }
+
+            // Naming stopped, so nothing resolved and there is no location to report.
+            assert!(trace.physical_location().is_none());
+        }
+
+        #[cfg(not(target_vendor = "apple"))]
+        {
+            match lchmod(&link, 0o000) {
+                Ok(()) => panic!("expected lchmod to fail but it worked"),
+                // Linux: symlink modes are not honored, and the no-follow chmod is refused, so
+                // the disagreement cannot be arranged. `readlink` still answers.
+                Err(error) => {
+                    assert_eq!(error.raw_os_error(), Some(libc::EOPNOTSUPP));
+                    assert!(std::fs::read_link(&link).is_ok());
+
+                    let trace = Trace::new(&link).unwrap();
+                    assert!(
+                        matches!(trace.last_step().contents, PhysicalNode::Symlink { .. }),
+                        "expected an ordinary Symlink, got {:?}",
+                        trace.last_step().contents
+                    );
+                }
+            }
+        }
     }
 }

@@ -105,13 +105,7 @@ pub(crate) enum UnknownPath {
     },
 }
 
-pub(crate) fn state(path: &Path) -> Result<KnownPath, Box<UnknownPath>> {
-    let trace = Trace::new(path).map_err(|error| match error {
-        crate::trace::CannotTrace::Anchor(error) => Box::new(UnknownPath::AbsPathError(error)),
-        crate::trace::CannotTrace::Root(error) => {
-            Box::new(UnknownPath::CannotCanonicalizeAnything(error))
-        }
-    })?;
+pub(crate) fn state_from_trace(trace: &Trace) -> Result<KnownPath, Box<UnknownPath>> {
     let absolute = trace.absolute().clone();
 
     let abs_parent = absolute
@@ -189,4 +183,9 @@ pub(crate) fn state(path: &Path) -> Result<KnownPath, Box<UnknownPath>> {
         write,
         execute,
     })
+}
+
+pub(crate) fn state(path: &Path) -> Result<KnownPath, Box<UnknownPath>> {
+    let trace = Trace::new(path)?;
+    state_from_trace(&trace)
 }

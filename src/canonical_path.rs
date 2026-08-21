@@ -190,6 +190,10 @@ impl CanonicalPath {
         Ok(CanonicalPath(canonical))
     }
 
+    pub(crate) unsafe fn unchecked_join(&self, rest: &OsStr) -> CanonicalPath {
+        CanonicalPath(self.as_ref().join(rest))
+    }
+
     /// Looks up `name` in this directory
     ///
     /// Takes its own `symlink_metadata` rather than accepting one. Metadata handed in by a

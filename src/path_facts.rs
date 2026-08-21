@@ -4,6 +4,7 @@ use crate::canonical_path::{CannotCanonicalizeAnything, ExpandPath};
 use crate::happy_path::{state, KnownPath, UnknownPath};
 use crate::resolved_metadata::ResolvedType;
 use crate::style::{self, permissions};
+use crate::trace::{CannotTrace, Trace};
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
@@ -15,6 +16,7 @@ pub struct PathFacts {
     path: PathBuf,
     /// Detected state of the path
     state: Result<KnownPath, Box<UnknownPath>>,
+    trace: Result<Trace, CannotTrace>,
 }
 
 impl PathFacts {
@@ -22,6 +24,7 @@ impl PathFacts {
         PathFacts {
             path: path.as_ref().to_owned(),
             state: state(path.as_ref()),
+            trace: Trace::new(path.as_ref()),
         }
     }
 }
@@ -42,11 +45,47 @@ impl PathFacts {
     }
 
     fn fmt_individual_facts(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        match self.trace.as_ref() {
+            // A root has no lexical parent and no walked components, so it is neither
+            // "exists" nor "does not exist": the `IsRoot` state arm below says "is root"
+            // instead. Skip the disk-status line here so root reports through that arm.
+            Ok(trace) if trace.absolute().lex_parent().is_some() => {
+                let expand =
+                    ExpandPath::new(&crate::abs_path::AbsPath::new(&self.path).unwrap()).unwrap();
+                match trace.status_on_disk() {
+                    crate::trace::StatusOnDisk::Exists => {
+                        writeln!(f, "exists {}", style::expanded(&self.path, &expand))?
+                    }
+                    crate::trace::StatusOnDisk::DoesNotExist => {
+                        writeln!(f, "does not exist {}", style::expanded(&self.path, &expand))?
+                    }
+                    crate::trace::StatusOnDisk::Unknown => {
+                        writeln!(f, "{}", style::expanded(&self.path, &expand))?
+                    }
+                }
+            }
+            // Root: nothing to say about disk status, handled by the `IsRoot` arm below.
+            Ok(_) => {}
+            Err(CannotTrace::Anchor(AbsPathError::PathIsEmpty(path))) => {
+                writeln!(f, "path `{}` is empty", path.display())?;
+                return Ok(());
+            }
+            Err(CannotTrace::Anchor(AbsPathError::CannotReadCWD(path, _))) => {
+                writeln!(f, "`{}`", path.display())?;
+                // parent states cannot read CWD
+                return Ok(());
+            }
+            Err(CannotTrace::Root(CannotCanonicalizeAnything { original, .. })) => {
+                writeln!(f, "`{}`", &self.path.display())?;
+                if self.path.is_relative() {
+                    writeln!(f, "{}", style::bullet(format!("Absolute: {original}",)))?;
+                };
+                // Error is in root, show message in the parent facts
+                return Ok(());
+            }
+        }
         match self.state.as_ref().map_err(|e| &**e) {
             Ok(happy) => {
-                let expanded = ExpandPath::from(happy.canonical.clone());
-                writeln!(f, "exists {}", style::expanded(&self.path, &expanded))?;
-
                 if let Some(target) = &happy.symlink_target {
                     writeln!(
                         f,
@@ -55,21 +94,14 @@ impl PathFacts {
                     )?;
                 }
             }
-            Err(UnknownPath::AbsPathError(AbsPathError::PathIsEmpty(path))) => {
-                writeln!(f, "path `{}` is empty", path.display())?;
+            Err(UnknownPath::AbsPathError(AbsPathError::PathIsEmpty(_))) => {
+                unreachable!("caught by trace");
             }
-            Err(UnknownPath::AbsPathError(AbsPathError::CannotReadCWD(path, _))) => {
-                writeln!(f, "`{}`", path.display())?;
+            Err(UnknownPath::AbsPathError(AbsPathError::CannotReadCWD(_, _))) => {
+                unreachable!("caught by trace");
             }
-            Err(UnknownPath::CannotCanonicalizeAnything(CannotCanonicalizeAnything {
-                original,
-                ..
-            })) => {
-                writeln!(f, "`{}`", &self.path.display())?;
-                if self.path.is_relative() {
-                    writeln!(f, "{}", style::bullet(format!("Absolute: {original}",)))?;
-                };
-                // Error is in root, show message in the parent facts
+            Err(UnknownPath::CannotCanonicalizeAnything(CannotCanonicalizeAnything { .. })) => {
+                unreachable!("caught by trace");
             }
             Err(UnknownPath::IsRoot(absolute)) => {
                 writeln!(f, "is root {absolute}")?;
@@ -79,27 +111,18 @@ impl PathFacts {
                 expand,
                 parent: _,
                 _error,
-            }) => {
-                writeln!(f, "cannot access {}", style::expanded(&self.path, expand))?;
-            }
+            }) => {}
             Err(UnknownPath::DoesNotExist {
                 absolute: _,
                 expand,
                 parent: _,
-            }) => {
-                writeln!(f, "does not exist {}", style::expanded(&self.path, expand))?;
-            }
+            }) => {}
             Err(UnknownPath::CannotCanonicalize {
                 absolute,
                 expand,
                 parent,
                 error,
             }) => {
-                if parent.has_entry(absolute) {
-                    writeln!(f, "exists {}", style::expanded(&self.path, expand))?;
-                } else {
-                    writeln!(f, "does not exist {}", style::expanded(&self.path, expand))?;
-                }
                 writeln!(
                     f,
                     "{}",
@@ -112,16 +135,6 @@ impl PathFacts {
                 parent,
                 error,
             }) => {
-                let expanded = ExpandPath::from(canonical.clone());
-                if parent.has_entry(absolute) {
-                    writeln!(f, "exists {}", style::expanded(&self.path, &expanded))?;
-                } else {
-                    writeln!(
-                        f,
-                        "does not exist {}",
-                        style::expanded(&self.path, &expanded)
-                    )?;
-                }
                 writeln!(
                     f,
                     "{}",
@@ -210,6 +223,8 @@ impl PathFacts {
                         PathFacts {
                             path: prior_dir.as_ref().to_owned(),
                             state: prior_state,
+                            // Todo: Cleanup
+                            trace: Trace::new(prior_dir.as_ref()),
                         }
                         .fmt_parent_facts(&mut parent_facts)?;
                         // Use `write!` because `parent_facts` already has a newline at the end.
@@ -226,6 +241,8 @@ impl PathFacts {
                         PathFacts {
                             path: prior_dir.as_ref().to_owned(),
                             state: prior_state,
+                            // Todo: Cleanup
+                            trace: Trace::new(prior_dir.as_ref()),
                         }
                         .write_facts(&mut prior)?;
                         writeln!(f, "{}", style::bullet(format!("Prior directory {prior}")))?;
@@ -453,7 +470,7 @@ mod tests {
                 .replace(&dir.display().to_string(), "/path/to/directory")
                 .replace('\\', "/") + "🛑",
             @r"
-        cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
+        does not exist `/path/to/directory/a/b/c/does_not_exist.txt`
          - Prior directory does not exist `/path/to/directory/a`
             - Missing `a` from parent directory:
               `/path/to/directory`
@@ -763,7 +780,7 @@ mod tests {
                 .replace(&dir.display().to_string(), "/path/to/directory")
                 .replace('\\', "/") + "🛑",
             @r"
-        cannot access `a/b/c/does_not_exist.txt` → `/path/to/directory/a/b/c/does_not_exist.txt`
+        does not exist `a/b/c/does_not_exist.txt` → `/path/to/directory/a/b/c/does_not_exist.txt`
          - Prior directory does not exist `/path/to/directory/a`
             - Missing `a` from parent directory:
               `/path/to/directory`
@@ -1003,16 +1020,26 @@ mod tests {
     #[cfg(unix)]
     fn test_cannot_canonicalize_anything() {
         let path = PathBuf::from(r"/pretend/root/does/not/exist/somehow");
-        let error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "simulated error");
         let output = PathFacts {
             path: path.clone(),
             state: Err(Box::new(UnknownPath::CannotCanonicalizeAnything(
                 CannotCanonicalizeAnything {
                     original: AbsPath::new(&path).unwrap(),
                     root: AbsPath::new(Path::new("/")).unwrap(),
-                    root_error: error,
+                    root_error: std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "simulated error",
+                    ),
                 },
             ))),
+            trace: Err(CannotTrace::Root(CannotCanonicalizeAnything {
+                original: AbsPath::new(&path).unwrap(),
+                root: AbsPath::new(Path::new("/")).unwrap(),
+                root_error: std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "simulated error",
+                ),
+            })),
         }
         .to_string()
             + "🛑";
@@ -1049,6 +1076,7 @@ mod tests {
                 parent,
                 error,
             })),
+            trace: Trace::new(&file),
         };
 
         insta::assert_snapshot!(

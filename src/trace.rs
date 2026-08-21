@@ -74,7 +74,11 @@
 
 use crate::abs_path::{readlink, AbsPath, AbsPathError, RelativePath};
 use crate::canonical_path::{CannotCanonicalizeAnything, CanonicalPath, Entry};
+use crate::happy_path::UnknownPath;
+use faccess::{AccessMode, PathExt};
+use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
+use std::fs::DirEntry;
 use std::path::{Component, Path, PathBuf};
 
 /// What a single `lstat` reported at one component
@@ -121,6 +125,13 @@ pub(crate) enum PhysicalNode {
     /// walk keep naming components below it. Carries the error so a report can quote the
     /// system rather than invent wording for it.
     Missing(std::io::Error),
+
+    /// Can list entries from the parent but cannot access them directly
+    ParentNoExec {
+        parent: CanonicalPath,
+        /// Some if the directory has the entry, otherwise None
+        entry: Option<OsString>,
+    },
 
     /// Cannot tell missing from directory from symlink here
     ///
@@ -169,15 +180,24 @@ impl PhysicalNode {
     ///
     /// `None` for every observation that is not a place: an absence, a denial, a link that
     /// goes nowhere, a contradiction, and a component the walk never got to.
-    pub(crate) fn resolved_to(&self) -> Option<&CanonicalPath> {
+    pub(crate) fn resolved_to(&self) -> Option<Cow<CanonicalPath>> {
         match self {
-            PhysicalNode::Directory(path) | PhysicalNode::File(path) => Some(path),
-            PhysicalNode::Symlink { resolved, .. } => resolved.as_ref().ok(),
-            PhysicalNode::Up { to, .. } => Some(to),
+            PhysicalNode::Directory(path) | PhysicalNode::File(path) => {
+                Some(path).map(Cow::Borrowed)
+            }
+            PhysicalNode::Symlink { resolved, .. } => resolved.as_ref().ok().map(Cow::Borrowed),
+            PhysicalNode::Up { to, .. } => Some(to).map(Cow::Borrowed),
             PhysicalNode::Missing(_)
             | PhysicalNode::Denied(_)
             | PhysicalNode::Raced { .. }
             | PhysicalNode::NotReached => None,
+            PhysicalNode::ParentNoExec { parent, entry } => {
+                if let Some(entry) = entry {
+                    unsafe { Some(parent.unchecked_join(entry)).map(Cow::Owned) }
+                } else {
+                    None
+                }
+            }
         }
     }
 }
@@ -244,6 +264,24 @@ pub(crate) struct Step {
 pub(crate) struct Listing {
     pub(crate) dir: CanonicalPath,
     pub(crate) entry: OsString,
+}
+
+impl From<CannotTrace> for UnknownPath {
+    fn from(value: CannotTrace) -> Self {
+        match value {
+            CannotTrace::Anchor(error) => UnknownPath::AbsPathError(error),
+            CannotTrace::Root(error) => UnknownPath::CannotCanonicalizeAnything(error),
+        }
+    }
+}
+
+impl From<CannotTrace> for Box<UnknownPath> {
+    fn from(value: CannotTrace) -> Self {
+        match value {
+            CannotTrace::Anchor(error) => Box::new(UnknownPath::AbsPathError(error)),
+            CannotTrace::Root(error) => Box::new(UnknownPath::CannotCanonicalizeAnything(error)),
+        }
+    }
 }
 
 /// Every component of a path, and what the filesystem reported at each
@@ -360,13 +398,15 @@ impl Trace {
         match self.steps.last() {
             // Nothing but a root, which the walk proved before it started
             None => Some(self.root.clone()),
-            Some(last) => last.contents.resolved_to().cloned(),
+            Some(last) => last.contents.resolved_to().map(Cow::into_owned),
         }
     }
 
     // The step of the last part of the input path
     pub(crate) fn last_step(&self) -> &Step {
-        self.steps.last().expect("path input is not empty")
+        self.steps
+            .last()
+            .expect("TODO this is wrong, steps can be empty if only contains root")
     }
 
     /// The step the walk could not continue past
@@ -415,7 +455,7 @@ impl Trace {
                 .contents
                 .resolved_to()
                 .expect("the walk only examines a component from a directory it resolved")
-                .clone(),
+                .into_owned(),
         };
 
         Some(Listing {
@@ -456,11 +496,95 @@ impl Trace {
     ///
     /// Once the walk leaves a resolved directory it never returns to one, so this is the
     /// point everything after it hangs off of.
+    ///
+    /// Returns None if steps is empty (when root)
     fn examined(&self) -> Option<usize> {
         self.steps
             .iter()
             .rposition(|step| !matches!(step.contents, PhysicalNode::NotReached))
     }
+
+    /// Reports on the physical status of the input path
+    ///
+    /// - Exists: Input maps to a file at that location, but there may be other problems
+    /// - DoesNotExist: Input definitively does NOT exist due to an observation made on a prior path
+    /// - Unknown: Problems prevent us from conclusively saying if the path is exists or not
+    pub(crate) fn status_on_disk(&self) -> StatusOnDisk {
+        dbg!(self.stop_status());
+        match self.stop_status() {
+            StopStatus::Root => StatusOnDisk::Exists,
+            StopStatus::Early(step) => match &step.contents {
+                PhysicalNode::File(_)
+                | PhysicalNode::Missing(_)
+                | PhysicalNode::Symlink {
+                    resolved: Ok(_), ..
+                } => StatusOnDisk::DoesNotExist,
+                PhysicalNode::Denied(_)
+                | PhysicalNode::Raced { .. }
+                | PhysicalNode::Symlink {
+                    resolved: Err(_), ..
+                } => StatusOnDisk::Unknown,
+                PhysicalNode::Up { .. } => unreachable!("cannot stop on `..` mid-path"),
+                PhysicalNode::Directory(_) => unreachable!("cannot stop on a directory"),
+                PhysicalNode::NotReached => unreachable!("stopped node must be reached"),
+                PhysicalNode::ParentNoExec { parent: _, entry } => {
+                    if entry.is_some() {
+                        StatusOnDisk::Unknown
+                    } else {
+                        StatusOnDisk::DoesNotExist
+                    }
+                }
+            },
+            StopStatus::Final(step) => match &step.contents {
+                PhysicalNode::File(_) | PhysicalNode::Symlink { .. } | PhysicalNode::Up { .. } => {
+                    StatusOnDisk::Exists
+                }
+                PhysicalNode::ParentNoExec { parent: _, entry } => {
+                    if entry.is_some() {
+                        StatusOnDisk::Exists
+                    } else {
+                        StatusOnDisk::DoesNotExist
+                    }
+                }
+                PhysicalNode::Missing(_) => StatusOnDisk::DoesNotExist,
+                PhysicalNode::Denied(_) | PhysicalNode::Raced { .. } => StatusOnDisk::Unknown,
+                PhysicalNode::Directory(_) => unreachable!("cannot stop on a directory"),
+                PhysicalNode::NotReached => unreachable!("stopped node must be reached"),
+            },
+        }
+    }
+
+    pub(crate) fn stop_status(&self) -> StopStatus<'_> {
+        if self.steps.is_empty() {
+            StopStatus::Root
+        } else {
+            if self.steps.len() - 1 == self.examined().expect("not root") {
+                StopStatus::Final(&self.steps[self.steps.len() - 1])
+            } else {
+                StopStatus::Early(&self.steps[self.examined().expect("not root")])
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum StopStatus<'a> {
+    Root,
+    /// Stopped before last step
+    Early(&'a Step),
+    /// Traced to completion (may still have errors in last step)
+    Final(&'a Step),
+}
+
+/// Status of a path on disk
+#[derive(Debug)]
+pub(crate) enum StatusOnDisk {
+    /// File exists, possibly with problems but it exists
+    Exists,
+    /// We can prove the file does not exist
+    DoesNotExist,
+    /// We can neither confirm nor deny the file exists (because we don't have enough evidence)
+    Unknown,
 }
 
 /// Points each step back at the component of `input` it came from
@@ -565,13 +689,50 @@ fn look(dir: &CanonicalPath, name: &OsStr, at: &AbsPath) -> (PhysicalNode, Reach
         // neither survives the directory having stopped being one. Worth the second look
         // because it costs one `lstat` per walk: the walk never asks the filesystem
         // anything again after this.
-        Err(error) => match no_longer_a_directory(dir) {
-            Some(why) => (PhysicalNode::Raced { why, error }, Reached::Lost),
-            None if error.kind() == std::io::ErrorKind::NotFound => {
-                (PhysicalNode::Missing(error), Reached::Ghost(at.clone()))
+        Err(error) => {
+            if dir.as_ref().access(AccessMode::EXECUTE).is_err() {
+                if let Ok(read_dir) = dir.as_ref().read_dir() {
+                    let mut any_errors = false;
+                    let mut found = false;
+                    for entry in read_dir {
+                        match entry {
+                            Ok(entry) => {
+                                // TODO track case insensitive OS-s and compare here
+                                if entry.file_name() == name {
+                                    found = true
+                                }
+                            }
+                            Err(_) => any_errors = true,
+                        }
+                    }
+                    if found {
+                        return (
+                            PhysicalNode::ParentNoExec {
+                                parent: dir.clone(),
+                                entry: Some(name.to_os_string()),
+                            },
+                            Reached::Lost,
+                        );
+                    } else if !any_errors {
+                        return (
+                            PhysicalNode::ParentNoExec {
+                                parent: dir.clone(),
+                                entry: None,
+                            },
+                            Reached::Lost,
+                        );
+                    }
+                }
             }
-            None => (PhysicalNode::Denied(error), Reached::Lost),
-        },
+
+            match no_longer_a_directory(dir) {
+                Some(why) => (PhysicalNode::Raced { why, error }, Reached::Lost),
+                None if error.kind() == std::io::ErrorKind::NotFound => {
+                    (PhysicalNode::Missing(error), Reached::Ghost(at.clone()))
+                }
+                None => (PhysicalNode::Denied(error), Reached::Lost),
+            }
+        }
     }
 }
 
@@ -749,7 +910,9 @@ mod tests {
 
     /// The step the walk stopped at, which has to exist for the test to be about anything
     fn stopped(trace: &Trace) -> &Step {
-        trace.stopped_early_at().expect("the walk to have stopped")
+        trace
+            .stopped_early_at()
+            .expect("TODO this is wrong can be None when root")
     }
 
     /// Append components to `base` without folding a `..` away.
@@ -1085,7 +1248,7 @@ mod tests {
 
         let trace = walk(closed.join("inner").join("leaf"));
         let stop = stopped(&trace);
-        assert!(matches!(stop.contents, PhysicalNode::Denied(_)));
+        assert!(matches!(stop.contents, PhysicalNode::ParentNoExec { .. }));
         assert_eq!(stop.at.as_ref().unwrap().as_ref(), closed.join("inner"));
         assert!(closed.join("inner").access(AccessMode::EXECUTE).is_err());
 

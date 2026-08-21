@@ -24,7 +24,7 @@ No such file or directory
 When you could be seeing this?
 
 ```text
-cannot access `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
  - Prior path is not a directory `/path/to/directory/a.txt`
     - `/path/to/directory`
         └── `a.txt` file [✅ read, ✅ write, ❌ execute]
@@ -218,3 +218,7 @@ To run on linux:
 $ docker build -f Dockerfile.test -t path_facts_test .
 $ docker run --rm path_facts_test
 ```
+
+On an Apple silicon host, add `--platform linux/amd64` to both commands: `bin/test`
+runs via `cargo nextest` and the Dockerfile installs the x86_64 nextest binary, which
+cannot run under Rosetta in a native arm64 container.

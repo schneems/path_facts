@@ -281,8 +281,8 @@ impl PathFacts {
 mod tests {
     use super::*;
     use crate::abs_path::AbsPath;
-    use crate::canonical_path::CanonicalPath;
     use crate::happy_path::DirOk;
+    use crate::join_unfolded;
 
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
@@ -497,7 +497,7 @@ mod tests {
         // (`<dir>/a/b`) rather than the resolved path, so the wrong directory is listed and
         // `read_dir` never yields a `..` entry to match the un-normalized absolute path,
         // dropping the file type and permissions annotation.
-        let path = b.join("..");
+        let path = join_unfolded(&b, &[".."]);
 
         insta::assert_snapshot!(
             PathFacts::new(&path)

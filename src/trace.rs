@@ -532,9 +532,10 @@ impl Trace {
                 }
             },
             StopStatus::Final(step) => match &step.contents {
-                PhysicalNode::File(_) | PhysicalNode::Symlink { .. } | PhysicalNode::Up { .. } => {
-                    StatusOnDisk::Exists
-                }
+                PhysicalNode::File(_)
+                | PhysicalNode::Directory(_)
+                | PhysicalNode::Symlink { .. }
+                | PhysicalNode::Up { .. } => StatusOnDisk::Exists,
                 PhysicalNode::ParentNoExec { parent: _, entry } => {
                     if entry.is_some() {
                         StatusOnDisk::Exists
@@ -544,7 +545,6 @@ impl Trace {
                 }
                 PhysicalNode::Missing(_) => StatusOnDisk::DoesNotExist,
                 PhysicalNode::Denied(_) | PhysicalNode::Raced { .. } => StatusOnDisk::Unknown,
-                PhysicalNode::Directory(_) => unreachable!("cannot stop on a directory"),
                 PhysicalNode::NotReached => unreachable!("stopped node must be reached"),
             },
         }
@@ -861,6 +861,7 @@ fn join(dir: &AbsPath, name: &OsStr) -> AbsPath {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::join_unfolded;
 
     /// Traces a path the way a caller would, anchoring it and handing the spelling back
     fn walk(path: impl AsRef<Path>) -> Trace {
@@ -909,23 +910,6 @@ mod tests {
         trace
             .stopped_early_at()
             .expect("TODO this is wrong can be None when root")
-    }
-
-    /// Append components to `base` without folding a `..` away.
-    ///
-    /// `Path::join`/`PathBuf::push` normalize `.` and `..` at construction when the
-    /// receiver has a verbatim (`\\?\`) prefix, which is exactly what `tempdir()` hands
-    /// back on Windows. That fold happens before the walk ever runs, so a test that spells
-    /// `base.join("..")` to exercise `..` handling would find the `..` already gone. Building
-    /// the `OsString` by hand with explicit separators skips the fold, so the `..` survives
-    /// into `components()` on every platform. See `fact_check.rs` for the underlying fact.
-    fn join_unfolded(base: &Path, parts: &[&str]) -> PathBuf {
-        let mut raw = base.as_os_str().to_os_string();
-        for part in parts {
-            raw.push(std::path::MAIN_SEPARATOR_STR);
-            raw.push(part);
-        }
-        PathBuf::from(raw)
     }
 
     #[test]

@@ -194,7 +194,28 @@ mod resolved_metadata;
 mod style;
 mod trace;
 
+#[cfg(test)]
+use std::path::{Path, PathBuf};
+
 pub use path_facts::PathFacts;
+
+/// Append components to `base` without folding a `..` away.
+///
+/// `Path::join`/`PathBuf::push` normalize `.` and `..` at construction when the
+/// receiver has a verbatim (`\\?\`) prefix, which is exactly what `tempdir()` hands
+/// back on Windows. That fold happens before the walk ever runs, so a test that spells
+/// `base.join("..")` to exercise `..` handling would find the `..` already gone. Building
+/// the `OsString` by hand with explicit separators skips the fold, so the `..` survives
+/// into `components()` on every platform. See `fact_check.rs` for the underlying fact.
+#[cfg(test)]
+fn join_unfolded(base: &Path, parts: &[&str]) -> PathBuf {
+    let mut raw = base.as_os_str().to_os_string();
+    for part in parts {
+        raw.push(std::path::MAIN_SEPARATOR_STR);
+        raw.push(part);
+    }
+    PathBuf::from(raw)
+}
 
 #[cfg(test)]
 mod tests {

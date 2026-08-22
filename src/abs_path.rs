@@ -3,7 +3,7 @@
 //! Holding this type guarantees that the path is not empty and the program has permission to read CWD.
 //!
 //! A property of absolute paths is that recursively retrieving their parent paths will eventually
-//! lead to the root path. The parent of an absolute path is also an absolute path [`AbsPath::parent`].
+//! lead to the root path. The parent of an absolute path is also an absolute path [`AbsPath::lex_parent`].
 //!
 //! If the held path is a readable directory, all children are also absolute paths [`AbsPath::read_dir`].
 use std::{

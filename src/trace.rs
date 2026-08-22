@@ -10,9 +10,6 @@
 //! found is good or bad news, because that depends on what the caller was trying to do. A
 //! missing path is a bug for `File::open` and a success for `File::create_new`.
 //!
-//! Callers ask for the fact they need through a query: [`Trace::location`],
-//! [`Trace::listing`], [`Trace::stopped_at`], [`Trace::parent_name`].
-//!
 //! ## Pointing back at the input
 //!
 //! Walking requires an absolute path, because there is nowhere to start otherwise, but
@@ -385,7 +382,7 @@ impl Trace {
 
     /// Where the path lands, when every component resolved
     ///
-    /// `Some` exactly when [`Trace::stopped_at`] is `None`.
+    /// `Some` exactly when `Trace::stopped_early_at` is `None`.
     ///
     #[cfg(test)]
     pub(crate) fn physical_location(&self) -> Option<CanonicalPath> {
@@ -409,7 +406,7 @@ impl Trace {
 
     /// The step the walk could not continue past
     ///
-    /// `None` exactly when every component resolved, which is when [`Trace::location`]
+    /// `None` exactly when every component resolved, which is when `Trace::physical_location`
     /// answers. Every step after this one is [`PhysicalNode::NotReached`], so this single
     /// observation explains all of them.
     #[cfg(test)]

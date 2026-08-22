@@ -24,7 +24,7 @@ pub(crate) struct PartialCanonicalPath {
     #[allow(dead_code)] // Prove properties through type construction
     rest: RelativePath,
 
-    /// Holds full path, allows us to impl AsRef<Path>
+    /// Holds full path, allows us to impl `AsRef<Path>`
     full: AbsPath,
 }
 
@@ -267,7 +267,7 @@ impl CanonicalPath {
         Ok(entries)
     }
 
-    /// Similar semantics to [`AbsPath::parent`], but we guarantee return value
+    /// Similar semantics to [`AbsPath::lex_parent`], but we guarantee return value
     /// exists and is normalized i.e. any CanonicalPath that is lexically equal is guaranteed
     /// to represent the same path on disk (TOCTOU caveat).
     ///

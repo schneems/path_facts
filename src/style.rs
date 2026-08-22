@@ -1,4 +1,4 @@
-use crate::{abs_path::AbsPath, canonical_path::ExpandPath, happy_path::DirOk};
+use crate::{abs_path::AbsPath, happy_path::DirOk};
 use std::path::Path;
 
 pub(crate) fn bullet(contents: impl AsRef<str>) -> String {
@@ -88,11 +88,14 @@ where
     out
 }
 
-pub(crate) fn expanded(path: &Path, expand: &ExpandPath) -> String {
-    if path == expand.as_ref() {
+/// The input path, with a `→ resolved` arrow when the walk landed somewhere other than the
+/// spelling itself. When `resolved` equals `path` (an already-absolute input that resolved to
+/// itself) the arrow is dropped and only the input is shown.
+pub(crate) fn expanded(path: &Path, resolved: &Path) -> String {
+    if path == resolved {
         format!("`{}`", path.display())
     } else {
-        format!("`{}` → `{}`", path.display(), expand.as_ref().display())
+        format!("`{}` → `{}`", path.display(), resolved.display())
     }
 }
 

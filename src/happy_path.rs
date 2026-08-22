@@ -119,22 +119,36 @@ pub(crate) fn state_from_trace(trace: &Trace) -> Result<KnownPath, Box<UnknownPa
         PhysicalNode::Symlink { target, .. } => target.as_ref().ok().cloned(),
         _ => None,
     };
-    let canonical = CanonicalPath::new(&absolute).map_err(|error| {
-        if path_does_not_exist {
-            UnknownPath::DoesNotExist {
-                absolute: absolute.clone(),
-                parent: parent.clone(),
+    // Normally `canonicalize` is the arbiter of "this path fully resolves". The one case it
+    // gets wrong is a trailing `..` on a Windows verbatim (`\\?\`) path: `canonicalize` does
+    // not fold a `..` inside a verbatim path, so `<dir>/a/b/..` fails trying to open a literal
+    // `..` entry even though it plainly resolves to `<dir>/a`. The walk folded that `..` left
+    // to right (`PhysicalNode::Up`), so when the final step is an `Up` prefer its resolved
+    // location. Every other shape still goes through `canonicalize`, keeping the error arms
+    // (broken symlink, unsearchable directory) exactly as they were.
+    let folded_dot_dot = match &trace.last_step().contents {
+        PhysicalNode::Up { to, .. } => Some(to.clone()),
+        _ => None,
+    };
+    let canonical = match folded_dot_dot {
+        Some(canonical) => canonical,
+        None => CanonicalPath::new(&absolute).map_err(|error| {
+            if path_does_not_exist {
+                UnknownPath::DoesNotExist {
+                    absolute: absolute.clone(),
+                    parent: parent.clone(),
+                }
+            } else {
+                UnknownPath::CannotCanonicalize {
+                    absolute: absolute.clone(),
+                    parent: parent.clone(),
+                    error,
+                }
             }
-        } else {
-            UnknownPath::CannotCanonicalize {
-                absolute: absolute.clone(),
-                parent: parent.clone(),
-                error,
-            }
-        }
-    })?;
+        })?,
+    };
 
-    let resolved_type = ResolvedMetadata::new(&absolute)
+    let resolved_type = ResolvedMetadata::new(canonical.as_ref())
         .map_err(|error| UnknownPath::CannotMetadata {
             absolute: absolute.clone(),
             parent: parent.clone(),

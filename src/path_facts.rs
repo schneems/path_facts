@@ -1,6 +1,6 @@
 //! Facts about paths
 use crate::abs_path::AbsPathError;
-use crate::canonical_path::{CannotCanonicalizeAnything, ExpandPath};
+use crate::canonical_path::CannotCanonicalizeAnything;
 use crate::happy_path::{state, KnownPath, UnknownPath};
 use crate::resolved_metadata::ResolvedType;
 use crate::style::{self, permissions};
@@ -50,18 +50,27 @@ impl PathFacts {
             // "exists" nor "does not exist": the `IsRoot` state arm below says "is root"
             // instead. Skip the disk-status line here so root reports through that arm.
             Ok(trace) if trace.absolute().lex_parent().is_some() => {
-                let expand =
-                    ExpandPath::new(&crate::abs_path::AbsPath::new(&self.path).unwrap()).unwrap();
+                // The resolved side of the `→` arrow comes from where the walk landed, not
+                // from `canonicalize(self.path)`. They agree except for a trailing `..`, which
+                // `canonicalize` will not fold inside a Windows verbatim (`\\?\`) path; the
+                // trace folded it left to right, so it names `<dir>/a` on every platform.
+                //
+                // When the walk named no physical location (a missing name, a broken symlink)
+                // fall back to the anchored path, so a relative input still expands to its
+                // absolute spelling (`broken_link` → `/dir/broken_link`).
+                let resolved = trace
+                    .last_step()
+                    .contents
+                    .resolved_to()
+                    .map(|resolved| AsRef::<Path>::as_ref(resolved.as_ref()).to_path_buf())
+                    .unwrap_or_else(|| trace.absolute().as_ref().to_path_buf());
+                let expanded = style::expanded(&self.path, &resolved);
                 match trace.status_on_disk() {
-                    crate::trace::StatusOnDisk::Exists => {
-                        writeln!(f, "exists {}", style::expanded(&self.path, &expand))?
-                    }
+                    crate::trace::StatusOnDisk::Exists => writeln!(f, "exists {expanded}")?,
                     crate::trace::StatusOnDisk::DoesNotExist => {
-                        writeln!(f, "does not exist {}", style::expanded(&self.path, &expand))?
+                        writeln!(f, "does not exist {expanded}")?
                     }
-                    crate::trace::StatusOnDisk::Unknown => {
-                        writeln!(f, "{}", style::expanded(&self.path, &expand))?
-                    }
+                    crate::trace::StatusOnDisk::Unknown => writeln!(f, "{expanded}")?,
                 }
             }
             // Root: nothing to say about disk status, handled by the `IsRoot` arm below.
@@ -492,17 +501,19 @@ mod tests {
         std::fs::write(b.join("inside.txt"), "").unwrap();
         std::fs::write(dir.join("other.txt"), "").unwrap();
 
-        // `<dir>/a/b/..` resolves to the directory `<dir>/a`, so the parent facts should list
-        // `<dir>` and annotate the `a` entry. Parent facts come from the lexical parent
-        // (`<dir>/a/b`) rather than the resolved path, so the wrong directory is listed and
-        // `read_dir` never yields a `..` entry to match the un-normalized absolute path,
-        // dropping the file type and permissions annotation.
+        // `<dir>/a/b/..` resolves to the directory `<dir>/a`, so the resolution arrow points at
+        // `<dir>/a` and the parent facts list `<dir>` annotating the `a` entry. Both the arrow
+        // and the parent listing come from the `Trace`, which folds a trailing `..` left to
+        // right. Sourcing them from `canonicalize` instead would drop the arrow on Windows,
+        // where a verbatim (`\\?\`) path does not fold a `..`, and list the lexical parent
+        // `<dir>/a/b` on every platform.
         let path = join_unfolded(&b, &[".."]);
 
         insta::assert_snapshot!(
             PathFacts::new(&path)
                 .to_string()
-                .replace(&dir.display().to_string(), "/path/to/directory") + "🛑",
+                .replace(&dir.display().to_string(), "/path/to/directory")
+                .replace('\\', "/") + "🛑",
             @r"
         exists `/path/to/directory/a/b/..` → `/path/to/directory/a`
          - `/path/to/directory`

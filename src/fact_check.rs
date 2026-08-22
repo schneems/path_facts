@@ -384,37 +384,43 @@ mod tests {
     /// A verbatim path skips OS normalization, so a literal `..` component survives into
     /// the syscall. `canonicalize` then tries to open a directory entry literally named
     /// `..` under `<dir>/a/b`, which does not exist, and errors — even though the path
-    /// plainly resolves to `<dir>/a`. `tempfile::tempdir()` hands back a verbatim path on
-    /// Windows, so joining `..` onto it reproduces the shape without hand-building a
-    /// `\\?\` prefix. This is why resolution folds a trailing `..` left to right through
-    /// the walk (`PhysicalNode::Up`) rather than deferring to `canonicalize`.
+    /// plainly resolves to `<dir>/a`. On Windows `canonicalize` returns a `\\?\` verbatim
+    /// path, which is the shape the fold depends on; a plain `join("..")` on that base
+    /// would fold the `..` away at construction (see
+    /// [`test_path_join_folds_parent_dir_only_on_a_verbatim_receiver`]), so `join_unfolded`
+    /// builds the literal `..` component by hand. This is why resolution folds a trailing
+    /// `..` left to right through the walk (`PhysicalNode::Up`) rather than deferring to
+    /// `canonicalize`.
     #[cfg(windows)]
     #[test]
     fn test_canonicalize_fails_on_trailing_dot_dot_in_a_verbatim_path() {
-        let temp = tempfile::tempdir().unwrap();
-        let dir = temp.path();
+        use crate::join_unfolded;
 
-        // `tempdir()` gives a verbatim path, so the `..` reaches `canonicalize` literally.
+        let temp = tempfile::tempdir().unwrap();
+        // `tempdir()` itself is not reliably verbatim, but `canonicalize` always hands back
+        // a `\\?\` path on Windows, which is the base the `..` fold below depends on.
+        let dir = temp.path().canonicalize().unwrap();
+
         assert!(
             dir.components()
                 .next()
                 .is_some_and(|component| matches!(component, Component::Prefix(prefix) if prefix.kind().is_verbatim())),
-            "expected a verbatim tempdir prefix, got {:?}",
+            "expected a verbatim prefix after canonicalize, got {:?}",
             dir
         );
 
-        let a = dir.join("a");
-        std::fs::create_dir(&a).unwrap();
-        std::fs::create_dir(a.join("b")).unwrap();
+        let b = dir.join("a").join("b");
+        std::fs::create_dir_all(&b).unwrap();
 
         // `<dir>/a/b/..` lexically resolves to `<dir>/a`, but canonicalize errors trying
-        // to open a literal `..` entry that does not exist on disk.
-        let trailing = a.join("b").join("..");
+        // to open a literal `..` entry that does not exist on disk. `join_unfolded` keeps
+        // the `..` from being folded before the syscall sees it.
+        let trailing = join_unfolded(&b, &[".."]);
         assert!(
             trailing
                 .components()
                 .any(|component| matches!(component, Component::ParentDir)),
-            "join folded the `..` before canonicalize could see it, got {:?}",
+            "the `..` was folded before canonicalize could see it, got {:?}",
             trailing
         );
         assert!(
@@ -425,7 +431,7 @@ mod tests {
 
         // The location a left-to-right fold lands on, `<dir>/a`, canonicalizes fine: the
         // directory exists and holds no `..` for `canonicalize` to choke on.
-        assert!(CanonicalPath::new(&AbsPath::new(&a).unwrap()).is_ok());
+        assert!(CanonicalPath::new(&AbsPath::new(dir.join("a")).unwrap()).is_ok());
     }
 
     /// `create_dir_all("x/y/z/..")` creates `z`, even when `y` is missing

@@ -4,7 +4,7 @@ use crate::canonical_path::CannotCanonicalizeAnything;
 use crate::happy_path::{state, KnownPath, UnknownPath};
 use crate::resolved_metadata::ResolvedType;
 use crate::style::{self, permissions};
-use crate::trace::{CannotTrace, Trace};
+use crate::trace::{CannotTrace, PhysicalNode, Trace};
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
@@ -59,6 +59,7 @@ impl PathFacts {
                 // fall back to the anchored path, so a relative input still expands to its
                 // absolute spelling (`broken_link` → `/dir/broken_link`).
                 let resolved = trace
+                    // Todo move to `final_step`
                     .last_step()
                     .contents
                     .resolved_to()
@@ -71,6 +72,26 @@ impl PathFacts {
                         writeln!(f, "does not exist {expanded}")?
                     }
                     crate::trace::StatusOnDisk::Unknown => writeln!(f, "{expanded}")?,
+                }
+
+                if let Some(PhysicalNode::Symlink {
+                    target,
+                    resolved: _,
+                }) = &trace.final_step().map(|step| &step.contents)
+                {
+                    // TODO print resolution
+                    match target {
+                        Ok(target) => writeln!(
+                            f,
+                            "{}",
+                            style::bullet(format!("Symlink target: {}", target))
+                        )?,
+                        Err(error) => writeln!(
+                            f,
+                            "{}",
+                            style::bullet(format!("Symlink readlink error ({})", error))
+                        )?,
+                    };
                 }
             }
             // Root: nothing to say about disk status, handled by the `IsRoot` arm below.
@@ -94,15 +115,7 @@ impl PathFacts {
             }
         }
         match self.state.as_ref().map_err(|e| &**e) {
-            Ok(happy) => {
-                if let Some(target) = &happy.symlink_target {
-                    writeln!(
-                        f,
-                        "{}",
-                        style::bullet(format!("Symlink target: {}", target))
-                    )?;
-                }
-            }
+            Ok(_happy) => {}
             Err(UnknownPath::AbsPathError(AbsPathError::PathIsEmpty(_))) => {
                 unreachable!("caught by trace");
             }
@@ -824,6 +837,7 @@ mod tests {
                 .replace('\\', "/") + "🛑",
             @r"
         exists `/path/to/directory/link1`
+         - Symlink target: `/path/to/directory/link2`
          - Cannot canonicalize due to error `{error}`
          - `/path/to/directory`
              ├── `link1` (exists)
@@ -851,6 +865,7 @@ mod tests {
                 .replace('\\', "/") + "🛑",
             @r"
         exists `link1` → `/path/to/directory/link1`
+         - Symlink target: `/path/to/directory/link2`
          - Cannot canonicalize due to error `{error}`
          - `/path/to/directory`
              ├── `link1` (exists)
@@ -878,6 +893,7 @@ mod tests {
                 .replace('\\', "/") + "🛑",
             @r"
         exists `/path/to/directory/broken_link`
+         - Symlink target: `/path/to/directory/does_not_exist`
          - Cannot canonicalize due to error `{error}`
          - `/path/to/directory`
              └── `broken_link` (exists)
@@ -903,6 +919,7 @@ mod tests {
                 .replace('\\', "/") + "🛑",
             @r"
         exists `broken_link` → `/path/to/directory/broken_link`
+         - Symlink target: `/path/to/directory/does_not_exist`
          - Cannot canonicalize due to error `{error}`
          - `/path/to/directory`
              └── `broken_link` (exists)

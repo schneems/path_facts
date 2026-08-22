@@ -22,7 +22,6 @@ pub(crate) struct KnownPath {
     /// The name to annotate in the parent directory. Not [`KnownPath::canonical`]: for a
     /// symlink that is the target, not the link's own name in the parent.
     pub(crate) entry: AbsPath,
-    pub(crate) symlink_target: Option<AbsPath>,
     pub(crate) resolved_type: ResolvedType,
     pub(crate) parent: DirOk,
     pub(crate) read: bool,
@@ -114,11 +113,6 @@ pub(crate) fn state_from_trace(trace: &Trace) -> Result<KnownPath, Box<UnknownPa
         _error: error,
     })?;
     let path_does_not_exist = !parent.has_entry(&absolute);
-    let symlink_target = match &trace.last_step().contents {
-        // TODO represent the fact a readlink can fail to the end user somehow
-        PhysicalNode::Symlink { target, .. } => target.as_ref().ok().cloned(),
-        _ => None,
-    };
     // Normally `canonicalize` is the arbiter of "this path fully resolves". The one case it
     // gets wrong is a trailing `..` on a Windows verbatim (`\\?\`) path: a verbatim path
     // forbids `..` as a component, so `<dir>/a/b/..` is rejected as an invalid name
@@ -184,7 +178,6 @@ pub(crate) fn state_from_trace(trace: &Trace) -> Result<KnownPath, Box<UnknownPa
     Ok(KnownPath {
         canonical,
         entry,
-        symlink_target,
         resolved_type,
         parent,
         read,

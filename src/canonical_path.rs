@@ -98,8 +98,6 @@ pub(crate) struct CannotCanonicalizeAnything {
 }
 
 impl ExpandPath {
-    // Resolution now flows through `Trace`, which folds a trailing `..` left to right rather
-    // than through `canonicalize`, so nothing outside tests builds an `ExpandPath` this way.
     #[allow(dead_code)]
     pub(crate) fn new(abs_path: &AbsPath) -> Result<Self, CannotCanonicalizeAnything> {
         // Walk the original path, then each lexical ancestor up to root.

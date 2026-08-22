@@ -404,6 +404,10 @@ impl Trace {
             .expect("TODO this is wrong, steps can be empty if only contains root")
     }
 
+    pub(crate) fn final_step(&self) -> Option<&Step> {
+        self.steps.last()
+    }
+
     /// The step the walk could not continue past
     ///
     /// `None` exactly when every component resolved, which is when `Trace::physical_location`

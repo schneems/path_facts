@@ -70,7 +70,6 @@
 // Nothing renders a trace yet. Two consumers are waiting on it: `happy_path::state` builds
 // its directory listing from `AbsPath::lex_parent`, which is wrong for a trailing `..`, and
 // the `ParentProblem` arm of `PathFacts` re-walks from scratch once per ancestor.
-#![allow(dead_code)]
 
 use crate::abs_path::{readlink, AbsPath, AbsPathError, RelativePath};
 use crate::canonical_path::{CannotCanonicalizeAnything, CanonicalPath, Entry};
@@ -78,7 +77,6 @@ use crate::happy_path::UnknownPath;
 use faccess::{AccessMode, PathExt};
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
-use std::fs::DirEntry;
 use std::path::{Component, Path, PathBuf};
 
 /// What a single `lstat` reported at one component
@@ -124,7 +122,7 @@ pub(crate) enum PhysicalNode {
     /// The one observation that proves the name is not a symlink, which is what lets the
     /// walk keep naming components below it. Carries the error so a report can quote the
     /// system rather than invent wording for it.
-    Missing(std::io::Error),
+    Missing(#[allow(dead_code)] std::io::Error),
 
     /// Can list entries from the parent but cannot access them directly
     ParentNoExec {
@@ -136,7 +134,7 @@ pub(crate) enum PhysicalNode {
     /// Cannot tell missing from directory from symlink here
     ///
     /// A denial proves nothing either way, so naming stops.
-    Denied(std::io::Error),
+    Denied(#[allow(dead_code)] std::io::Error),
 
     /// `..` moved from one resolved directory to another
     ///
@@ -144,6 +142,7 @@ pub(crate) enum PhysicalNode {
     /// `..` on a symlink free path as removing the last component. Root is its own parent,
     /// matching `realpath` on `/..`.
     Up {
+        #[allow(dead_code)]
         from: CanonicalPath,
         to: CanonicalPath,
     },
@@ -167,7 +166,9 @@ pub(crate) enum PhysicalNode {
     ///
     /// So no `Raced` step means none was caught, not that nothing moved.
     Raced {
+        #[allow(dead_code)]
         why: &'static str,
+        #[allow(dead_code)]
         error: std::io::Error,
     },
 
@@ -180,24 +181,18 @@ impl PhysicalNode {
     ///
     /// `None` for every observation that is not a place: an absence, a denial, a link that
     /// goes nowhere, a contradiction, and a component the walk never got to.
-    pub(crate) fn resolved_to(&self) -> Option<Cow<CanonicalPath>> {
+    pub(crate) fn resolved_to(&self) -> Option<Cow<'_, CanonicalPath>> {
         match self {
-            PhysicalNode::Directory(path) | PhysicalNode::File(path) => {
-                Some(path).map(Cow::Borrowed)
-            }
+            PhysicalNode::Directory(path) | PhysicalNode::File(path) => Some(Cow::Borrowed(path)),
             PhysicalNode::Symlink { resolved, .. } => resolved.as_ref().ok().map(Cow::Borrowed),
-            PhysicalNode::Up { to, .. } => Some(to).map(Cow::Borrowed),
+            PhysicalNode::Up { to, .. } => Some(Cow::Borrowed(to)),
             PhysicalNode::Missing(_)
             | PhysicalNode::Denied(_)
             | PhysicalNode::Raced { .. }
             | PhysicalNode::NotReached => None,
-            PhysicalNode::ParentNoExec { parent, entry } => {
-                if let Some(entry) = entry {
-                    unsafe { Some(parent.unchecked_join(entry)).map(Cow::Owned) }
-                } else {
-                    None
-                }
-            }
+            PhysicalNode::ParentNoExec { parent, entry } => entry
+                .as_ref()
+                .map(|entry| unsafe { Cow::Owned(parent.unchecked_join(entry)) }),
         }
     }
 }
@@ -254,6 +249,7 @@ pub(crate) struct Step {
     /// leaves nothing to name, and so does any component below a denial, a loop, or a link
     /// that goes nowhere. Naming survives a proven absence, because absence rules out a
     /// symlink.
+    #[allow(dead_code)]
     pub(crate) at: Option<AbsPath>,
 
     pub(crate) contents: PhysicalNode,
@@ -390,6 +386,8 @@ impl Trace {
     /// Where the path lands, when every component resolved
     ///
     /// `Some` exactly when [`Trace::stopped_at`] is `None`.
+    ///
+    #[cfg(test)]
     pub(crate) fn physical_location(&self) -> Option<CanonicalPath> {
         if self.stopped_early_at().is_some() {
             return None;
@@ -414,6 +412,7 @@ impl Trace {
     /// `None` exactly when every component resolved, which is when [`Trace::location`]
     /// answers. Every step after this one is [`PhysicalNode::NotReached`], so this single
     /// observation explains all of them.
+    #[cfg(test)]
     pub(crate) fn stopped_early_at(&self) -> Option<&Step> {
         let index = self.examined()?;
         let step = &self.steps[index];
@@ -471,15 +470,13 @@ impl Trace {
     /// it is good for is saying which directory would have to appear.
     ///
     /// `None` when naming stopped, and when the path is a root.
+    #[cfg(test)]
     pub(crate) fn parent_name(&self) -> Option<AbsPath> {
         self.steps.last()?.at.as_ref()?.lex_parent()
     }
 
-    pub(crate) fn steps(&self) -> &[Step] {
-        &self.steps
-    }
-
     /// The path the caller passed in, before it was anchored
+    #[allow(dead_code)]
     pub(crate) fn input(&self) -> &Path {
         &self.input
     }
@@ -510,7 +507,6 @@ impl Trace {
     /// - DoesNotExist: Input definitively does NOT exist due to an observation made on a prior path
     /// - Unknown: Problems prevent us from conclusively saying if the path is exists or not
     pub(crate) fn status_on_disk(&self) -> StatusOnDisk {
-        dbg!(self.stop_status());
         match self.stop_status() {
             StopStatus::Root => StatusOnDisk::Exists,
             StopStatus::Early(step) => match &step.contents {
@@ -1367,7 +1363,7 @@ mod tests {
         let trace = walk(&path);
         let input = path.components().collect::<Vec<_>>();
 
-        for step in trace.steps() {
+        for step in trace.steps {
             let index = step.input.expect("the caller wrote every component");
             assert_eq!(input[index].as_os_str(), step.name);
         }
@@ -1386,7 +1382,7 @@ mod tests {
 
         // `.` is component 0 and never becomes a step, so attribution starts at 1
         let attributed = trace
-            .steps()
+            .steps
             .iter()
             .filter_map(|step| Some((step.input?, step.name.clone())))
             .collect::<Vec<_>>();
@@ -1401,7 +1397,7 @@ mod tests {
 
         // A problem in the anchor is still reportable, just against an absolute path
         // rather than against anything the caller would recognize
-        for step in trace.steps().iter().filter(|step| step.input.is_none()) {
+        for step in trace.steps.iter().filter(|step| step.input.is_none()) {
             assert!(
                 step.at.is_some(),
                 "{:?} should still name a path",
@@ -1422,7 +1418,7 @@ mod tests {
         let trace = walk(&path);
         let input = path.components().collect::<Vec<_>>();
 
-        for step in trace.steps() {
+        for step in trace.steps {
             let index = step.input.expect("only a `.` went unattributed");
             assert_eq!(input[index].as_os_str(), step.name);
         }

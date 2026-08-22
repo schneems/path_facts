@@ -76,7 +76,7 @@ impl PathFacts {
                 return Ok(());
             }
             Err(CannotTrace::Root(CannotCanonicalizeAnything { original, .. })) => {
-                writeln!(f, "`{}`", &self.path.display())?;
+                writeln!(f, "`{}`", self.path.display())?;
                 if self.path.is_relative() {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {original}",)))?;
                 };
@@ -106,35 +106,16 @@ impl PathFacts {
             Err(UnknownPath::IsRoot(absolute)) => {
                 writeln!(f, "is root {absolute}")?;
             }
-            Err(UnknownPath::ParentProblem {
-                absolute: _,
-                expand,
-                parent: _,
-                _error,
-            }) => {}
-            Err(UnknownPath::DoesNotExist {
-                absolute: _,
-                expand,
-                parent: _,
-            }) => {}
-            Err(UnknownPath::CannotCanonicalize {
-                absolute,
-                expand,
-                parent,
-                error,
-            }) => {
+            Err(UnknownPath::ParentProblem { .. }) => {}
+            Err(UnknownPath::DoesNotExist { .. }) => {}
+            Err(UnknownPath::CannotCanonicalize { error, .. }) => {
                 writeln!(
                     f,
                     "{}",
                     style::bullet(format!("Cannot canonicalize due to error `{error}`",))
                 )?;
             }
-            Err(UnknownPath::CannotMetadata {
-                absolute,
-                canonical,
-                parent,
-                error,
-            }) => {
+            Err(UnknownPath::CannotMetadata { error, .. }) => {
                 writeln!(
                     f,
                     "{}",
@@ -189,7 +170,6 @@ impl PathFacts {
             }
             Err(UnknownPath::ParentProblem {
                 absolute: _,
-                expand: _,
                 parent,
                 _error,
             }) => {
@@ -197,7 +177,6 @@ impl PathFacts {
                 let mut prior_state = state(parent.as_ref());
                 while let Err(UnknownPath::ParentProblem {
                     absolute: _,
-                    expand: _,
                     parent,
                     _error,
                 }) = prior_state.as_ref().map_err(|e| &**e)
@@ -249,20 +228,14 @@ impl PathFacts {
                     }
                 }
             }
-            Err(UnknownPath::DoesNotExist {
-                absolute,
-                expand: _,
-                parent,
-            })
+            Err(UnknownPath::DoesNotExist { absolute, parent })
             | Err(UnknownPath::CannotCanonicalize {
                 absolute,
-                expand: _,
                 parent,
                 error: _,
             })
             | Err(UnknownPath::CannotMetadata {
                 absolute,
-                canonical: _,
                 parent,
                 error: _,
             }) => {
@@ -1065,14 +1038,12 @@ mod tests {
 
         let absolute = AbsPath::new(&file).unwrap();
         let parent = DirOk::new(absolute.lex_parent().unwrap()).unwrap();
-        let canonical = CanonicalPath::new(&absolute).unwrap();
         let error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "simulated");
 
         let facts = PathFacts {
             path: file.clone(),
             state: Err(Box::new(UnknownPath::CannotMetadata {
                 absolute,
-                canonical,
                 parent,
                 error,
             })),

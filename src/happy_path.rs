@@ -3,7 +3,7 @@
 //! Holds [`HappyPath`] and [`DirOk`]
 use crate::{
     abs_path::{self, AbsPath, RelativePath},
-    canonical_path::{CannotCanonicalizeAnything, CanonicalPath, ExpandPath},
+    canonical_path::{CannotCanonicalizeAnything, CanonicalPath},
     resolved_metadata::{ResolvedMetadata, ResolvedType},
     trace::{PhysicalNode, Trace},
 };
@@ -15,6 +15,7 @@ use std::path::Path;
 /// For a path to be happy, it's parent (directory) must be good too, represented by a [`DirOk`]
 #[derive(Debug)]
 pub(crate) struct KnownPath {
+    #[allow(dead_code)]
     pub(crate) canonical: CanonicalPath,
     /// The resolved path as an entry in [`KnownPath::parent`]'s listing
     ///
@@ -73,7 +74,6 @@ pub(crate) enum UnknownPath {
     ParentProblem {
         #[allow(dead_code)] // Prove we can access CWD and path is not empty
         absolute: AbsPath,
-        expand: ExpandPath,
         parent: AbsPath,
         /// Original error preventing us from creating a `DirOk` for the parent directory.
         /// Not printed, we traverse prior directories to find the root cause
@@ -81,13 +81,11 @@ pub(crate) enum UnknownPath {
     },
     DoesNotExist {
         absolute: AbsPath,
-        expand: ExpandPath,
         parent: DirOk,
     },
     // Path exists, but we cannot canonicalize it
     CannotCanonicalize {
         absolute: AbsPath,
-        expand: ExpandPath,
         parent: DirOk,
         error: std::io::Error,
     },
@@ -99,7 +97,6 @@ pub(crate) enum UnknownPath {
     /// but loses execute access before the metadata reading, then this error will occur.
     CannotMetadata {
         absolute: AbsPath,
-        canonical: CanonicalPath,
         parent: DirOk,
         error: std::io::Error,
     },
@@ -111,10 +108,8 @@ pub(crate) fn state_from_trace(trace: &Trace) -> Result<KnownPath, Box<UnknownPa
     let abs_parent = absolute
         .lex_parent()
         .ok_or_else(|| UnknownPath::IsRoot(absolute.clone()))?;
-    let expand = ExpandPath::new(&absolute).map_err(UnknownPath::CannotCanonicalizeAnything)?;
     let parent = DirOk::new(abs_parent.clone()).map_err(|error| UnknownPath::ParentProblem {
         absolute: absolute.clone(),
-        expand: expand.clone(),
         parent: abs_parent.clone(),
         _error: error,
     })?;
@@ -128,13 +123,11 @@ pub(crate) fn state_from_trace(trace: &Trace) -> Result<KnownPath, Box<UnknownPa
         if path_does_not_exist {
             UnknownPath::DoesNotExist {
                 absolute: absolute.clone(),
-                expand: expand.clone(),
                 parent: parent.clone(),
             }
         } else {
             UnknownPath::CannotCanonicalize {
                 absolute: absolute.clone(),
-                expand: expand.clone(),
                 parent: parent.clone(),
                 error,
             }
@@ -144,7 +137,6 @@ pub(crate) fn state_from_trace(trace: &Trace) -> Result<KnownPath, Box<UnknownPa
     let resolved_type = ResolvedMetadata::new(&absolute)
         .map_err(|error| UnknownPath::CannotMetadata {
             absolute: absolute.clone(),
-            canonical: canonical.clone(),
             parent: parent.clone(),
             error,
         })?
@@ -168,7 +160,6 @@ pub(crate) fn state_from_trace(trace: &Trace) -> Result<KnownPath, Box<UnknownPa
     let parent =
         DirOk::new(AbsPath::from(listing.dir)).map_err(|error| UnknownPath::ParentProblem {
             absolute: absolute.clone(),
-            expand: expand.clone(),
             parent: abs_parent.clone(),
             _error: error,
         })?;

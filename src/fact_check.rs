@@ -382,9 +382,10 @@ mod tests {
     /// Windows: `canonicalize` fails on a trailing `..` inside a verbatim (`\\?\`) path.
     ///
     /// A verbatim path skips OS normalization, so a literal `..` component survives into
-    /// the syscall. `canonicalize` then tries to open a directory entry literally named
-    /// `..` under `<dir>/a/b`, which does not exist, and errors — even though the path
-    /// plainly resolves to `<dir>/a`. On Windows `canonicalize` returns a `\\?\` verbatim
+    /// the syscall. A verbatim path also forbids `..` as a component, so the Win32 path
+    /// parser rejects the name up front with `ERROR_INVALID_NAME` (123, surfaced as
+    /// `ErrorKind::InvalidFilename`) rather than a `NotFound` — it never looks on disk,
+    /// even though the path plainly resolves to `<dir>/a`. On Windows `canonicalize` returns a `\\?\` verbatim
     /// path, which is the shape the fold depends on; a plain `join("..")` on that base
     /// would fold the `..` away at construction (see
     /// [`test_path_join_folds_parent_dir_only_on_a_verbatim_receiver`]), so `join_unfolded`
@@ -412,9 +413,11 @@ mod tests {
         let b = dir.join("a").join("b");
         std::fs::create_dir_all(&b).unwrap();
 
-        // `<dir>/a/b/..` lexically resolves to `<dir>/a`, but canonicalize errors trying
-        // to open a literal `..` entry that does not exist on disk. `join_unfolded` keeps
-        // the `..` from being folded before the syscall sees it.
+        // `<dir>/a/b/..` lexically resolves to `<dir>/a`, but canonicalize errors on the
+        // literal `..`. A verbatim path forbids `..` as a component outright, so the Win32
+        // path parser rejects the name before it ever looks on disk: `ERROR_INVALID_NAME`
+        // (123), surfaced by Rust as `ErrorKind::InvalidFilename` — not a `NotFound`.
+        // `join_unfolded` keeps the `..` from being folded before the syscall sees it.
         let trailing = join_unfolded(&b, &[".."]);
         assert!(
             trailing
@@ -423,11 +426,13 @@ mod tests {
             "the `..` was folded before canonicalize could see it, got {:?}",
             trailing
         );
-        // TEMP diagnostic: force-print the real Err so CI reveals the message. Revert after.
-        assert!(
-            std::fs::canonicalize(&trailing).is_ok(),
-            "TEMP: canonicalize error = {:?}",
-            std::fs::canonicalize(&trailing)
+        let error = std::fs::canonicalize(&trailing)
+            .expect_err("canonicalize resolved a trailing `..` in a verbatim path");
+        assert_eq!(
+            error.kind(),
+            std::io::ErrorKind::InvalidFilename,
+            "expected ERROR_INVALID_NAME for a `..` in a verbatim path, got {:?}",
+            error
         );
 
         // The location a left-to-right fold lands on, `<dir>/a`, canonicalizes fine: the

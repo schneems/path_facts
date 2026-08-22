@@ -120,9 +120,10 @@ pub(crate) fn state_from_trace(trace: &Trace) -> Result<KnownPath, Box<UnknownPa
         _ => None,
     };
     // Normally `canonicalize` is the arbiter of "this path fully resolves". The one case it
-    // gets wrong is a trailing `..` on a Windows verbatim (`\\?\`) path: `canonicalize` does
-    // not fold a `..` inside a verbatim path, so `<dir>/a/b/..` fails trying to open a literal
-    // `..` entry even though it plainly resolves to `<dir>/a`. The walk folded that `..` left
+    // gets wrong is a trailing `..` on a Windows verbatim (`\\?\`) path: a verbatim path
+    // forbids `..` as a component, so `<dir>/a/b/..` is rejected as an invalid name
+    // (`ERROR_INVALID_NAME`) before it is even looked up, even though it plainly resolves to
+    // `<dir>/a`. The walk folded that `..` left
     // to right (`PhysicalNode::Up`), so when the final step is an `Up` prefer its resolved
     // location. Every other shape still goes through `canonicalize`, keeping the error arms
     // (broken symlink, unsearchable directory) exactly as they were. See

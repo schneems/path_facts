@@ -379,6 +379,55 @@ mod tests {
         }
     }
 
+    /// Windows: `canonicalize` fails on a trailing `..` inside a verbatim (`\\?\`) path.
+    ///
+    /// A verbatim path skips OS normalization, so a literal `..` component survives into
+    /// the syscall. `canonicalize` then tries to open a directory entry literally named
+    /// `..` under `<dir>/a/b`, which does not exist, and errors — even though the path
+    /// plainly resolves to `<dir>/a`. `tempfile::tempdir()` hands back a verbatim path on
+    /// Windows, so joining `..` onto it reproduces the shape without hand-building a
+    /// `\\?\` prefix. This is why resolution folds a trailing `..` left to right through
+    /// the walk (`PhysicalNode::Up`) rather than deferring to `canonicalize`.
+    #[cfg(windows)]
+    #[test]
+    fn test_canonicalize_fails_on_trailing_dot_dot_in_a_verbatim_path() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+
+        // `tempdir()` gives a verbatim path, so the `..` reaches `canonicalize` literally.
+        assert!(
+            dir.components()
+                .next()
+                .is_some_and(|component| matches!(component, Component::Prefix(prefix) if prefix.kind().is_verbatim())),
+            "expected a verbatim tempdir prefix, got {:?}",
+            dir
+        );
+
+        let a = dir.join("a");
+        std::fs::create_dir(&a).unwrap();
+        std::fs::create_dir(a.join("b")).unwrap();
+
+        // `<dir>/a/b/..` lexically resolves to `<dir>/a`, but canonicalize errors trying
+        // to open a literal `..` entry that does not exist on disk.
+        let trailing = a.join("b").join("..");
+        assert!(
+            trailing
+                .components()
+                .any(|component| matches!(component, Component::ParentDir)),
+            "join folded the `..` before canonicalize could see it, got {:?}",
+            trailing
+        );
+        assert!(
+            std::fs::canonicalize(&trailing).is_err(),
+            "canonicalize resolved a trailing `..` in a verbatim path, got {:?}",
+            std::fs::canonicalize(&trailing)
+        );
+
+        // The location a left-to-right fold lands on, `<dir>/a`, canonicalizes fine: the
+        // directory exists and holds no `..` for `canonicalize` to choke on.
+        assert!(CanonicalPath::new(&AbsPath::new(&a).unwrap()).is_ok());
+    }
+
     /// `create_dir_all("x/y/z/..")` creates `z`, even when `y` is missing
     ///
     /// Lexically `x/y/z/..` is `x/y`. `Path::parent` does not fold that way: the

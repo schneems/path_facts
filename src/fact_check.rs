@@ -423,9 +423,10 @@ mod tests {
             "the `..` was folded before canonicalize could see it, got {:?}",
             trailing
         );
+        // TEMP diagnostic: force-print the real Err so CI reveals the message. Revert after.
         assert!(
-            std::fs::canonicalize(&trailing).is_err(),
-            "canonicalize resolved a trailing `..` in a verbatim path, got {:?}",
+            std::fs::canonicalize(&trailing).is_ok(),
+            "TEMP: canonicalize error = {:?}",
             std::fs::canonicalize(&trailing)
         );
 

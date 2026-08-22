@@ -125,7 +125,9 @@ pub(crate) fn state_from_trace(trace: &Trace) -> Result<KnownPath, Box<UnknownPa
     // `..` entry even though it plainly resolves to `<dir>/a`. The walk folded that `..` left
     // to right (`PhysicalNode::Up`), so when the final step is an `Up` prefer its resolved
     // location. Every other shape still goes through `canonicalize`, keeping the error arms
-    // (broken symlink, unsearchable directory) exactly as they were.
+    // (broken symlink, unsearchable directory) exactly as they were. See
+    // `fact_check::tests::test_canonicalize_fails_on_trailing_dot_dot_in_a_verbatim_path`
+    // for a Windows test pinning down the `canonicalize` failure this branch works around.
     let folded_dot_dot = match &trace.last_step().contents {
         PhysicalNode::Up { to, .. } => Some(to.clone()),
         _ => None,

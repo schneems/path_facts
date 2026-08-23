@@ -3,7 +3,7 @@
 //! Holding this type guarantees that the path is not empty and the program has permission to read CWD.
 //!
 //! A property of absolute paths is that recursively retrieving their parent paths will eventually
-//! lead to the root path. The parent of an absolute path is also an absolute path [`AbsPath::lex_parent`].
+//! lead to the root path. The parent of an absolute path is also an absolute path [`AbsPath::parent`].
 //!
 //! If the held path is a readable directory, all children are also absolute paths [`AbsPath::read_dir`].
 use std::{
@@ -57,7 +57,6 @@ impl AbsPath {
     /// - The returned relative path may be empty (when `self == base`).
     /// - Purely lexical: `..` is NOT resolved, so `/root/a/../b` and `/root/b` differ.
     /// - Errors if `base` is not a lexical prefix of `self`.
-    #[allow(dead_code)]
     pub(crate) fn strip_prefix(&self, base: &AbsPath) -> Result<RelativePath, StripPrefixError> {
         let diff = self.as_ref().strip_prefix(base.as_ref())?;
         Ok(RelativePath::new(diff).expect("path with stripped prefix is guaranteed relative"))

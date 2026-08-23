@@ -46,10 +46,7 @@ impl PathFacts {
 
     fn fmt_individual_facts(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
         match self.trace.as_ref() {
-            // A root has no lexical parent and no walked components, so it is neither
-            // "exists" nor "does not exist": the `IsRoot` state arm below says "is root"
-            // instead. Skip the disk-status line here so root reports through that arm.
-            Ok(trace) if trace.absolute().lex_parent().is_some() => {
+            Ok(trace) => {
                 // The resolved side of the `→` arrow comes from where the walk landed, not
                 // from `canonicalize(self.path)`. They agree except for a trailing `..`, which
                 // `canonicalize` will not fold inside a Windows verbatim (`\\?\`) path; the
@@ -59,7 +56,6 @@ impl PathFacts {
                 // fall back to the anchored path, so a relative input still expands to its
                 // absolute spelling (`broken_link` → `/dir/broken_link`).
                 let resolved = trace
-                    // Todo move to `final_step`
                     .last_step()
                     .contents
                     .resolved_to()
@@ -74,10 +70,10 @@ impl PathFacts {
                     crate::trace::StatusOnDisk::Unknown => writeln!(f, "{expanded}")?,
                 }
 
-                if let Some(PhysicalNode::Symlink {
+                if let PhysicalNode::Symlink {
                     target,
                     resolved: _,
-                }) = &trace.final_step().map(|step| &step.contents)
+                } = &trace.last_step().contents
                 {
                     // TODO print resolution
                     match target {
@@ -94,8 +90,6 @@ impl PathFacts {
                     };
                 }
             }
-            // Root: nothing to say about disk status, handled by the `IsRoot` arm below.
-            Ok(_) => {}
             Err(CannotTrace::Anchor(AbsPathError::PathIsEmpty(path))) => {
                 writeln!(f, "path `{}` is empty", path.display())?;
                 return Ok(());
@@ -103,6 +97,10 @@ impl PathFacts {
             Err(CannotTrace::Anchor(AbsPathError::CannotReadCWD(path, _))) => {
                 writeln!(f, "`{}`", path.display())?;
                 // parent states cannot read CWD
+                return Ok(());
+            }
+            Err(CannotTrace::IsRoot(root)) => {
+                writeln!(f, "is root {root}")?;
                 return Ok(());
             }
             Err(CannotTrace::RootNotReachable(CannotCanonicalizeAnything { original, .. })) => {
@@ -125,8 +123,8 @@ impl PathFacts {
             Err(UnknownPath::CannotCanonicalizeAnything(CannotCanonicalizeAnything { .. })) => {
                 unreachable!("caught by trace");
             }
-            Err(UnknownPath::IsRoot(absolute)) => {
-                writeln!(f, "is root {absolute}")?;
+            Err(UnknownPath::IsRoot(_)) => {
+                unreachable!("caught by trace");
             }
             Err(UnknownPath::ParentProblem { .. }) => {}
             Err(UnknownPath::DoesNotExist { .. }) => {}
@@ -154,6 +152,8 @@ impl PathFacts {
             Ok(_trace) => {
                 //
             }
+
+            Err(CannotTrace::IsRoot(_)) => {}
             Err(CannotTrace::Anchor(AbsPathError::PathIsEmpty(_))) => {}
             Err(CannotTrace::Anchor(AbsPathError::CannotReadCWD(_, error))) => {
                 writeln!(

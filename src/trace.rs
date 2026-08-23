@@ -263,6 +263,7 @@ impl From<CannotTrace> for UnknownPath {
     fn from(value: CannotTrace) -> Self {
         match value {
             CannotTrace::Anchor(error) => UnknownPath::AbsPathError(error),
+            CannotTrace::IsRoot(root) => UnknownPath::IsRoot(root.into()),
             CannotTrace::RootNotReachable(error) => UnknownPath::CannotCanonicalizeAnything(error),
         }
     }
@@ -270,12 +271,7 @@ impl From<CannotTrace> for UnknownPath {
 
 impl From<CannotTrace> for Box<UnknownPath> {
     fn from(value: CannotTrace) -> Self {
-        match value {
-            CannotTrace::Anchor(error) => Box::new(UnknownPath::AbsPathError(error)),
-            CannotTrace::RootNotReachable(error) => {
-                Box::new(UnknownPath::CannotCanonicalizeAnything(error))
-            }
-        }
+        Box::new(value.into())
     }
 }
 
@@ -319,6 +315,10 @@ pub(crate) enum CannotTrace {
 
     /// The root the path hangs off did not answer
     RootNotReachable(CannotCanonicalizeAnything),
+
+    /// The path passed in is nothing but Root (lexically). Meaning it would produce a Trace with
+    /// empty steps. Turning this into an error case means we can guarantee every Trace has steps.
+    IsRoot(CanonicalPath),
 }
 
 impl Trace {
@@ -345,6 +345,14 @@ impl Trace {
                 root_error,
             })
         })?;
+
+        if absolute
+            .as_ref()
+            .components()
+            .all(|component| matches!(component, Component::Prefix(_) | Component::RootDir))
+        {
+            return Err(CannotTrace::IsRoot(root));
+        }
 
         let mut position = Reached::Dir(root.clone());
         let mut steps = Vec::new();
@@ -401,13 +409,7 @@ impl Trace {
 
     // The step of the last part of the input path
     pub(crate) fn last_step(&self) -> &Step {
-        self.steps
-            .last()
-            .expect("TODO this is wrong, steps can be empty if only contains root")
-    }
-
-    pub(crate) fn final_step(&self) -> Option<&Step> {
-        self.steps.last()
+        self.steps.last().expect("Steps is never empty")
     }
 
     /// The step the walk could not continue past
@@ -910,9 +912,7 @@ mod tests {
 
     /// The step the walk stopped at, which has to exist for the test to be about anything
     fn stopped(trace: &Trace) -> &Step {
-        trace
-            .stopped_early_at()
-            .expect("TODO this is wrong can be None when root")
+        trace.stopped_early_at().expect("steps is never empty")
     }
 
     #[test]
@@ -1304,11 +1304,14 @@ mod tests {
     #[test]
     fn test_root_sits_in_nothing() {
         let (_temp, dir) = tempdir();
-        let trace = walk(root_of(&dir));
-
-        assert_eq!(trace.physical_location().unwrap().as_ref(), root_of(&dir));
-        assert!(trace.listing().is_none());
-        assert!(trace.parent_name().is_none());
+        let root = root_of(&dir);
+        let result = Trace::new(&root);
+        match result {
+            Err(CannotTrace::IsRoot(path)) => {
+                assert_eq!(path.as_ref(), root.canonicalize().unwrap())
+            }
+            _ => panic!("expected is root err got {:?}", result),
+        }
     }
 
     #[test]

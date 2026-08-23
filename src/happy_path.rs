@@ -68,7 +68,7 @@ impl DirOk {
 #[derive(Debug)]
 pub(crate) enum UnknownPath {
     AbsPathError(abs_path::AbsPathError),
-    IsRoot(AbsPath),
+    IsRoot(#[allow(dead_code)] AbsPath),
     CannotCanonicalizeAnything(CannotCanonicalizeAnything),
     ParentProblem {
         #[allow(dead_code)] // Prove we can access CWD and path is not empty

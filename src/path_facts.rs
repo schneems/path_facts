@@ -150,6 +150,34 @@ impl PathFacts {
     }
 
     fn fmt_parent_facts(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        match self.trace.as_ref() {
+            Ok(_trace) => {
+                //
+            }
+            Err(CannotTrace::Anchor(AbsPathError::PathIsEmpty(_))) => {}
+            Err(CannotTrace::Anchor(AbsPathError::CannotReadCWD(_, error))) => {
+                writeln!(
+                    f,
+                    "{}",
+                    style::bullet(format!("Cannot read current working directory: {}", error))
+                )?;
+                return Ok(());
+            }
+            Err(CannotTrace::Root(CannotCanonicalizeAnything {
+                original: _,
+                root,
+                root_error,
+            })) => {
+                writeln!(
+                    f,
+                    "{}",
+                    style::bullet(format!(
+                        "Cannot canonicalize root {root} due to error: {root_error}"
+                    ))
+                )?;
+                return Ok(());
+            }
+        }
         match self.state.as_ref().map_err(|e| &**e) {
             Ok(happy) => {
                 writeln!(
@@ -169,26 +197,12 @@ impl PathFacts {
                 )?;
             }
             Err(UnknownPath::AbsPathError(AbsPathError::PathIsEmpty(_))) => {}
-            Err(UnknownPath::AbsPathError(AbsPathError::CannotReadCWD(_, error))) => {
-                writeln!(
-                    f,
-                    "{}",
-                    style::bullet(format!("Cannot read current working directory: {}", error))
-                )?;
+            Err(UnknownPath::AbsPathError(AbsPathError::CannotReadCWD(_, _))) => {
+                unreachable!("caught by trace");
             }
             Err(UnknownPath::IsRoot(_)) => {}
-            Err(UnknownPath::CannotCanonicalizeAnything(CannotCanonicalizeAnything {
-                original: _,
-                root,
-                root_error,
-            })) => {
-                writeln!(
-                    f,
-                    "{}",
-                    style::bullet(format!(
-                        "Cannot canonicalize root {root} due to error: {root_error}"
-                    ))
-                )?;
+            Err(UnknownPath::CannotCanonicalizeAnything(CannotCanonicalizeAnything { .. })) => {
+                unreachable!("Caught by trace")
             }
             Err(UnknownPath::ParentProblem {
                 absolute: _,

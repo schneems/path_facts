@@ -105,7 +105,7 @@ impl PathFacts {
                 // parent states cannot read CWD
                 return Ok(());
             }
-            Err(CannotTrace::Root(CannotCanonicalizeAnything { original, .. })) => {
+            Err(CannotTrace::RootNotReachable(CannotCanonicalizeAnything { original, .. })) => {
                 writeln!(f, "`{}`", self.path.display())?;
                 if self.path.is_relative() {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {original}",)))?;
@@ -163,7 +163,7 @@ impl PathFacts {
                 )?;
                 return Ok(());
             }
-            Err(CannotTrace::Root(CannotCanonicalizeAnything {
+            Err(CannotTrace::RootNotReachable(CannotCanonicalizeAnything {
                 original: _,
                 root,
                 root_error,
@@ -1047,7 +1047,7 @@ mod tests {
                     ),
                 },
             ))),
-            trace: Err(CannotTrace::Root(CannotCanonicalizeAnything {
+            trace: Err(CannotTrace::RootNotReachable(CannotCanonicalizeAnything {
                 original: AbsPath::new(&path).unwrap(),
                 root: AbsPath::new(Path::new("/")).unwrap(),
                 root_error: std::io::Error::new(

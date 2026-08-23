@@ -263,7 +263,7 @@ impl From<CannotTrace> for UnknownPath {
     fn from(value: CannotTrace) -> Self {
         match value {
             CannotTrace::Anchor(error) => UnknownPath::AbsPathError(error),
-            CannotTrace::Root(error) => UnknownPath::CannotCanonicalizeAnything(error),
+            CannotTrace::RootNotReachable(error) => UnknownPath::CannotCanonicalizeAnything(error),
         }
     }
 }
@@ -272,7 +272,9 @@ impl From<CannotTrace> for Box<UnknownPath> {
     fn from(value: CannotTrace) -> Self {
         match value {
             CannotTrace::Anchor(error) => Box::new(UnknownPath::AbsPathError(error)),
-            CannotTrace::Root(error) => Box::new(UnknownPath::CannotCanonicalizeAnything(error)),
+            CannotTrace::RootNotReachable(error) => {
+                Box::new(UnknownPath::CannotCanonicalizeAnything(error))
+            }
         }
     }
 }
@@ -316,7 +318,7 @@ pub(crate) enum CannotTrace {
     Anchor(AbsPathError),
 
     /// The root the path hangs off did not answer
-    Root(CannotCanonicalizeAnything),
+    RootNotReachable(CannotCanonicalizeAnything),
 }
 
 impl Trace {
@@ -337,7 +339,7 @@ impl Trace {
 
         let root = absolute.lex_root();
         let root = CanonicalPath::new(&root).map_err(|root_error| {
-            CannotTrace::Root(CannotCanonicalizeAnything {
+            CannotTrace::RootNotReachable(CannotCanonicalizeAnything {
                 original: absolute.clone(),
                 root,
                 root_error,

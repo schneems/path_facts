@@ -7,9 +7,11 @@
 //!
 //! Built from a [`AbsPath`] so we know the program has access to CWD.
 //! May have un-normalized parts i.e. `..`
-use crate::abs_path::{AbsPath, RelativePath};
+use crate::{
+    abs_path::{AbsPath, RelativePath},
+    component::NormalComponent,
+};
 use std::{
-    ffi::OsStr,
     fmt::Display,
     path::{Path, PathBuf},
 };
@@ -191,8 +193,28 @@ impl CanonicalPath {
         Ok(CanonicalPath(canonical))
     }
 
-    pub(crate) unsafe fn unchecked_join(&self, rest: &OsStr) -> CanonicalPath {
-        CanonicalPath(self.as_ref().join(rest))
+    /// Joins input with the given Canonical path without checking disk contents
+    ///
+    /// Unsafe because the output is a CanonicalPath, so the caller must make sure that:
+    ///
+    /// - The path points to a resolved location on disk
+    ///
+    /// The location on disk either needs to be `lstat`-able or be observed
+    /// in a directory (when the directory has read, but not execute permission).
+    ///
+    /// ## Windows
+    ///
+    /// On windows when you canonicalize a path you get a UNC format. i.e. `C:\` → `\\?\C:\`.
+    /// This is considered a path literal where every element is resolved. A property of this
+    /// fact is that you cannot always canonicalize a path that's been canonicalized and modified
+    /// i.e. `path.canonicalize().join("..\other_path").canonicalize().unwrap()` will error
+    /// because `..` does not exist when the path is already using UNC format.
+    ///
+    /// An alternative to canonicalizing and building UNC is in the dunce crate <https://gitlab.com/kornelski/dunce/-/blob/c523a1edfa81cd7603a28971154a33c14b2fed4e/src/lib.rs>
+    ///
+    /// Also take care in tests that joining `".."` literal to a `Path` will fold it in.
+    pub(crate) unsafe fn unchecked_join(&self, rest: &NormalComponent) -> CanonicalPath {
+        CanonicalPath(self.as_ref().join(rest.as_ref()))
     }
 
     /// Looks up `name` in this directory
@@ -215,8 +237,8 @@ impl CanonicalPath {
     ///
     /// Carries the same TOCTOU caveat as everything else in this library: all of the above
     /// was true when the syscall ran.
-    pub(crate) fn entry(&self, name: &OsStr) -> Result<Entry, std::io::Error> {
-        let path = self.0.join(name);
+    pub(crate) fn entry(&self, name: &NormalComponent) -> Result<Entry, std::io::Error> {
+        let path = self.0.join(name.as_ref());
         let lstat = std::fs::symlink_metadata(&path)?;
 
         if lstat.file_type().is_symlink() {

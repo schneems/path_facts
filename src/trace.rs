@@ -126,7 +126,7 @@ pub(crate) enum PhysicalNode {
     ParentNoExec {
         parent: CanonicalPath,
         /// Some if the directory has the entry, otherwise None
-        entry: Option<OsString>,
+        entry: Option<NormalComponent>,
     },
 
     /// Cannot tell missing from directory from symlink here
@@ -676,7 +676,6 @@ fn enter(position: Reached, name: NormalComponent) -> (Step, Reached) {
 
 /// Asks the filesystem about `name` inside the resolved directory `dir`
 fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalNode, Reached) {
-    let name = name.as_ref();
     match dir.entry(name) {
         Ok(Entry::Canonical(child, lstat)) => {
             if lstat.is_dir() {
@@ -702,7 +701,7 @@ fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalN
                         match entry {
                             Ok(entry) => {
                                 // TODO track case insensitive OS-s and compare here
-                                if entry.file_name() == name {
+                                if entry.file_name() == name.as_ref() {
                                     found = true
                                 }
                             }
@@ -713,7 +712,7 @@ fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalN
                         return (
                             PhysicalNode::ParentNoExec {
                                 parent: dir.clone(),
-                                entry: Some(name.to_os_string()),
+                                entry: Some(name.clone()),
                             },
                             Reached::Lost,
                         );

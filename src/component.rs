@@ -25,7 +25,6 @@ pub(crate) struct RootDirComponent;
 
 // Holds prefix like `C:\`
 #[derive(Debug, Clone, PartialEq)]
-#[allow(dead_code)]
 pub(crate) struct PrefixComponent(OsString);
 
 // Represents a single path part.
@@ -34,7 +33,6 @@ pub(crate) enum OwnedComponent {
     Normal(NormalComponent),
     CurDir(CurDirComponent),
     ParentDir(ParentDirComponent),
-    #[allow(dead_code)]
     Prefix(PrefixComponent),
     RootDir(RootDirComponent),
 }

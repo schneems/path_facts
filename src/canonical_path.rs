@@ -178,6 +178,18 @@ pub(crate) enum Entry {
 /// the canonical form succeeds while metadata on the original still fails. A trailing `.` behaves the same way.
 ///
 /// So using a `CanonicalPath` as a replacement for `Path` can yield subtle differences.
+///
+/// ## Windows
+///
+/// On windows when you canonicalize a path you get a UNC format. i.e. `C:\` → `\\?\C:\`.
+/// This is considered a path literal where every element is resolved. A property of this
+/// fact is that you cannot always canonicalize a path that's been canonicalized and modified
+/// i.e. `path.canonicalize().join("..\other_path").canonicalize().unwrap()` will error
+/// because `..` does not exist when the path is already using UNC format.
+///
+/// An alternative to canonicalizing and building UNC is in the dunce crate <https://gitlab.com/kornelski/dunce/-/blob/c523a1edfa81cd7603a28971154a33c14b2fed4e/src/lib.rs>
+///
+/// Also take care in tests that joining `".."` literal to a `Path` will fold it in.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CanonicalPath(PathBuf);
 
@@ -201,18 +213,6 @@ impl CanonicalPath {
     ///
     /// The location on disk either needs to be `lstat`-able or be observed
     /// in a directory (when the directory has read, but not execute permission).
-    ///
-    /// ## Windows
-    ///
-    /// On windows when you canonicalize a path you get a UNC format. i.e. `C:\` → `\\?\C:\`.
-    /// This is considered a path literal where every element is resolved. A property of this
-    /// fact is that you cannot always canonicalize a path that's been canonicalized and modified
-    /// i.e. `path.canonicalize().join("..\other_path").canonicalize().unwrap()` will error
-    /// because `..` does not exist when the path is already using UNC format.
-    ///
-    /// An alternative to canonicalizing and building UNC is in the dunce crate <https://gitlab.com/kornelski/dunce/-/blob/c523a1edfa81cd7603a28971154a33c14b2fed4e/src/lib.rs>
-    ///
-    /// Also take care in tests that joining `".."` literal to a `Path` will fold it in.
     pub(crate) unsafe fn unchecked_join(&self, rest: &NormalComponent) -> CanonicalPath {
         CanonicalPath(self.as_ref().join(rest.as_ref()))
     }

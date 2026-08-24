@@ -110,7 +110,7 @@ pub(crate) enum PhysicalNode {
     /// A link that does not resolve is reported rather than chased: the target's own chain
     /// may not resolve either, and symlinks can be made to point in a circle.
     Symlink {
-        target: Result<AbsPath, std::io::Error>,
+        target: Result<(PathBuf, AbsPath), std::io::Error>,
         resolved: Result<CanonicalPath, std::io::Error>,
     },
 
@@ -959,7 +959,8 @@ mod tests {
                 target: to,
                 resolved,
             } => {
-                assert_eq!(to.as_ref().unwrap().as_ref(), target);
+                let (_, abs) = to.as_ref().unwrap();
+                assert_eq!(abs.as_ref(), target);
                 assert_eq!(
                     resolved.as_ref().unwrap_err().kind(),
                     std::io::ErrorKind::NotFound
@@ -983,7 +984,8 @@ mod tests {
         let trace = walk(dir.join("loop1"));
         match &stopped(&trace).contents {
             PhysicalNode::Symlink { target, resolved } => {
-                assert_eq!(target.as_ref().unwrap().as_ref(), dir.join("loop2"));
+                let (_, abs) = target.as_ref().unwrap();
+                assert_eq!(abs.as_ref(), dir.join("loop2"));
                 assert!(resolved.is_err());
             }
             other => panic!("expected Symlink got {:?}", other),
@@ -1099,7 +1101,8 @@ mod tests {
                 target: to,
                 resolved,
             } => {
-                assert_eq!(to.as_ref().unwrap().as_ref(), target);
+                let (_, to) = to.as_ref().unwrap();
+                assert_eq!(to.as_ref(), target);
                 assert!(resolved.is_err());
             }
             other => panic!("expected Symlink got {:?}", other),
@@ -1124,7 +1127,8 @@ mod tests {
         let trace = walk(link.join("c"));
         match &stopped(&trace).contents {
             PhysicalNode::Symlink { target, .. } => {
-                assert_eq!(target.as_ref().unwrap().as_ref(), dir.join("missing"))
+                let (_, abs) = target.as_ref().unwrap();
+                assert_eq!(abs.as_ref(), dir.join("missing"))
             }
             other => panic!("expected Symlink got {:?}", other),
         }

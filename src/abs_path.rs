@@ -198,15 +198,18 @@ impl AsRef<Path> for AbsPath {
 ///
 /// The interface is wrong, it is displayed to the user such that it makes it seem that
 /// an absolute path is written to the symlink (when relative). When in reality the relative
-/// path can matter if the file is/was moved. TODO: Return (PathBuf, AbsPath) (or similar)
-pub(crate) fn readlink(dir: &CanonicalPath, absolute: &AbsPath) -> Result<AbsPath, std::io::Error> {
+/// path can matter if the file is/was moved.
+pub(crate) fn readlink(
+    dir: &CanonicalPath,
+    absolute: &AbsPath,
+) -> Result<(PathBuf, AbsPath), std::io::Error> {
     let target = std::fs::read_link(absolute.as_ref())?;
 
     if target.is_relative() {
         // We know the directory exists, we know the target is relative. We're
-        Ok(AbsPath(dir.as_ref().join(target)))
+        Ok((target.clone(), AbsPath(dir.as_ref().join(target))))
     } else {
-        Ok(AbsPath(target))
+        Ok((target.clone(), AbsPath(target)))
     }
 }
 
@@ -308,7 +311,7 @@ mod tests {
         let target = dir.join("target");
         std::os::unix::fs::symlink(&target, &symlink).unwrap();
 
-        let readlink = readlink(&can(&dir), &abs(&symlink)).unwrap();
+        let (_, readlink) = readlink(&can(&dir), &abs(&symlink)).unwrap();
         assert_eq!(readlink.as_ref(), target);
     }
 
@@ -320,7 +323,7 @@ mod tests {
         std::fs::create_dir_all(symlink.parent().unwrap()).unwrap();
         std::os::unix::fs::symlink("target", &symlink).unwrap();
 
-        let readlink = readlink(&can(&dir), &abs(&symlink)).unwrap();
+        let (_, readlink) = readlink(&can(&dir), &abs(&symlink)).unwrap();
         assert_eq!(readlink.as_ref(), dir.join("target"));
     }
 

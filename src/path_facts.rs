@@ -77,7 +77,7 @@ impl PathFacts {
                 {
                     // TODO print resolution
                     match target {
-                        Ok(target) => writeln!(
+                        Ok((_, target)) => writeln!(
                             f,
                             "{}",
                             style::bullet(format!("Symlink target: {}", target))

@@ -274,6 +274,36 @@ mod tests {
         );
     }
 
+    #[test]
+    #[cfg(windows)]
+    fn test_readlink_dotdot_on_relative_windows() {
+        use crate::join_unfolded;
+
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let target = PathBuf::from("x").join("y").join("z");
+        assert!(target.is_relative());
+
+        std::env::set_current_dir(&dir).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+
+        let link = dir.join("link");
+
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&target, &link).unwrap();
+
+        assert!(link.is_symlink());
+        assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+
+        let trailing = join_unfolded(&link, &["eaten", ".."]);
+        std::fs::create_dir_all(trailing.parent().unwrap()).unwrap();
+
+        let readlink = readlink(&abs(&trailing)).unwrap();
+        assert_eq!(&readlink, &abs(&target));
+    }
+
     #[cfg(unix)]
     #[test]
     fn test_readlink_absolute_target_is_reported_verbatim() {

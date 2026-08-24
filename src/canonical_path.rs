@@ -167,7 +167,6 @@ pub(crate) enum Entry {
 /// File exists, and is resolvable path, is fully normalized
 ///
 /// - All symlinks resolve and are visible
-/// - All directories involved are executable
 ///
 /// Does not preserve behavior on all calls. Getting metadata from
 /// `/a/b/file.txt/..` fails with NotADirectory on every unix, POSIX requires

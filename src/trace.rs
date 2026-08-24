@@ -70,11 +70,11 @@
 
 use crate::abs_path::{readlink, AbsPath, AbsPathError, RelativePath};
 use crate::canonical_path::{CannotCanonicalizeAnything, CanonicalPath, Entry};
-use crate::component::{owned, NormalComponent, OwnedComponent, ParentDirComponent};
+use crate::component::{self, NormalComponent, OwnedComponent, ParentDirComponent};
 use crate::happy_path::UnknownPath;
 use faccess::{AccessMode, PathExt};
 use std::borrow::Cow;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
 /// What a single `lstat` reported at one component
@@ -236,7 +236,7 @@ pub(crate) struct Step {
     ///
     /// When a relative path is resolved, the directory it was anchored to is walked first.
     /// Those steps have names too, they just have no [`Step::input`].
-    pub(crate) name: OsString,
+    pub(crate) name: OwnedComponent,
 
     /// The path this component names
     ///
@@ -359,7 +359,7 @@ impl Trace {
         let mut steps = Vec::new();
 
         for component in absolute.as_ref().components() {
-            let (step, next) = match owned(component) {
+            let (step, next) = match component::owned(component) {
                 // // Already where the walk starts, and `components` only ever yields these at
                 // // the front of an absolute path.
                 // Component::Prefix(_) | Component::RootDir => continue,
@@ -468,7 +468,7 @@ impl Trace {
 
         Some(Listing {
             dir,
-            entry: step.name.clone(),
+            entry: step.name.as_ref().to_os_string(),
         })
     }
 
@@ -612,7 +612,7 @@ fn attribute(steps: &mut [Step], input: &Path) {
         .collect::<Vec<_>>();
 
     for (step, (index, component)) in steps.iter_mut().rev().zip(components.into_iter().rev()) {
-        if step.name != component.as_os_str() {
+        if step.name.as_ref() != component.as_os_str() {
             break;
         }
         step.input = Some(index);
@@ -634,13 +634,11 @@ enum Reached {
 
 /// Moves into `name`, which sits inside whatever the walk has reached
 fn enter(position: Reached, name: NormalComponent) -> (Step, Reached) {
-    let name = name.as_ref().to_os_string();
-
     match position {
         Reached::Lost => (
             Step {
                 input: None,
-                name,
+                name: name.into(),
                 at: None,
                 contents: PhysicalNode::NotReached,
             },
@@ -653,7 +651,7 @@ fn enter(position: Reached, name: NormalComponent) -> (Step, Reached) {
             (
                 Step {
                     input: None,
-                    name,
+                    name: name.into(),
                     at: Some(at.clone()),
                     contents: PhysicalNode::NotReached,
                 },
@@ -666,7 +664,7 @@ fn enter(position: Reached, name: NormalComponent) -> (Step, Reached) {
             (
                 Step {
                     input: None,
-                    name,
+                    name: name.into(),
                     at: Some(at),
                     contents: saw,
                 },
@@ -677,7 +675,8 @@ fn enter(position: Reached, name: NormalComponent) -> (Step, Reached) {
 }
 
 /// Asks the filesystem about `name` inside the resolved directory `dir`
-fn look(dir: &CanonicalPath, name: &OsStr, at: &AbsPath) -> (PhysicalNode, Reached) {
+fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalNode, Reached) {
+    let name = name.as_ref();
     match dir.entry(name) {
         Ok(Entry::Canonical(child, lstat)) => {
             if lstat.is_dir() {
@@ -830,15 +829,13 @@ fn follow(dir: &CanonicalPath, link: &AbsPath) -> (PhysicalNode, Reached) {
 
 /// Applies `..` to whatever the walk has reached
 fn up(position: Reached, name: ParentDirComponent) -> (Step, Reached) {
-    let name = name.as_ref().to_os_string();
-
     match position {
         Reached::Dir(from) => {
             let to = from.parent().unwrap_or_else(|| from.clone());
             (
                 Step {
                     input: None,
-                    name,
+                    name: name.into(),
                     at: Some(AbsPath::from(to.clone())),
                     contents: PhysicalNode::Up {
                         from,
@@ -854,7 +851,7 @@ fn up(position: Reached, name: ParentDirComponent) -> (Step, Reached) {
         Reached::Ghost(_) | Reached::Lost => (
             Step {
                 input: None,
-                name,
+                name: name.into(),
                 at: None,
                 contents: PhysicalNode::NotReached,
             },
@@ -863,8 +860,8 @@ fn up(position: Reached, name: ParentDirComponent) -> (Step, Reached) {
     }
 }
 
-fn join(dir: &AbsPath, name: &OsStr) -> AbsPath {
-    dir.join_relative(&RelativePath::new(name).expect("a file name is a relative path"))
+fn join(dir: &AbsPath, name: &NormalComponent) -> AbsPath {
+    dir.join_relative(&RelativePath::new(name.as_ref()).expect("a file name is a relative path"))
 }
 
 #[cfg(test)]
@@ -883,11 +880,23 @@ mod tests {
             .iter()
             .map(|name| Step {
                 input: None,
-                name: OsString::from(name),
+                name: one(&name),
                 at: None,
                 contents: PhysicalNode::NotReached,
             })
             .collect()
+    }
+
+    fn one(name: &str) -> OwnedComponent {
+        let mut components = Path::new(name).components();
+        let first = component::owned(components.next().unwrap());
+        if let Some(c) = components.next() {
+            panic!(
+                "expected name `{}` to be one component, got {:?}, {:?}, {:?}",
+                name, first, c, components
+            )
+        }
+        first
     }
 
     /// Tempdirs on macOS live under a symlink, so resolve once up front to keep the
@@ -1399,7 +1408,7 @@ mod tests {
 
         for step in trace.steps {
             let index = step.input.expect("the caller wrote every component");
-            assert_eq!(input[index].as_os_str(), step.name);
+            assert_eq!(input[index].as_os_str(), step.name.as_ref());
         }
     }
 
@@ -1422,11 +1431,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             attributed,
-            vec![
-                (1, "hello".into()),
-                (2, "lol".into()),
-                (3, "foo.txt".into())
-            ]
+            vec![(1, one("hello")), (2, one("lol")), (3, one("foo.txt"))]
         );
 
         // A problem in the anchor is still reportable, just against an absolute path
@@ -1454,7 +1459,7 @@ mod tests {
 
         for step in trace.steps {
             let index = step.input.expect("only a `.` went unattributed");
-            assert_eq!(input[index].as_os_str(), step.name);
+            assert_eq!(input[index].as_os_str(), step.name.as_ref());
         }
     }
 

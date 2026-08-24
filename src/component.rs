@@ -8,27 +8,28 @@ use std::{
 };
 
 // Holds Exactly one component that is normal (not `.` or `..`)
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct NormalComponent(OsString);
 
 // Holds exactly one `.`
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CurDirComponent;
 
 // Holds exactly one `..`
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ParentDirComponent;
 
 // Holds root component, on windows root is generally prefix + root
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct RootDirComponent;
 
 // Holds prefix like `C:\`
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
 pub(crate) struct PrefixComponent(OsString);
 
 // Represents a single path part.
+#[derive(Debug, PartialEq, Clone)]
 pub(crate) enum OwnedComponent {
     Normal(NormalComponent),
     CurDir(CurDirComponent),
@@ -36,6 +37,48 @@ pub(crate) enum OwnedComponent {
     #[allow(dead_code)]
     Prefix(PrefixComponent),
     RootDir(RootDirComponent),
+}
+
+impl AsRef<OsStr> for OwnedComponent {
+    fn as_ref(&self) -> &OsStr {
+        match self {
+            OwnedComponent::Normal(inner) => inner.as_ref(),
+            OwnedComponent::CurDir(inner) => inner.as_ref(),
+            OwnedComponent::ParentDir(inner) => inner.as_ref(),
+            OwnedComponent::Prefix(inner) => inner.as_ref(),
+            OwnedComponent::RootDir(inner) => inner.as_ref(),
+        }
+    }
+}
+
+impl From<PrefixComponent> for OwnedComponent {
+    fn from(value: PrefixComponent) -> Self {
+        OwnedComponent::Prefix(value)
+    }
+}
+
+impl From<RootDirComponent> for OwnedComponent {
+    fn from(value: RootDirComponent) -> Self {
+        OwnedComponent::RootDir(value)
+    }
+}
+
+impl From<CurDirComponent> for OwnedComponent {
+    fn from(value: CurDirComponent) -> Self {
+        OwnedComponent::CurDir(value)
+    }
+}
+
+impl From<ParentDirComponent> for OwnedComponent {
+    fn from(value: ParentDirComponent) -> Self {
+        OwnedComponent::ParentDir(value)
+    }
+}
+
+impl From<NormalComponent> for OwnedComponent {
+    fn from(value: NormalComponent) -> Self {
+        OwnedComponent::Normal(value)
+    }
 }
 
 pub(crate) fn owned(path: Component) -> OwnedComponent {
@@ -59,5 +102,23 @@ impl AsRef<OsStr> for NormalComponent {
 impl AsRef<OsStr> for ParentDirComponent {
     fn as_ref(&self) -> &OsStr {
         Component::ParentDir.as_ref()
+    }
+}
+
+impl AsRef<OsStr> for CurDirComponent {
+    fn as_ref(&self) -> &OsStr {
+        Component::CurDir.as_ref()
+    }
+}
+
+impl AsRef<OsStr> for RootDirComponent {
+    fn as_ref(&self) -> &OsStr {
+        Component::RootDir.as_ref()
+    }
+}
+
+impl AsRef<OsStr> for PrefixComponent {
+    fn as_ref(&self) -> &OsStr {
+        self.0.as_os_str()
     }
 }

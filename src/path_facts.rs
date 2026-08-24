@@ -100,7 +100,12 @@ impl PathFacts {
                 return Ok(());
             }
             Err(CannotTrace::IsRoot(root)) => {
-                writeln!(f, "is root {root}")?;
+                if self.path == root.as_ref() {
+                    writeln!(f, "is root {root}")?;
+                } else {
+                    writeln!(f, "is root `{path}` → {root}", path = self.path.display())?;
+                }
+
                 return Ok(());
             }
             Err(CannotTrace::RootNotReachable(CannotCanonicalizeAnything { original, .. })) => {
@@ -772,7 +777,7 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(r"C:\").to_string() + "🛑",
             @r"
-        is root `C:\`
+        is root `C:\` → `\\?\C:\`
         🛑
         "
         );
@@ -846,7 +851,8 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(&link1)
                 .to_string()
-                .replace(&dir.display().to_string(), "/path/to/directory")
+                .replace(r"\\?\", "")
+                .replace(&dir.display().to_string().replace(r"\\?\", ""), "/path/to/directory")
                 .replace(&std::fs::canonicalize(&link1).unwrap_err().to_string(), "{error}")
                 .replace('\\', "/") + "🛑",
             @r"
@@ -874,7 +880,11 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(Path::new("link1"))
                 .to_string()
-                .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
+                .replace(r"\\?\", "")
+                .replace(
+                    &tempdir.path().canonicalize().unwrap().display().to_string().replace(r"\\?\", ""),
+                    "/path/to/directory",
+                )
                 .replace(&std::fs::canonicalize("link1").unwrap_err().to_string(), "{error}")
                 .replace('\\', "/") + "🛑",
             @r"
@@ -902,7 +912,10 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(&broken_link)
                 .to_string()
-                .replace(&dir.display().to_string(), "/path/to/directory")
+                // Windows `canonicalize` yields a `\\?\` verbatim prefix, but `read_link`
+                // reports the target without it. Strip the prefix everywhere so both forms match.
+                .replace(r"\\?\", "")
+                .replace(&dir.display().to_string().replace(r"\\?\", ""), "/path/to/directory")
                 .replace(&std::fs::canonicalize(&broken_link).unwrap_err().to_string(), "{error}")
                 .replace('\\', "/") + "🛑",
             @r"
@@ -928,7 +941,13 @@ mod tests {
         insta::assert_snapshot!(
             PathFacts::new(Path::new("broken_link"))
                 .to_string()
-                .replace(&tempdir.path().canonicalize().unwrap().display().to_string(), "/path/to/directory")
+                // Windows `canonicalize` yields a `\\?\` verbatim prefix, but `read_link`
+                // reports the target without it. Strip the prefix everywhere so both forms match.
+                .replace(r"\\?\", "")
+                .replace(
+                    &tempdir.path().canonicalize().unwrap().display().to_string().replace(r"\\?\", ""),
+                    "/path/to/directory",
+                )
                 .replace(&std::fs::canonicalize("broken_link").unwrap_err().to_string(), "{error}")
                 .replace('\\', "/") + "🛑",
             @r"

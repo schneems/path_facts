@@ -215,7 +215,6 @@ impl CanonicalPath {
     ///
     /// Carries the same TOCTOU caveat as everything else in this library: all of the above
     /// was true when the syscall ran.
-    #[allow(dead_code)] // Only reached through `Trace::new`, not wired into output yet
     pub(crate) fn entry(&self, name: &OsStr) -> Result<Entry, std::io::Error> {
         let path = self.0.join(name);
         let lstat = std::fs::symlink_metadata(&path)?;

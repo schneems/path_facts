@@ -685,7 +685,7 @@ fn look(dir: &CanonicalPath, name: &OsStr, at: &AbsPath) -> (PhysicalNode, Reach
                 )
             }
         }
-        Ok(Entry::Symlink) => follow(at),
+        Ok(Entry::Symlink) => follow(dir, at),
         // Both readings of a failure here are claims about a name inside a directory, so
         // neither survives the directory having stopped being one. Worth the second look
         // because it costs one `lstat` per walk: the walk never asks the filesystem
@@ -773,14 +773,14 @@ fn no_longer_a_directory(dir: &CanonicalPath) -> Option<&'static str> {
 /// Delegates the following to `realpath` so the loop budget and the rest of the target's
 /// own chain are libc's problem rather than ours. Whatever it refuses on comes back as the
 /// error, unexamined.
-fn follow(link: &AbsPath) -> (PhysicalNode, Reached) {
+fn follow(dir: &CanonicalPath, link: &AbsPath) -> (PhysicalNode, Reached) {
     // `readlink` and `realpath` are two more looks at a name `lstat` already called a
     // symlink, and either can be refused (Apple checks the link's own permission bits on
     // `readlink`). A link whose target cannot be read is a fact about the link, so the
     // refusal is carried on `target` rather than folded into a `Raced` step. Both are kept
     // because "cannot read where it points" and "cannot resolve where it lands" are
     // different failures about the same link.
-    let target = readlink(link);
+    let target = readlink(dir, link);
 
     let resolved = match CanonicalPath::new(link) {
         Ok(resolved) => resolved,
@@ -1130,6 +1130,42 @@ mod tests {
         }
     }
 
+    #[test]
+    #[cfg(windows)]
+    fn test_readlink_dotdot_on_relative_windows() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let target = PathBuf::from("x").join("y").join("z");
+        assert!(target.is_relative());
+
+        std::env::set_current_dir(dir).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+
+        let link = dir.join("link");
+        std::os::windows::fs::symlink_dir(&target, &link).unwrap();
+
+        assert!(link.is_symlink());
+        assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+
+        let trailing = join_unfolded(&link, &["eaten", ".."]);
+        std::fs::create_dir_all(trailing.parent().unwrap()).unwrap();
+
+        let trace = walk(&trailing);
+        let recorded = trace
+            .steps
+            .iter()
+            .find_map(|step| match &step.contents {
+                PhysicalNode::Symlink { target, .. } => Some(target.as_ref().unwrap()),
+                _ => None,
+            })
+            .expect("the walk records the link as a symlink step");
+
+        assert_eq!(
+            recorded.as_ref().canonicalize().unwrap(),
+            link.canonicalize().unwrap(),
+        );
+    }
+
     /// A directory that stops being one partway through a walk cannot be arranged on
     /// demand, so these ask the second look directly what it makes of each way that can
     /// happen. What they cover is the judgement, not the timing.
@@ -1317,7 +1353,7 @@ mod tests {
     #[test]
     fn test_dot_dot_at_root_sits_in_nothing() {
         let (_temp, dir) = tempdir();
-        let trace = walk(root_of(&dir).join(".."));
+        let trace = walk(join_unfolded(&root_of(&dir), &[".."]));
 
         assert_eq!(trace.physical_location().unwrap().as_ref(), root_of(&dir));
         assert!(trace.listing().is_none());
@@ -1338,7 +1374,7 @@ mod tests {
             .expect("a tempdir lives below at least one top level directory");
         let top = root_of(&dir).join(first.as_os_str());
 
-        let trace = walk(top.join(".."));
+        let trace = walk(join_unfolded(&top, &[".."]));
         assert_eq!(trace.physical_location().unwrap().as_ref(), root_of(&dir));
         assert!(trace.listing().is_none());
     }

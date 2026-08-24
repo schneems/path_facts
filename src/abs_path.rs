@@ -3,9 +3,10 @@
 //! Holding this type guarantees that the path is not empty and the program has permission to read CWD.
 //!
 //! A property of absolute paths is that recursively retrieving their parent paths will eventually
-//! lead to the root path. The parent of an absolute path is also an absolute path [`AbsPath::parent`].
+//! lead to the root path. The parent of an absolute path is also an absolute path [`AbsPath::lex_parent`].
 //!
 //! If the held path is a readable directory, all children are also absolute paths [`AbsPath::read_dir`].
+use crate::canonical_path::CanonicalPath;
 use std::{
     fmt::{Display, Formatter},
     path::{Component, Path, PathBuf, StripPrefixError},
@@ -152,11 +153,6 @@ impl AbsPath {
         Some(AbsPath(parent.to_path_buf()))
     }
 
-    /// The same as `lex_parent` but will return root when trying to traverse beyond root
-    pub(crate) fn lex_parent_or_root(&self) -> Self {
-        self.lex_parent().unwrap_or_else(|| self.clone())
-    }
-
     /// The filesystem root this path hangs off
     ///
     /// Lexical, like the rest of the `lex_` family: it reads the [`Component::Prefix`] and
@@ -203,18 +199,12 @@ impl AsRef<Path> for AbsPath {
 /// The interface is wrong, it is displayed to the user such that it makes it seem that
 /// an absolute path is written to the symlink (when relative). When in reality the relative
 /// path can matter if the file is/was moved. TODO: Return (PathBuf, AbsPath) (or similar)
-pub(crate) fn readlink(absolute: &AbsPath) -> Result<AbsPath, std::io::Error> {
+pub(crate) fn readlink(dir: &CanonicalPath, absolute: &AbsPath) -> Result<AbsPath, std::io::Error> {
     let target = std::fs::read_link(absolute.as_ref())?;
 
     if target.is_relative() {
-        // `read_link` answering at all proves this path is a symlink, which proves its last
-        // component is `Normal`: a trailing `..` or `.` resolves through whatever precedes
-        // it and can never itself be a link. That is the condition `lex_parent` needs to be
-        // read physically rather than lexically, per its own docs.
-        //
-        // This doesn't hold for windows, so this is incorrect on that platform
-        let base = absolute.lex_parent_or_root();
-        Ok(AbsPath(base.0.join(target)))
+        // We know the directory exists, we know the target is relative. We're
+        Ok(AbsPath(dir.as_ref().join(target)))
     } else {
         Ok(AbsPath(target))
     }
@@ -232,6 +222,10 @@ mod tests {
 
     fn abs(path: impl AsRef<Path>) -> AbsPath {
         AbsPath::new(path).unwrap()
+    }
+
+    fn can(path: impl AsRef<Path>) -> CanonicalPath {
+        CanonicalPath::new(&AbsPath::new(path).unwrap()).unwrap()
     }
 
     fn tempdir() -> (tempfile::TempDir, PathBuf) {
@@ -284,14 +278,10 @@ mod tests {
         let target = PathBuf::from("x").join("y").join("z");
         assert!(target.is_relative());
 
-        std::env::set_current_dir(&dir).unwrap();
+        std::env::set_current_dir(dir).unwrap();
         std::fs::create_dir_all(&target).unwrap();
 
         let link = dir.join("link");
-
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&target, &link).unwrap();
-        #[cfg(windows)]
         std::os::windows::fs::symlink_dir(&target, &link).unwrap();
 
         assert!(link.is_symlink());
@@ -300,8 +290,14 @@ mod tests {
         let trailing = join_unfolded(&link, &["eaten", ".."]);
         std::fs::create_dir_all(trailing.parent().unwrap()).unwrap();
 
-        let readlink = readlink(&abs(&trailing)).unwrap();
-        assert_eq!(&readlink, &abs(&target));
+        let readlink = readlink(&can(dir), &abs(&trailing)).unwrap();
+
+        // Both name the same directory; `canonicalize` settles the `\\?\` prefix so neither
+        // path holds a `..` that Windows would reject.
+        assert_eq!(
+            readlink.as_ref().canonicalize().unwrap(),
+            link.canonicalize().unwrap(),
+        );
     }
 
     #[cfg(unix)]
@@ -312,7 +308,7 @@ mod tests {
         let target = dir.join("target");
         std::os::unix::fs::symlink(&target, &symlink).unwrap();
 
-        let readlink = readlink(&abs(&symlink)).unwrap();
+        let readlink = readlink(&can(&dir), &abs(&symlink)).unwrap();
         assert_eq!(readlink.as_ref(), target);
     }
 
@@ -324,7 +320,7 @@ mod tests {
         std::fs::create_dir_all(symlink.parent().unwrap()).unwrap();
         std::os::unix::fs::symlink("target", &symlink).unwrap();
 
-        let readlink = readlink(&abs(&symlink)).unwrap();
+        let readlink = readlink(&can(&dir), &abs(&symlink)).unwrap();
         assert_eq!(readlink.as_ref(), dir.join("target"));
     }
 
@@ -335,7 +331,7 @@ mod tests {
         let (_temp, dir) = tempdir();
         std::fs::write(dir.join("f"), "").unwrap();
 
-        assert!(readlink(&abs(dir.join("f"))).is_err());
-        assert!(readlink(&abs(dir.join("missing"))).is_err());
+        assert!(readlink(&can(&dir), &abs(dir.join("f"))).is_err());
+        assert!(readlink(&can(&dir), &abs(dir.join("missing"))).is_err());
     }
 }

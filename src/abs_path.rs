@@ -206,7 +206,6 @@ pub(crate) fn readlink(
     let target = std::fs::read_link(absolute.as_ref())?;
 
     if target.is_relative() {
-        // We know the directory exists, we know the target is relative. We're
         Ok((target.clone(), AbsPath(dir.as_ref().join(target))))
     } else {
         Ok((target.clone(), AbsPath(target)))

@@ -187,6 +187,7 @@
 //! than "simply state the facts". However, we're here. We have the facts, we might as well show those.
 mod abs_path;
 mod canonical_path;
+mod component;
 mod fact_check;
 mod happy_path;
 mod path_facts;

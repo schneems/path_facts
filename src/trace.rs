@@ -70,6 +70,7 @@
 
 use crate::abs_path::{readlink, AbsPath, AbsPathError, RelativePath};
 use crate::canonical_path::{CannotCanonicalizeAnything, CanonicalPath, Entry};
+use crate::component::{owned, NormalComponent, OwnedComponent, ParentDirComponent};
 use crate::happy_path::UnknownPath;
 use faccess::{AccessMode, PathExt};
 use std::borrow::Cow;
@@ -358,10 +359,11 @@ impl Trace {
         let mut steps = Vec::new();
 
         for component in absolute.as_ref().components() {
-            let (step, next) = match component {
-                // Already where the walk starts, and `components` only ever yields these at
-                // the front of an absolute path.
-                Component::Prefix(_) | Component::RootDir => continue,
+            let (step, next) = match owned(component) {
+                // // Already where the walk starts, and `components` only ever yields these at
+                // // the front of an absolute path.
+                // Component::Prefix(_) | Component::RootDir => continue,
+                OwnedComponent::Prefix(_) | OwnedComponent::RootDir(_) => continue,
                 // `components` normally drops `.`, but it keeps them behind a verbatim
                 // prefix (`\\?\`), which is what Windows canonicalization hands back. So
                 // this arm does real work there rather than only guarding against a stray
@@ -371,9 +373,11 @@ impl Trace {
                 // verbatim path skips OS normalization, so `\\?\C:\a\.\b` does not name
                 // `\\?\C:\a\b` to the kernel. Posix semantics win here, matching the rest
                 // of this library.
-                Component::CurDir => continue,
-                Component::Normal(name) => enter(position, name),
-                Component::ParentDir => up(position, component.as_os_str()),
+                OwnedComponent::CurDir(_) => continue,
+                OwnedComponent::Normal(normal_component) => enter(position, normal_component),
+                OwnedComponent::ParentDir(parent_dir_component) => {
+                    up(position, parent_dir_component)
+                }
             };
 
             steps.push(step);
@@ -629,8 +633,8 @@ enum Reached {
 }
 
 /// Moves into `name`, which sits inside whatever the walk has reached
-fn enter(position: Reached, name: &OsStr) -> (Step, Reached) {
-    let name = name.to_os_string();
+fn enter(position: Reached, name: NormalComponent) -> (Step, Reached) {
+    let name = name.as_ref().to_os_string();
 
     match position {
         Reached::Lost => (
@@ -825,8 +829,8 @@ fn follow(dir: &CanonicalPath, link: &AbsPath) -> (PhysicalNode, Reached) {
 }
 
 /// Applies `..` to whatever the walk has reached
-fn up(position: Reached, name: &OsStr) -> (Step, Reached) {
-    let name = name.to_os_string();
+fn up(position: Reached, name: ParentDirComponent) -> (Step, Reached) {
+    let name = name.as_ref().to_os_string();
 
     match position {
         Reached::Dir(from) => {

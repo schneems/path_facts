@@ -37,6 +37,15 @@ pub(crate) enum OwnedComponent {
     RootDir(RootDirComponent),
 }
 
+impl OwnedComponent {
+    pub(crate) fn normal(&self) -> Option<&NormalComponent> {
+        match self {
+            OwnedComponent::Normal(normal_component) => Some(normal_component),
+            _ => None,
+        }
+    }
+}
+
 impl AsRef<OsStr> for OwnedComponent {
     fn as_ref(&self) -> &OsStr {
         match self {

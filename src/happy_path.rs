@@ -166,7 +166,8 @@ pub(crate) fn state_from_trace(trace: &Trace) -> Result<KnownPath, Box<UnknownPa
         .listing()
         .ok_or_else(|| UnknownPath::IsRoot(absolute.clone()))?;
     let entry = AbsPath::from(listing.dir.clone()).join_relative(
-        &RelativePath::new(&listing.entry).expect("a directory entry name is a relative path"),
+        &RelativePath::new(&listing.entry.as_ref())
+            .expect("a directory entry name is a relative path"),
     );
     let parent =
         DirOk::new(AbsPath::from(listing.dir)).map_err(|error| UnknownPath::ParentProblem {

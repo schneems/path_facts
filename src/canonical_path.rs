@@ -7,7 +7,10 @@
 //!
 //! Built from a [`AbsPath`] so we know the program has access to CWD.
 //! May have un-normalized parts i.e. `..`
-use crate::{abs_path::AbsPath, component::NormalComponent};
+use crate::{
+    abs_path::AbsPath,
+    component::{self, NormalComponent},
+};
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
@@ -79,6 +82,18 @@ impl CanonicalPath {
     /// in a directory (when the directory has read, but not execute permission).
     pub(crate) unsafe fn unchecked_join(&self, rest: &NormalComponent) -> CanonicalPath {
         CanonicalPath(self.as_ref().join(rest.as_ref()))
+    }
+
+    /// Returns the filename of the path
+    ///
+    /// Since a canonical path is fully resolved, it will always be a normal component
+    /// Returns None when the path is root (with no filename)
+    pub(crate) fn filename_component(&self) -> Option<NormalComponent> {
+        self.as_ref()
+            .components()
+            .last()
+            .map(component::owned)
+            .and_then(|component| component.normal().cloned())
     }
 
     /// Looks up `name` in this directory

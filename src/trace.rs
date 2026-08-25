@@ -140,9 +140,11 @@ pub(crate) enum PhysicalNode {
     /// `..` on a symlink free path as removing the last component. Root is its own parent,
     /// matching `realpath` on `/..`.
     ParentDir {
+        /// The directory folded e.g. for an input of `/a/b/c/..` the directory `/a/b/c` holds `..`
         #[allow(dead_code)]
-        from: CanonicalPath,
-        to: CanonicalPath,
+        folded: CanonicalPath,
+        /// Where `..` landed: the parent of `from`, or `from` itself at root e.g. `/a/b/c/..` → `/a/b`
+        resolved: CanonicalPath,
     },
 
     /// Two calls about this component contradicted each other
@@ -183,7 +185,7 @@ impl PhysicalNode {
         match self {
             PhysicalNode::Directory(path) | PhysicalNode::File(path) => Some(Cow::Borrowed(path)),
             PhysicalNode::Symlink { resolved, .. } => resolved.as_ref().ok().map(Cow::Borrowed),
-            PhysicalNode::ParentDir { to, .. } => Some(Cow::Borrowed(to)),
+            PhysicalNode::ParentDir { resolved, .. } => Some(Cow::Borrowed(resolved)),
             PhysicalNode::Missing(_)
             | PhysicalNode::Denied(_)
             | PhysicalNode::Raced { .. }
@@ -450,21 +452,23 @@ impl Trace {
 
         // `..` is not an entry in any directory listing, so name the location it moved to
         // rather than the two dots that were written.
-        if let PhysicalNode::ParentDir { to, .. } = &step.contents {
+        if let PhysicalNode::ParentDir { resolved, .. } = &step.contents {
             return Some(Listing {
-                dir: to.parent()?,
-                entry: to.as_ref().file_name()?.to_os_string(),
+                dir: resolved.parent()?,
+                entry: resolved.as_ref().file_name()?.to_os_string(),
             });
         }
 
-        // The `..` case returned above, so this step came from `enter`, which produces a
-        // reached step only from a resolved directory. That directory is the step before it.
+        // This step was reached, so the step before it left the walk in `Reached::Dir`.
+        // Only a step that resolved to a place does that: `Directory`, a `Symlink` onto a
+        // directory, or a `..` that landed on one. Every other outcome leaves `Ghost` or
+        // `Lost`, from which the next step is `NotReached` and so not the one examined here.
         let dir = match cursor.before() {
             None => self.root.clone(),
             Some(previous) => previous
                 .contents
                 .resolved_to()
-                .expect("enter reaches a step only from a resolved directory")
+                .expect("the step before a reached step left the walk in a resolved directory")
                 .into_owned(),
         };
 
@@ -848,18 +852,18 @@ fn follow(dir: &CanonicalPath, link: &AbsPath) -> (PhysicalNode, Reached) {
 fn up(position: Reached, name: ParentDirComponent) -> (Step, Reached) {
     match position {
         Reached::Dir(from) => {
-            let to = from.parent().unwrap_or_else(|| from.clone());
+            let resolved = from.parent().unwrap_or_else(|| from.clone());
             (
                 Step {
                     input: None,
                     name: name.into(),
-                    at: Some(AbsPath::from(to.clone())),
+                    at: Some(AbsPath::from(resolved.clone())),
                     contents: PhysicalNode::ParentDir {
-                        from,
-                        to: to.clone(),
+                        folded: from,
+                        resolved: resolved.clone(),
                     },
                 },
-                Reached::Dir(to),
+                Reached::Dir(resolved),
             )
         }
         // Folding this would assume whatever fills the gap is a directory rather than a

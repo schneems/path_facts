@@ -124,7 +124,7 @@ pub(crate) fn state_from_trace(trace: &Trace) -> Result<KnownPath, Box<UnknownPa
     // `fact_check::tests::test_canonicalize_fails_on_trailing_dot_dot_in_a_verbatim_path`
     // for a Windows test pinning down the `canonicalize` failure this branch works around.
     let folded_dot_dot = match &trace.last_step().contents {
-        PhysicalNode::ParentDir { to, .. } => Some(to.clone()),
+        PhysicalNode::ParentDir { resolved, .. } => Some(resolved.clone()),
         _ => None,
     };
     let canonical = match folded_dot_dot {

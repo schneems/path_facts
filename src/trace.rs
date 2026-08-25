@@ -423,7 +423,7 @@ impl Trace {
     /// observation explains all of them.
     #[cfg(test)]
     pub(crate) fn stopped_early_at(&self) -> Option<&Step> {
-        let index = self.examined()?;
+        let index = self.examined();
         let step = &self.steps[index];
 
         // Arriving at a file, a link, or an absence is an answer when the path ends there,
@@ -445,7 +445,7 @@ impl Trace {
     ///
     /// `None` only when the path resolves to a root, which sits in nothing.
     pub(crate) fn listing(&self) -> Option<Listing> {
-        let index = self.examined()?;
+        let index = self.examined();
         let step = &self.steps[index];
 
         // `..` is not an entry in any directory listing, so name the location it moved to
@@ -504,10 +504,11 @@ impl Trace {
     /// point everything after it hangs off of.
     ///
     /// Returns None if steps is empty (when root)
-    fn examined(&self) -> Option<usize> {
+    fn examined(&self) -> usize {
         self.steps
             .iter()
             .rposition(|step| !matches!(step.contents, PhysicalNode::NotReached))
+            .expect("at least one node was visited")
     }
 
     /// Reports on the physical status of the input path
@@ -562,10 +563,10 @@ impl Trace {
         if self.steps.is_empty() {
             unreachable!("Steps are never empty")
         } else {
-            if self.steps.len() - 1 == self.examined().expect("not root") {
+            if self.steps.len() - 1 == self.examined() {
                 StopStatus::Final(&self.steps[self.steps.len() - 1])
             } else {
-                StopStatus::Early(&self.steps[self.examined().expect("not root")])
+                StopStatus::Early(&self.steps[self.examined()])
             }
         }
     }

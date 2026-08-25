@@ -292,7 +292,7 @@ mod tests {
         let trailing = join_unfolded(&link, &["eaten", ".."]);
         std::fs::create_dir_all(trailing.parent().unwrap()).unwrap();
 
-        let readlink = readlink(&can(dir), &abs(&trailing)).unwrap();
+        let (_, readlink) = readlink(&can(dir), &abs(&trailing)).unwrap();
 
         // Both name the same directory; `canonicalize` settles the `\\?\` prefix so neither
         // path holds a `..` that Windows would reject.

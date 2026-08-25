@@ -1171,15 +1171,31 @@ mod tests {
             .steps
             .iter()
             .find_map(|step| match &step.contents {
-                PhysicalNode::Symlink { target, .. } => Some(target.as_ref().unwrap()),
+                PhysicalNode::Symlink {
+                    target: Ok((_, abs)),
+                    ..
+                } => Some(abs.as_ref()),
                 _ => None,
             })
             .expect("the walk records the link as a symlink step");
 
         assert_eq!(
-            recorded.as_ref().canonicalize().unwrap(),
+            recorded.canonicalize().unwrap(),
             link.canonicalize().unwrap(),
         );
+
+        let last = trace.last_step();
+        match &last.contents {
+            PhysicalNode::ParentDir { to, .. } => assert_eq!(
+                to.as_ref().canonicalize().unwrap(),
+                target.canonicalize().unwrap(),
+                "the `..` folds onto the symlink target, not onto the link itself",
+            ),
+            other => panic!(
+                "expected the trailing `..` to fold to ParentDir, got {:?}",
+                other
+            ),
+        }
     }
 
     /// A directory that stops being one partway through a walk cannot be arranged on

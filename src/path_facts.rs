@@ -432,6 +432,43 @@ mod tests {
         std::fs::set_permissions(path, perms)
     }
 
+    // A `0o111` (search-only, no-read) parent directory: the walk can *search* through it to
+    // resolve `child.txt`, so the path reaches its final component, but the parent cannot be
+    // `read_dir`'d. That is a prior-path problem the trace cannot see (it records execute, not
+    // read), so it is dispatched on `state == ParentProblem` and rendered by climbing to a
+    // listable ancestor. Unix-only: search-without-read is a POSIX mode the Windows runner
+    // cannot reproduce.
+    #[test]
+    #[cfg(unix)]
+    fn test_prior_dir_problem_search_only_parent() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let dir = tempdir.path().canonicalize().unwrap();
+        let search_only = dir.join("search_only");
+        std::fs::create_dir(&search_only).unwrap();
+        let child = search_only.join("child.txt");
+        std::fs::write(&child, "").unwrap();
+
+        // execute (searchable) but not readable
+        set_mode(&search_only, 0o111).unwrap();
+
+        let output = PathFacts::new(&child)
+            .to_string()
+            .replace(&dir.display().to_string(), "/path/to/directory")
+            .replace('\\', "/")
+            + "🛑";
+
+        // Restore permissions so the tempdir can be cleaned up.
+        set_mode(&search_only, 0o755).unwrap();
+
+        insta::assert_snapshot!(output, @r"
+        exists `/path/to/directory/search_only/child.txt`
+         - Prior directory exists `/path/to/directory/search_only`
+            - `/path/to/directory`
+                └── `search_only` directory [❌ read, ❌ write, ✅ execute]
+        🛑
+        ");
+    }
+
     #[test]
     fn test_prior_dir_problem_is_file() {
         let tempdir = tempfile::tempdir().unwrap();
@@ -985,6 +1022,35 @@ mod tests {
         🛑
         "
         );
+    }
+
+    /// A symlink-to-directory ancestor whose target holds a file that blocks descent. The
+    /// prior stop is reported at its physical location under the resolved target (`.../real/a.txt`),
+    /// not under the link's own name, pinning that `step.at` is physical-through-parent and not a
+    /// lexical spelling of the input.
+    #[test]
+    fn test_prior_path_is_file_under_a_symlinked_directory() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let dir = tempdir.path().canonicalize().unwrap();
+        let real = dir.join("real");
+        std::fs::create_dir(&real).unwrap();
+        std::fs::write(real.join("a.txt"), "").unwrap();
+        symlink_dir(&real, dir.join("linkdir")).unwrap();
+
+        let path = dir.join("linkdir").join("a.txt").join("b").join("x");
+
+        insta::assert_snapshot!(
+            PathFacts::new(path)
+                .to_string()
+                .replace(&dir.display().to_string(), "/path/to/directory")
+                .replace('\\', "/") + "🛑",
+            @r"
+        does not exist `/path/to/directory/linkdir/a.txt/b/x`
+         - Prior path is not a directory `/path/to/directory/real/a.txt`
+            - `/path/to/directory/real`
+                └── `a.txt` file [✅ read, ✅ write, ❌ execute]
+        🛑
+        ")
     }
 
     #[test]

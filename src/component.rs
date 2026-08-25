@@ -3,7 +3,9 @@
 //! Useful for saying "the input to this function MUST be a normal component"
 
 use std::{
+    convert::TryFrom,
     ffi::{OsStr, OsString},
+    fs::DirEntry,
     path::Component,
 };
 
@@ -35,6 +37,24 @@ pub(crate) enum OwnedComponent {
     ParentDir(ParentDirComponent),
     Prefix(PrefixComponent),
     RootDir(RootDirComponent),
+}
+
+impl From<DirEntry> for NormalComponent {
+    fn from(value: DirEntry) -> Self {
+        NormalComponent(value.file_name())
+    }
+}
+
+impl TryFrom<OsString> for NormalComponent {
+    type Error = OsString;
+
+    fn try_from(value: OsString) -> Result<Self, Self::Error> {
+        let mut components = std::path::Path::new(&value).components();
+        match (components.next(), components.next()) {
+            (Some(Component::Normal(_)), None) => Ok(NormalComponent(value)),
+            _ => Err(value),
+        }
+    }
 }
 
 impl OwnedComponent {

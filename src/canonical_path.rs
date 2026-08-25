@@ -127,6 +127,13 @@ impl CanonicalPath {
         }
     }
 
+    pub(crate) fn normal_entries(&self) -> Result<Vec<NormalComponent>, std::io::Error> {
+        let entries: Vec<NormalComponent> = std::fs::read_dir(&self.0)?
+            .map(|entry| entry.map(Into::<NormalComponent>::into))
+            .collect::<Result<Vec<NormalComponent>, std::io::Error>>()?;
+        Ok(entries)
+    }
+
     /// Similar semantics to [`AbsPath::lex_parent`], but we guarantee return value
     /// exists and is normalized i.e. any CanonicalPath that is lexically equal is guaranteed
     /// to represent the same path on disk (TOCTOU caveat).

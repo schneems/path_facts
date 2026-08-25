@@ -139,7 +139,7 @@ pub(crate) enum PhysicalNode {
     /// Safe to apply lexically: a [`CanonicalPath`] holds no symlinks, and POSIX defines
     /// `..` on a symlink free path as removing the last component. Root is its own parent,
     /// matching `realpath` on `/..`.
-    Up {
+    ParentDir {
         #[allow(dead_code)]
         from: CanonicalPath,
         to: CanonicalPath,
@@ -183,7 +183,7 @@ impl PhysicalNode {
         match self {
             PhysicalNode::Directory(path) | PhysicalNode::File(path) => Some(Cow::Borrowed(path)),
             PhysicalNode::Symlink { resolved, .. } => resolved.as_ref().ok().map(Cow::Borrowed),
-            PhysicalNode::Up { to, .. } => Some(Cow::Borrowed(to)),
+            PhysicalNode::ParentDir { to, .. } => Some(Cow::Borrowed(to)),
             PhysicalNode::Missing(_)
             | PhysicalNode::Denied(_)
             | PhysicalNode::Raced { .. }
@@ -450,7 +450,7 @@ impl Trace {
 
         // `..` is not an entry in any directory listing, so name the location it moved to
         // rather than the two dots that were written.
-        if let PhysicalNode::Up { to, .. } = &step.contents {
+        if let PhysicalNode::ParentDir { to, .. } = &step.contents {
             return Some(Listing {
                 dir: to.parent()?,
                 entry: to.as_ref().file_name()?.to_os_string(),
@@ -529,7 +529,7 @@ impl Trace {
                 | PhysicalNode::Symlink {
                     resolved: Err(_), ..
                 } => StatusOnDisk::Unknown,
-                PhysicalNode::Up { .. } => unreachable!("cannot stop on `..` mid-path"),
+                PhysicalNode::ParentDir { .. } => unreachable!("cannot stop on `..` mid-path"),
                 PhysicalNode::Directory(_) => unreachable!("cannot stop on a directory"),
                 PhysicalNode::NotReached => unreachable!("stopped node must be reached"),
                 PhysicalNode::ParentNoExec { parent: _, entry } => {
@@ -544,7 +544,7 @@ impl Trace {
                 PhysicalNode::File(_)
                 | PhysicalNode::Directory(_)
                 | PhysicalNode::Symlink { .. }
-                | PhysicalNode::Up { .. } => StatusOnDisk::Exists,
+                | PhysicalNode::ParentDir { .. } => StatusOnDisk::Exists,
                 PhysicalNode::ParentNoExec { parent: _, entry } => {
                     if entry.is_some() {
                         StatusOnDisk::Exists
@@ -836,7 +836,7 @@ fn up(position: Reached, name: ParentDirComponent) -> (Step, Reached) {
                     input: None,
                     name: name.into(),
                     at: Some(AbsPath::from(to.clone())),
-                    contents: PhysicalNode::Up {
+                    contents: PhysicalNode::ParentDir {
                         from,
                         to: to.clone(),
                     },

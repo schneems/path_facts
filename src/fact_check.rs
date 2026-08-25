@@ -390,7 +390,7 @@ mod tests {
     /// would fold the `..` away at construction (see
     /// [`test_path_join_folds_parent_dir_only_on_a_verbatim_receiver`]), so `join_unfolded`
     /// builds the literal `..` component by hand. This is why resolution folds a trailing
-    /// `..` left to right through the walk (`PhysicalNode::Up`) rather than deferring to
+    /// `..` left to right through the walk (`PhysicalNode::ParentDir`) rather than deferring to
     /// `canonicalize`.
     #[cfg(windows)]
     #[test]

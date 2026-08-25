@@ -879,7 +879,7 @@ mod tests {
             .iter()
             .map(|name| Step {
                 input: None,
-                name: one(&name),
+                name: one(name),
                 at: None,
                 contents: PhysicalNode::NotReached,
             })

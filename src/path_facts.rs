@@ -929,6 +929,65 @@ mod tests {
     }
 
     #[test]
+    fn test_broken_symlink_prior_absolute() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let dir = tempdir.path().canonicalize().unwrap();
+        let broken_link = dir.join("broken_link");
+        let nonexistent = dir.join("does_not_exist");
+
+        // Create a symlink pointing to a non-existent target
+        symlink_file(&nonexistent, &broken_link).unwrap();
+
+        insta::assert_snapshot!(
+            PathFacts::new(broken_link.join("and").join("more.txt"))
+                .to_string()
+                .replace(r"\\?\", "")
+                .replace(&dir.display().to_string().replace(r"\\?\", ""), "/path/to/directory")
+                .replace(&std::fs::canonicalize(&broken_link).unwrap_err().to_string(), "{error}")
+                .replace('\\', "/") + "🛑",
+            @r"
+        `/path/to/directory/broken_link/and/more.txt`
+         - Prior directory exists `/path/to/directory/broken_link`
+            - Symlink target: `/path/to/directory/does_not_exist`
+            - Cannot canonicalize due to error `{error}`
+            - `/path/to/directory`
+                └── `broken_link` (exists)
+        🛑
+        "
+        );
+    }
+
+    #[test]
+    fn test_broken_symlink_prior_relative() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let dir = tempdir.path().canonicalize().unwrap();
+
+        std::env::set_current_dir(&dir).unwrap();
+        let broken_link = dir.join("broken_link");
+
+        // Create a symlink pointing to a non-existent target
+        symlink_file(Path::new("..").join("does_not_exist"), &broken_link).unwrap();
+
+        insta::assert_snapshot!(
+            PathFacts::new(broken_link.join("and").join("more.txt"))
+                .to_string()
+                .replace(r"\\?\", "")
+                .replace(&dir.display().to_string().replace(r"\\?\", ""), "/path/to/directory")
+                .replace(&std::fs::canonicalize(&broken_link).unwrap_err().to_string(), "{error}")
+                .replace('\\', "/") + "🛑",
+            @r"
+        `/path/to/directory/broken_link/and/more.txt`
+         - Prior directory exists `/path/to/directory/broken_link`
+            - Symlink target: `/path/to/directory/../does_not_exist`
+            - Cannot canonicalize due to error `{error}`
+            - `/path/to/directory`
+                └── `broken_link` (exists)
+        🛑
+        "
+        );
+    }
+
+    #[test]
     fn test_cannot_canonicalize_broken_symlink_relative() {
         let tempdir = tempfile::tempdir().unwrap();
         let dir = tempdir.path().canonicalize().unwrap();

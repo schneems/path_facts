@@ -423,12 +423,12 @@ impl Trace {
     /// observation explains all of them.
     #[cfg(test)]
     pub(crate) fn stopped_early_at(&self) -> Option<&Step> {
-        let index = self.examined();
-        let step = &self.steps[index];
+        let cursor = StepCursor::last_reached(&self.steps);
+        let step = cursor.current();
 
         // Arriving at a file, a link, or an absence is an answer when the path ends there,
         // and a dead end when more components follow.
-        let stopped = index + 1 != self.steps.len() || step.contents.resolved_to().is_none();
+        let stopped = cursor.after().is_some() || step.contents.resolved_to().is_none();
         stopped.then_some(step)
     }
 
@@ -445,8 +445,8 @@ impl Trace {
     ///
     /// `None` only when the path resolves to a root, which sits in nothing.
     pub(crate) fn listing(&self) -> Option<Listing> {
-        let index = self.examined();
-        let step = &self.steps[index];
+        let cursor = StepCursor::last_reached(&self.steps);
+        let step = cursor.current();
 
         // `..` is not an entry in any directory listing, so name the location it moved to
         // rather than the two dots that were written.
@@ -457,12 +457,14 @@ impl Trace {
             });
         }
 
-        let dir = match index.checked_sub(1) {
+        // The `..` case returned above, so this step came from `enter`, which produces a
+        // reached step only from a resolved directory. That directory is the step before it.
+        let dir = match cursor.before() {
             None => self.root.clone(),
-            Some(previous) => self.steps[previous]
+            Some(previous) => previous
                 .contents
                 .resolved_to()
-                .expect("the walk only examines a component from a directory it resolved")
+                .expect("enter reaches a step only from a resolved directory")
                 .into_owned(),
         };
 
@@ -496,19 +498,6 @@ impl Trace {
     /// and end up with two paths that could differ.
     pub(crate) fn absolute(&self) -> &AbsPath {
         &self.absolute
-    }
-
-    /// Index of the last component the filesystem was actually asked about
-    ///
-    /// Once the walk leaves a resolved directory it never returns to one, so this is the
-    /// point everything after it hangs off of.
-    ///
-    /// Returns None if steps is empty (when root)
-    fn examined(&self) -> usize {
-        self.steps
-            .iter()
-            .rposition(|step| !matches!(step.contents, PhysicalNode::NotReached))
-            .expect("at least one node was visited")
     }
 
     /// Reports on the physical status of the input path
@@ -560,15 +549,45 @@ impl Trace {
     }
 
     pub(crate) fn stop_status(&self) -> StopStatus<'_> {
-        if self.steps.is_empty() {
-            unreachable!("Steps are never empty")
+        let cursor = StepCursor::last_reached(&self.steps);
+        let step = cursor.current();
+
+        if cursor.after().is_none() {
+            StopStatus::Final(step)
         } else {
-            if self.steps.len() - 1 == self.examined() {
-                StopStatus::Final(&self.steps[self.steps.len() - 1])
-            } else {
-                StopStatus::Early(&self.steps[self.examined()])
-            }
+            StopStatus::Early(step)
         }
+    }
+}
+
+/// A pointer to a specific step, allows us to inspect up or down
+struct StepCursor<'a> {
+    steps: &'a [Step],
+    index: usize,
+}
+
+impl<'a> StepCursor<'a> {
+    /// Builds a cursor pointing at the last component we walked on the file system
+    fn last_reached(steps: &'a [Step]) -> Self {
+        let index = steps
+            .iter()
+            .rposition(|step| !matches!(step.contents, PhysicalNode::NotReached))
+            .expect("at least one node was visited");
+
+        StepCursor { steps, index }
+    }
+
+    /// Step we are pointing at
+    fn current(&self) -> &'a Step {
+        &self.steps[self.index]
+    }
+
+    fn before(&self) -> Option<&'a Step> {
+        self.index.checked_sub(1).map(|i| &self.steps[i])
+    }
+
+    fn after(&self) -> Option<&'a Step> {
+        self.steps.get(self.index + 1)
     }
 }
 

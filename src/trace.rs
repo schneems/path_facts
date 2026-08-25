@@ -517,7 +517,6 @@ impl Trace {
     /// - Unknown: Problems prevent us from conclusively saying if the path is exists or not
     pub(crate) fn status_on_disk(&self) -> StatusOnDisk {
         match self.stop_status() {
-            StopStatus::Root => StatusOnDisk::Exists,
             StopStatus::Early(step) => match &step.contents {
                 PhysicalNode::File(_)
                 | PhysicalNode::Missing(_)
@@ -561,7 +560,7 @@ impl Trace {
 
     pub(crate) fn stop_status(&self) -> StopStatus<'_> {
         if self.steps.is_empty() {
-            StopStatus::Root
+            unreachable!("Steps are never empty")
         } else {
             if self.steps.len() - 1 == self.examined().expect("not root") {
                 StopStatus::Final(&self.steps[self.steps.len() - 1])
@@ -574,7 +573,6 @@ impl Trace {
 
 #[derive(Debug)]
 pub(crate) enum StopStatus<'a> {
-    Root,
     /// Stopped before last step
     Early(&'a Step),
     /// Traced to completion (may still have errors in last step)

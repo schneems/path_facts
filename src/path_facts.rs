@@ -157,7 +157,6 @@ impl PathFacts {
             Ok(_trace) => {
                 //
             }
-
             Err(CannotTrace::IsRoot(_)) => {}
             Err(CannotTrace::Anchor(AbsPathError::PathIsEmpty(_))) => {}
             Err(CannotTrace::Anchor(AbsPathError::CannotReadCWD(_, error))) => {

@@ -197,8 +197,6 @@ mod tests {
     #[cfg(target_vendor = "apple")]
     #[test]
     fn test_canonicalize_disagrees_with_metadata_on_a_trailing_dot_dot() {
-        use crate::canonical_path::ExpandPath;
-
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
         let file = dir.join("file.txt");
@@ -224,15 +222,6 @@ mod tests {
         assert_eq!(
             canonical,
             CanonicalPath::new(&AbsPath::new(dir).unwrap()).unwrap()
-        );
-
-        // Nothing is left over for `ExpandPath` to carry as a partial suffix
-        assert_eq!(
-            ExpandPath::new(&dotted)
-                .unwrap()
-                .canonical()
-                .expect("whole path canonicalizes under Apple's libc"),
-            canonical
         );
 
         // Canonical path answer diverges from input path

@@ -76,11 +76,20 @@ impl PathFacts {
                 {
                     // TODO print resolution
                     match target {
-                        Ok((_, target)) => writeln!(
-                            f,
-                            "{}",
-                            style::bullet(format!("Symlink target: {}", target))
-                        )?,
+                        Ok((real, absolute)) => {
+                            writeln!(
+                                f,
+                                "{}",
+                                style::bullet(format!("Symlink → `{}`", real.display()))
+                            )?;
+                            if absolute.as_ref() != real {
+                                writeln!(
+                                    f,
+                                    "{}",
+                                    style::bullet(format!("Absolute → {}", absolute))
+                                )?;
+                            }
+                        }
                         Err(error) => writeln!(
                             f,
                             "{}",
@@ -885,7 +894,7 @@ mod tests {
                 .replace('\\', "/") + "🛑",
             @r"
         exists `/path/to/directory/link1`
-         - Symlink target: `/path/to/directory/link2`
+         - Symlink → `/path/to/directory/link2`
          - Cannot canonicalize due to error `{error}`
          - `/path/to/directory`
              ├── `link1` (exists)
@@ -917,7 +926,8 @@ mod tests {
                 .replace('\\', "/") + "🛑",
             @r"
         exists `link1` → `/path/to/directory/link1`
-         - Symlink target: `/path/to/directory/link2`
+         - Symlink → `link2`
+         - Absolute → `/path/to/directory/link2`
          - Cannot canonicalize due to error `{error}`
          - `/path/to/directory`
              ├── `link1` (exists)
@@ -948,7 +958,7 @@ mod tests {
                 .replace('\\', "/") + "🛑",
             @r"
         exists `/path/to/directory/broken_link`
-         - Symlink target: `/path/to/directory/does_not_exist`
+         - Symlink → `/path/to/directory/does_not_exist`
          - Cannot canonicalize due to error `{error}`
          - `/path/to/directory`
              └── `broken_link` (exists)
@@ -977,7 +987,7 @@ mod tests {
             @r"
         `/path/to/directory/broken_link/and/more.txt`
          - Prior directory exists `/path/to/directory/broken_link`
-            - Symlink target: `/path/to/directory/does_not_exist`
+            - Symlink → `/path/to/directory/does_not_exist`
             - Cannot canonicalize due to error `{error}`
             - `/path/to/directory`
                 └── `broken_link` (exists)
@@ -1007,7 +1017,8 @@ mod tests {
             @r"
         `/path/to/directory/broken_link/and/more.txt`
          - Prior directory exists `/path/to/directory/broken_link`
-            - Symlink target: `/path/to/directory/../does_not_exist`
+            - Symlink → `../does_not_exist`
+            - Absolute → `/path/to/directory/../does_not_exist`
             - Cannot canonicalize due to error `{error}`
             - `/path/to/directory`
                 └── `broken_link` (exists)
@@ -1068,7 +1079,8 @@ mod tests {
                 .replace('\\', "/") + "🛑",
             @r"
         exists `broken_link` → `/path/to/directory/broken_link`
-         - Symlink target: `/path/to/directory/does_not_exist`
+         - Symlink → `does_not_exist`
+         - Absolute → `/path/to/directory/does_not_exist`
          - Cannot canonicalize due to error `{error}`
          - `/path/to/directory`
              └── `broken_link` (exists)

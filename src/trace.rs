@@ -327,22 +327,13 @@ impl Trace {
             })
         })?;
 
-        if absolute
-            .as_ref()
-            .components()
-            .all(|component| matches!(component, Component::Prefix(_) | Component::RootDir))
-        {
-            return Err(CannotTrace::IsRoot(root));
-        }
-
         let mut position = Reached::Dir(root.clone());
         let mut steps = Vec::new();
 
         for component in absolute.as_ref().components() {
             let (step, next) = match component::owned(component) {
-                // // Already where the walk starts, and `components` only ever yields these at
-                // // the front of an absolute path.
-                // Component::Prefix(_) | Component::RootDir => continue,
+                // Already where the walk starts, and `components` only ever yields these at
+                // the front of an absolute path.
                 OwnedComponent::Prefix(_) | OwnedComponent::RootDir(_) => continue,
                 // `components` normally drops `.`, but it keeps them behind a verbatim
                 // prefix (`\\?\`), which is what Windows canonicalization hands back. So
@@ -362,6 +353,10 @@ impl Trace {
 
             steps.push(step);
             position = next;
+        }
+
+        if steps.is_empty() {
+            return Err(CannotTrace::IsRoot(root));
         }
 
         attribute(&mut steps, input);
@@ -1514,6 +1509,56 @@ mod tests {
         let trace = walk(join_unfolded(&top, &[".."]));
         assert_eq!(trace.physical_location().unwrap().as_ref(), root_of(&dir));
         assert!(trace.listing().is_none());
+    }
+
+    /// On Unix `components()` strips every `.`, so a path that is lexically nothing but root
+    /// and dots reduces to `[RootDir]` and is caught by `IsRoot` before the walk. This is why
+    /// the zero-step case never arises here, and it documents the boundary the Windows
+    /// verbatim case crosses.
+    #[cfg(unix)]
+    #[test]
+    fn test_root_with_only_dot_components_is_caught_as_is_root() {
+        for input in ["/.", "//", "/./.", "/././"] {
+            let result = Trace::new(Path::new(input));
+            assert!(
+                matches!(result, Err(CannotTrace::IsRoot(_))),
+                "expected {:?} to be IsRoot, got {:?}",
+                input,
+                result,
+            );
+        }
+    }
+
+    /// `std::fs::canonicalize` hands back a verbatim (`\\?\`) path, and `components()` does
+    /// not normalize `.` behind a verbatim prefix, so `\\?\C:\.` keeps a `CurDir`. The walk
+    /// skips `CurDir` the same as `RootDir`, but the `IsRoot` guard only rejects
+    /// `Prefix | RootDir`, so this path slips through and produces zero steps. Every accessor
+    /// then panics on `steps.last().expect("Steps is never empty")` (and the `last_reached`
+    /// expect behind `status_on_disk`/`listing`/`stop_status`), which `PathFacts::new` reaches
+    /// straight from caller input.
+    #[cfg(windows)]
+    #[test]
+    fn test_verbatim_root_with_a_dot_does_not_produce_a_zero_step_trace() {
+        let verbatim_root = root_of(&std::env::current_dir().unwrap().canonicalize().unwrap());
+        let dotted = verbatim_root.join(".");
+        assert!(
+            dotted.components().any(|c| matches!(c, Component::CurDir)),
+            "expected the verbatim `.` to survive in {:?}, got {:?}",
+            dotted,
+            dotted.components().collect::<Vec<_>>(),
+        );
+
+        match Trace::new(&dotted) {
+            // Lexically nothing but a root, so it must be rejected exactly like `\\?\C:\`
+            Err(CannotTrace::IsRoot(_)) => {}
+            // Any other `Ok` must still honor the invariant every accessor depends on
+            Ok(trace) => assert!(
+                !trace.steps.is_empty(),
+                "Trace::new returned Ok with zero steps for {:?}",
+                dotted,
+            ),
+            other => panic!("unexpected result for {:?}: {:?}", dotted, other),
+        }
     }
 
     /// Nothing was prepended, so every step points back at the component it came from.

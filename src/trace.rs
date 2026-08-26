@@ -391,6 +391,42 @@ impl Trace {
         self.steps.last().expect("Steps is never empty")
     }
 
+    /// The step where the walk caught a contradiction, if it caught one
+    ///
+    /// A [`PhysicalNode::Raced`] leaves the walk `Lost`, so it is the deepest component
+    /// reached and there is at most one: nothing below a race is examined. It is not always
+    /// [`Trace::last_step`] though. A race before the final component leaves the steps after
+    /// it [`PhysicalNode::NotReached`], so testing the last step alone would miss it, which is
+    /// why this scans.
+    ///
+    /// `None` does not promise the walk saw a consistent filesystem, only that it caught no
+    /// self-contradiction. Most changes underneath a walk are invisible to it (see
+    /// [`PhysicalNode::Raced`]).
+    #[allow(dead_code)]
+    pub(crate) fn raced(&self) -> Option<&Step> {
+        self.steps
+            .iter()
+            .find(|step| matches!(step.contents, PhysicalNode::Raced { .. }))
+    }
+
+    /// Rewrites the stopped step's outcome as a [`PhysicalNode::Raced`], for tests
+    ///
+    /// A race is two syscalls a moment apart disagreeing, and the walk only ever sees one by
+    /// losing a bet with the scheduler, so it cannot be arranged on demand (the
+    /// `no_longer_a_directory` tests cover the judgement that names one, not the timing).
+    /// This puts a known race into an otherwise real trace so detecting and displaying one
+    /// can be tested without winning that bet.
+    ///
+    /// The race is written where a real one lands: the deepest step reached, leaving any
+    /// component after it [`PhysicalNode::NotReached`] and every other field as the walk
+    /// recorded it. Walk a path that stops early (a file mid-path) to place the race before
+    /// the final component.
+    #[cfg(test)]
+    pub(crate) fn append_race(&mut self, why: &'static str, error: std::io::Error) {
+        let index = StepCursor::last_reached(&self.steps).index;
+        self.steps[index].contents = PhysicalNode::Raced { why, error };
+    }
+
     /// The step the walk could not continue past
     ///
     /// `None` exactly when every component resolved, which is when `Trace::physical_location`
@@ -1644,5 +1680,68 @@ mod tests {
             steps.iter().map(|step| step.input).collect::<Vec<_>>(),
             vec![None, None, Some(1)]
         );
+    }
+
+    /// A walk that resolved cleanly caught no contradiction, so there is no race to report.
+    #[test]
+    fn test_raced_is_none_when_the_walk_did_not_race() {
+        let (_temp, dir) = tempdir();
+        let path = dir.join("a").join("b");
+        std::fs::create_dir_all(&path).unwrap();
+
+        assert!(walk(&path).raced().is_none());
+    }
+
+    /// A real race cannot be timed on demand, so `inject_race` writes a known one into an
+    /// otherwise real trace. `raced` reports it, and it reads as `Unknown` on disk exactly as a
+    /// real race does.
+    #[test]
+    fn test_inject_race_is_detected_and_reads_as_unknown() {
+        let (_temp, dir) = tempdir();
+        let path = dir.join("a").join("b");
+        std::fs::create_dir_all(&path).unwrap();
+
+        let mut trace = walk(&path);
+        assert!(trace.raced().is_none());
+
+        trace.append_race("two calls disagreed", std::io::Error::other("boom"));
+
+        let raced = trace.raced().expect("the injected race is detected");
+        match &raced.contents {
+            PhysicalNode::Raced { why, error } => {
+                assert_eq!(*why, "two calls disagreed");
+                assert_eq!(error.to_string(), "boom");
+            }
+            other => panic!("expected Raced got {:?}", other),
+        }
+        assert!(matches!(trace.status_on_disk(), StatusOnDisk::Unknown));
+    }
+
+    /// A race before the final component leaves the steps after it `NotReached`, so it is not
+    /// `last_step`. `raced` scans rather than trusting the last step, which is what lets a
+    /// mid-path race still be reported.
+    #[test]
+    fn test_raced_finds_a_mid_path_race_that_last_step_would_miss() {
+        let (_temp, dir) = tempdir();
+        std::fs::write(dir.join("f"), "").unwrap();
+
+        // `<dir>/f/c` stops at the file `f`, leaving `c` unreached
+        let mut trace = walk(dir.join("f").join("c"));
+        assert!(matches!(
+            trace.last_step().contents,
+            PhysicalNode::NotReached
+        ));
+
+        trace.append_race("two calls disagreed", std::io::Error::other("boom"));
+
+        // The race lands on the stopped step, and the last step is still `NotReached`: a
+        // check against `last_step` alone would report no race.
+        assert!(matches!(
+            trace.last_step().contents,
+            PhysicalNode::NotReached
+        ));
+        let raced = trace.raced().expect("the mid-path race is detected");
+        assert!(matches!(raced.contents, PhysicalNode::Raced { .. }));
+        assert_eq!(raced.at.as_ref().unwrap().as_ref(), dir.join("f"));
     }
 }

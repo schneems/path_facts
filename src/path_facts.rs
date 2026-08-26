@@ -69,27 +69,22 @@ impl PathFacts {
                     crate::trace::StatusOnDisk::Unknown => writeln!(f, "{expanded}")?,
                 }
 
-                let read = self.path.access(AccessMode::READ).is_ok();
-                let write = self.path.access(AccessMode::WRITE).is_ok();
-                let execute = self.path.access(AccessMode::EXECUTE).is_ok();
+                // let read = self.path.access(AccessMode::READ).is_ok();
+                // let write = self.path.access(AccessMode::WRITE).is_ok();
+                // let execute = self.path.access(AccessMode::EXECUTE).is_ok();
+                if let Some(PhysicalNode::Raced { why, error }) =
+                    trace.raced().map(|step| &step.contents)
+                {
+                    writeln!(
+                        f,
+                        "{}",
+                        style::bullet(format!("Race condition \"{why}\"  {error}"))
+                    )?;
+                }
 
                 match &trace.last_step().contents {
-                    PhysicalNode::Directory(_) => {
-                        // let space_permissions = if read && write && execute {
-                        //     "".to_string()
-                        // } else {
-                        //     style::space_permissions(read, write, execute)
-                        // };
-                        // writeln!(
-                        //     f,
-                        //     "{}",
-                        //     style::bullet(format!("Directory{space_permissions}"))
-                        // )?;
-                    }
-                    PhysicalNode::File(_) => {
-                        // let permissions = style::permissions(read, write, execute);
-                        // writeln!(f, "{}", style::bullet(format!("File {permissions}")))?;
-                    }
+                    PhysicalNode::Directory(_) => {}
+                    PhysicalNode::File(_) => {}
                     PhysicalNode::Symlink { target, resolved } => {
                         // Symlink target
                         match target {
@@ -132,49 +127,43 @@ impl PathFacts {
                                 )?;
                             }
                             (Err(_), _) => {
-                                // Already printed error above
+                                // Already printed target error above
                             }
                         }
                     }
                     PhysicalNode::Missing(_) => {
                         // Show in parent facts
-                        // writeln!(f, "{}", style::bullet(format!("Missing: {}", error)))?;
                     }
-                    PhysicalNode::ParentNoExec { .. } => {
+                    PhysicalNode::ParentNoExec {
+                        parent: _,
+                        entry: _,
+                    } => {
+                        if let Err(error) = std::fs::canonicalize(&self.path) {
+                            writeln!(
+                                f,
+                                "{}",
+                                style::bullet(format!("Cannot canonicalize due to error: {error}"))
+                            )?;
+                        }
                         // Show in parent facts
                     }
                     PhysicalNode::Denied(_) => {
                         // Show in parent facts
                     }
-                    PhysicalNode::ParentDir { .. } => {}
+                    PhysicalNode::ParentDir {
+                        folded: _,
+                        resolved: _,
+                    } => {
+                        // writeln!(f, "{}", style::bullet(format!("Canonical {}", resolved)))?;
+                    }
                     PhysicalNode::Raced { why, error } => {
                         writeln!(
                             f,
                             "{}",
-                            style::bullet(format!("Race condition detected: {why}: {error}"))
+                            style::bullet(format!("Data race error: {error}\n{why}."))
                         )?;
                     }
                     PhysicalNode::NotReached => {}
-                }
-
-                // The path exists in its parent but does not fully resolve. A broken or
-                // circular link already carries its resolution error; a listable-but-
-                // unsearchable parent stopped the walk before canonicalizing, so ask now.
-                // `state` reports both as `CannotCanonicalize`.
-                let cannot_canonicalize = match &trace.last_step().contents {
-                    PhysicalNode::ParentNoExec { entry: Some(_), .. } => {
-                        std::fs::canonicalize(trace.absolute().as_ref())
-                            .err()
-                            .map(|error| error.to_string())
-                    }
-                    _ => None,
-                };
-                if let Some(error) = cannot_canonicalize {
-                    writeln!(
-                        f,
-                        "{}",
-                        style::bullet(format!("Cannot canonicalize due to error: {error}"))
-                    )?;
                 }
             }
             Err(CannotTrace::Anchor(AbsPathError::PathIsEmpty(path))) => {
@@ -1259,5 +1248,42 @@ mod tests {
         🛑
         "
         );
+    }
+
+    /// A race caught on the final component. The walk resolved every step, then a re-check
+    /// contradicted what it had just seen. Rendering names the race and still lists the parent,
+    /// so the reader sees the entry that was there a moment ago. A real race cannot be timed on
+    /// demand, so `Trace::inject_race` writes a known one into an otherwise real trace.
+    #[test]
+    fn test_renders_a_raced_final_component() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let dir = tempdir.path().canonicalize().unwrap();
+        let path = dir.join("a").join("b");
+        std::fs::create_dir_all(&path).unwrap();
+
+        let mut trace = Trace::new(&path).unwrap();
+        trace.append_race(
+            "realpath resolved this link, stat on what it resolved to failed",
+            std::fs::metadata(&dir.join("does_not_exist")).unwrap_err(),
+        );
+
+        let output = PathFacts {
+            path: path.clone(),
+            trace: Ok(trace),
+        }
+        .to_string()
+        .replace(&dir.display().to_string(), "/path/to/directory")
+        .replace('\\', "/")
+            + "🛑";
+
+        insta::assert_snapshot!(output, @r#"
+        `/path/to/directory/a/b`
+         - Race condition "realpath resolved this link, stat on what it resolved to failed"  No such file or directory (os error 2)
+         - Data race error: No such file or directory (os error 2)
+           realpath resolved this link, stat on what it resolved to failed.
+         - `/path/to/directory/a`
+             └── `b` (exists)
+        🛑
+        "#);
     }
 }

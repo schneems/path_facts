@@ -127,6 +127,7 @@ impl CanonicalPath {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn normal_entries(&self) -> Result<Vec<NormalComponent>, std::io::Error> {
         let entries: Vec<NormalComponent> = std::fs::read_dir(&self.0)?
             .map(|entry| entry.map(Into::<NormalComponent>::into))

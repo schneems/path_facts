@@ -138,6 +138,8 @@ impl AbsPath {
     /// between. This is the opposite of the trailing `..` case above: `std` normalizes a
     /// trailing `.` and lands on the physical parent, and leaves a trailing `..` alone and
     /// does not.
+    ///
+    #[allow(dead_code)]
     pub(crate) fn lex_parent(&self) -> Option<Self> {
         let parent = self.0.parent()?;
 

@@ -1221,8 +1221,8 @@ mod tests {
 
         let last = trace.last_step();
         match &last.contents {
-            PhysicalNode::ParentDir { to, .. } => assert_eq!(
-                to.as_ref().canonicalize().unwrap(),
+            PhysicalNode::ParentDir { resolved, .. } => assert_eq!(
+                resolved.as_ref().canonicalize().unwrap(),
                 target.canonicalize().unwrap(),
                 "the `..` folds onto the symlink target, not onto the link itself",
             ),

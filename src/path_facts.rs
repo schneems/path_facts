@@ -309,7 +309,6 @@ impl PathFacts {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::abs_path::AbsPath;
     use crate::join_unfolded;
 
     #[cfg(unix)]

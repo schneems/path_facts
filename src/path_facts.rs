@@ -69,51 +69,92 @@ impl PathFacts {
                     crate::trace::StatusOnDisk::Unknown => writeln!(f, "{expanded}")?,
                 }
 
-                if let PhysicalNode::Symlink { target, resolved } = &trace.last_step().contents {
-                    // TODO print resolution
-                    match target {
-                        Ok((real, absolute)) => {
-                            writeln!(
-                                f,
-                                "{}",
-                                style::bullet(format!("Symlink → `{}`", real.display()))
-                            )?;
-                            if absolute.as_ref() != real {
-                                writeln!(
-                                    f,
-                                    "{}",
-                                    style::bullet(format!("Absolute → {}", absolute))
-                                )?;
-                            }
-                        }
-                        Err(error) => writeln!(
-                            f,
-                            "{}",
-                            style::bullet(format!("Symlink readlink error ({})", error))
-                        )?,
-                    };
+                let read = self.path.access(AccessMode::READ).is_ok();
+                let write = self.path.access(AccessMode::WRITE).is_ok();
+                let execute = self.path.access(AccessMode::EXECUTE).is_ok();
 
-                    match (target, resolved) {
-                        (Ok((_, absolute)), Ok(resolved)) => {
-                            if absolute.as_ref() != resolved.as_ref() {
+                match &trace.last_step().contents {
+                    PhysicalNode::Directory(_) => {
+                        // let space_permissions = if read && write && execute {
+                        //     "".to_string()
+                        // } else {
+                        //     style::space_permissions(read, write, execute)
+                        // };
+                        // writeln!(
+                        //     f,
+                        //     "{}",
+                        //     style::bullet(format!("Directory{space_permissions}"))
+                        // )?;
+                    }
+                    PhysicalNode::File(_) => {
+                        // let permissions = style::permissions(read, write, execute);
+                        // writeln!(f, "{}", style::bullet(format!("File {permissions}")))?;
+                    }
+                    PhysicalNode::Symlink { target, resolved } => {
+                        // Symlink target
+                        match target {
+                            Ok((real, absolute)) => {
                                 writeln!(
                                     f,
                                     "{}",
-                                    style::bullet(format!("Canonical {}", resolved))
+                                    style::bullet(format!("Symlink → `{}`", real.display()))
                                 )?;
+                                if absolute.as_ref() != real {
+                                    writeln!(
+                                        f,
+                                        "{}",
+                                        style::bullet(format!("Absolute → {}", absolute))
+                                    )?;
+                                }
                             }
-                        }
-                        (Ok(_), Err(error)) => {
-                            writeln!(
+                            Err(error) => writeln!(
                                 f,
                                 "{}",
-                                style::bullet(format!("Cannot resolve target ({})", error))
-                            )?;
-                        }
-                        (Err(_), _) => {
-                            // Already printed error above
+                                style::bullet(format!("Cannot readlink: {}", error))
+                            )?,
+                        };
+                        // Symlink resolved
+                        match (target, resolved) {
+                            (Ok((_, absolute)), Ok(resolved)) => {
+                                if absolute.as_ref() != resolved.as_ref() {
+                                    writeln!(
+                                        f,
+                                        "{}",
+                                        style::bullet(format!("Canonical {}", resolved))
+                                    )?;
+                                }
+                            }
+                            (Ok(_), Err(error)) => {
+                                writeln!(
+                                    f,
+                                    "{}",
+                                    style::bullet(format!("Cannot resolve target: {}", error))
+                                )?;
+                            }
+                            (Err(_), _) => {
+                                // Already printed error above
+                            }
                         }
                     }
+                    PhysicalNode::Missing(_) => {
+                        // Show in parent facts
+                        // writeln!(f, "{}", style::bullet(format!("Missing: {}", error)))?;
+                    }
+                    PhysicalNode::ParentNoExec { .. } => {
+                        // Show in parent facts
+                    }
+                    PhysicalNode::Denied(_) => {
+                        // Show in parent facts
+                    }
+                    PhysicalNode::ParentDir { .. } => {}
+                    PhysicalNode::Raced { why, error } => {
+                        writeln!(
+                            f,
+                            "{}",
+                            style::bullet(format!("Race condition detected: {why}: {error}"))
+                        )?;
+                    }
+                    PhysicalNode::NotReached => {}
                 }
 
                 // The path exists in its parent but does not fully resolve. A broken or
@@ -132,7 +173,7 @@ impl PathFacts {
                     writeln!(
                         f,
                         "{}",
-                        style::bullet(format!("Cannot canonicalize due to error ({error})"))
+                        style::bullet(format!("Cannot canonicalize due to error: {error}"))
                     )?;
                 }
             }
@@ -909,7 +950,7 @@ mod tests {
             @r"
         exists `/path/to/directory/link1`
          - Symlink → `/path/to/directory/link2`
-         - Cannot resolve target ({error})
+         - Cannot resolve target: {error}
          - `/path/to/directory`
              ├── `link1` (exists)
              └── `link2`
@@ -942,7 +983,7 @@ mod tests {
         exists `link1` → `/path/to/directory/link1`
          - Symlink → `link2`
          - Absolute → `/path/to/directory/link2`
-         - Cannot resolve target ({error})
+         - Cannot resolve target: {error}
          - `/path/to/directory`
              ├── `link1` (exists)
              └── `link2`
@@ -973,7 +1014,7 @@ mod tests {
             @r"
         exists `/path/to/directory/broken_link`
          - Symlink → `/path/to/directory/does_not_exist`
-         - Cannot resolve target ({error})
+         - Cannot resolve target: {error}
          - `/path/to/directory`
              └── `broken_link` (exists)
         🛑
@@ -1002,7 +1043,7 @@ mod tests {
         `/path/to/directory/broken_link/and/more.txt`
          - Prior directory exists `/path/to/directory/broken_link`
             - Symlink → `/path/to/directory/does_not_exist`
-            - Cannot resolve target ({error})
+            - Cannot resolve target: {error}
             - `/path/to/directory`
                 └── `broken_link` (exists)
         🛑
@@ -1033,7 +1074,7 @@ mod tests {
          - Prior directory exists `/path/to/directory/broken_link`
             - Symlink → `../does_not_exist`
             - Absolute → `/path/to/directory/../does_not_exist`
-            - Cannot resolve target ({error})
+            - Cannot resolve target: {error}
             - `/path/to/directory`
                 └── `broken_link` (exists)
         🛑
@@ -1095,7 +1136,7 @@ mod tests {
         exists `broken_link` → `/path/to/directory/broken_link`
          - Symlink → `does_not_exist`
          - Absolute → `/path/to/directory/does_not_exist`
-         - Cannot resolve target ({error})
+         - Cannot resolve target: {error}
          - `/path/to/directory`
              └── `broken_link` (exists)
         🛑
@@ -1138,7 +1179,7 @@ mod tests {
                 .replace(&std::fs::canonicalize(&file).unwrap_err().to_string(), "{error}") + "🛑",
             @r"
         exists `/path/to/directory/no_exec_dir/file.txt`
-         - Cannot canonicalize due to error ({error})
+         - Cannot canonicalize due to error: {error}
          - `/path/to/directory/no_exec_dir` [✅ read, ✅ write, ❌ execute]
              └── `file.txt` (exists)
         🛑
@@ -1181,7 +1222,7 @@ mod tests {
             output,
             @r"
         exists `/path/to/directory/no_write_dir/file.txt`
-         - Cannot canonicalize due to error ({error})
+         - Cannot canonicalize due to error: {error}
          - Parent directory is missing write permissions (cannot create, delete, or modify files)
          - `/path/to/directory/no_write_dir` [✅ read, ❌ write, ❌ execute]
              └── `file.txt` (exists)

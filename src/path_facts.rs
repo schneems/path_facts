@@ -1,7 +1,7 @@
 //! Facts about paths
 use crate::abs_path::{AbsPath, AbsPathError, RelativePath};
 use crate::canonical_path::CannotCanonicalizeAnything;
-use crate::happy_path::{DirOk};
+use crate::happy_path::DirOk;
 use crate::resolved_metadata::ResolvedMetadata;
 use crate::style::{self, permissions};
 use crate::trace::{CannotTrace, PhysicalNode, Trace};
@@ -98,11 +98,11 @@ impl PathFacts {
                         resolved: Err(error),
                         ..
                     } => Some(error.to_string()),
-                    PhysicalNode::ParentNoExec {
-                        entry: Some(_), ..
-                    } => std::fs::canonicalize(trace.absolute().as_ref())
-                        .err()
-                        .map(|error| error.to_string()),
+                    PhysicalNode::ParentNoExec { entry: Some(_), .. } => {
+                        std::fs::canonicalize(trace.absolute().as_ref())
+                            .err()
+                            .map(|error| error.to_string())
+                    }
                     _ => None,
                 };
                 if let Some(error) = cannot_canonicalize {
@@ -115,12 +115,10 @@ impl PathFacts {
             }
             Err(CannotTrace::Anchor(AbsPathError::PathIsEmpty(path))) => {
                 writeln!(f, "path `{}` is empty", path.display())?;
-                return Ok(());
             }
             Err(CannotTrace::Anchor(AbsPathError::CannotReadCWD(path, _))) => {
                 writeln!(f, "`{}`", path.display())?;
                 // parent states cannot read CWD
-                return Ok(());
             }
             Err(CannotTrace::IsRoot(root)) => {
                 if self.path == root.as_ref() {
@@ -128,8 +126,6 @@ impl PathFacts {
                 } else {
                     writeln!(f, "is root `{path}` → {root}", path = self.path.display())?;
                 }
-
-                return Ok(());
             }
             Err(CannotTrace::RootNotReachable(CannotCanonicalizeAnything { original, .. })) => {
                 writeln!(f, "`{}`", self.path.display())?;
@@ -137,7 +133,6 @@ impl PathFacts {
                     writeln!(f, "{}", style::bullet(format!("Absolute: {original}",)))?;
                 };
                 // Error is in root, show message in the parent facts
-                return Ok(());
             }
         }
 
@@ -183,7 +178,6 @@ impl PathFacts {
                         PathFacts::new(prior_dir.as_ref()).write_facts(&mut prior)?;
                         writeln!(f, "{}", style::bullet(format!("Prior directory {prior}")))?;
                     }
-                    return Ok(());
                 } else if let Some(listing) = trace.listing() {
                     // The final component resolved by *searching* through its parent. Build the
                     // parent's listing (the one `read_dir` the walk never made): failure means the
@@ -198,7 +192,6 @@ impl PathFacts {
                             let mut prior = String::new();
                             PathFacts::new(parent_path.as_ref()).write_facts(&mut prior)?;
                             writeln!(f, "{}", style::bullet(format!("Prior directory {prior}")))?;
-                            return Ok(());
                         }
                         // Parent is readable. Happy iff the final component resolved to a location
                         // whose metadata we can still read; otherwise render the unresolved cases
@@ -211,67 +204,73 @@ impl PathFacts {
                                 &RelativePath::new(listing.entry.as_ref())
                                     .expect("a directory entry name is a relative path"),
                             );
-                            if let Some(resolved) = trace.last_step().contents.resolved_to() {
-                                let resolved_path: &Path =
-                                    AsRef::<Path>::as_ref(resolved.as_ref());
-                                if let Ok(resolved_type) =
-                                    ResolvedMetadata::new(resolved_path).map(|m| m.resolved_type())
-                                {
-                                    let read = resolved_path.access(AccessMode::READ).is_ok();
-                                    let write = resolved_path.access(AccessMode::WRITE).is_ok();
-                                    let execute = resolved_path.access(AccessMode::EXECUTE).is_ok();
-                                    writeln!(
-                                        f,
-                                        "{}",
-                                        style::bullet(style::fmt_dir(&parent, |e| {
-                                            if e == &entry {
-                                                Some(format!(
-                                                    "{resolved_type} {}",
-                                                    permissions(read, write, execute)
-                                                ))
-                                            } else {
-                                                None
-                                            }
-                                        }))
-                                    )?;
-                                    return Ok(());
-                                }
-                            }
-
-                            // The final component did not fully resolve: missing, a broken or
-                            // circular symlink, or an unsearchable parent. `state` returns
-                            // DoesNotExist / CannotCanonicalize / CannotMetadata for these.
-                            if !parent.write {
-                                writeln!(
-                                    f,
-                                    "{}",
-                                    style::bullet("Parent directory is missing write permissions (cannot create, delete, or modify files)")
-                                )?;
-                            }
-                            if parent.has_entry(&entry) {
+                            // Happy iff the final component resolved to a location whose metadata
+                            // we can still read; `None` means it did not fully resolve.
+                            let resolved =
+                                trace
+                                    .last_step()
+                                    .contents
+                                    .resolved_to()
+                                    .and_then(|resolved| {
+                                        let resolved_path =
+                                            AsRef::<Path>::as_ref(resolved.as_ref()).to_path_buf();
+                                        ResolvedMetadata::new(&resolved_path)
+                                            .map(|m| (resolved_path, m.resolved_type()))
+                                            .ok()
+                                    });
+                            if let Some((resolved_path, resolved_type)) = resolved {
+                                let read = resolved_path.access(AccessMode::READ).is_ok();
+                                let write = resolved_path.access(AccessMode::WRITE).is_ok();
+                                let execute = resolved_path.access(AccessMode::EXECUTE).is_ok();
                                 writeln!(
                                     f,
                                     "{}",
                                     style::bullet(style::fmt_dir(&parent, |e| {
                                         if e == &entry {
-                                            Some("(exists)".to_string())
+                                            Some(format!(
+                                                "{resolved_type} {}",
+                                                permissions(read, write, execute)
+                                            ))
                                         } else {
                                             None
                                         }
                                     }))
                                 )?;
                             } else {
-                                writeln!(
-                                    f,
-                                    "{}",
-                                    style::bullet(format!(
-                                        "Missing `{filename}` from parent directory:\n{dir}",
-                                        filename = style::filename_or_path(&self.path),
-                                        dir = style::fmt_dir(&parent, |_| None)
-                                    ))
-                                )?;
+                                // The final component did not fully resolve: missing, a broken or
+                                // circular symlink, or an unsearchable parent. `state` returns
+                                // DoesNotExist / CannotCanonicalize / CannotMetadata for these.
+                                if !parent.write {
+                                    writeln!(
+                                        f,
+                                        "{}",
+                                        style::bullet("Parent directory is missing write permissions (cannot create, delete, or modify files)")
+                                    )?;
+                                }
+                                if parent.has_entry(&entry) {
+                                    writeln!(
+                                        f,
+                                        "{}",
+                                        style::bullet(style::fmt_dir(&parent, |e| {
+                                            if e == &entry {
+                                                Some("(exists)".to_string())
+                                            } else {
+                                                None
+                                            }
+                                        }))
+                                    )?;
+                                } else {
+                                    writeln!(
+                                        f,
+                                        "{}",
+                                        style::bullet(format!(
+                                            "Missing `{filename}` from parent directory:\n{dir}",
+                                            filename = style::filename_or_path(&self.path),
+                                            dir = style::fmt_dir(&parent, |_| None)
+                                        ))
+                                    )?;
+                                }
                             }
-                            return Ok(());
                         }
                     }
                 }
@@ -284,7 +283,6 @@ impl PathFacts {
                     "{}",
                     style::bullet(format!("Cannot read current working directory: {}", error))
                 )?;
-                return Ok(());
             }
             Err(CannotTrace::RootNotReachable(CannotCanonicalizeAnything {
                 original: _,
@@ -298,7 +296,6 @@ impl PathFacts {
                         "Cannot canonicalize root {root} due to error: {root_error}"
                     ))
                 )?;
-                return Ok(());
             }
         }
 

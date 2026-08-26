@@ -3,9 +3,9 @@
 //! in this library.
 #[cfg(test)]
 mod tests {
-    use crate::{abs_path::AbsPath, canonical_path::CanonicalPath};
     #[cfg(unix)]
     use crate::happy_path::DirOk;
+    use crate::{abs_path::AbsPath, canonical_path::CanonicalPath};
     use std::path::{Component, Path};
 
     #[cfg(unix)]

@@ -92,6 +92,28 @@ impl PathFacts {
                             style::bullet(format!("Symlink readlink error ({})", error))
                         )?,
                     };
+
+                    match (target, resolved) {
+                        (Ok((_, absolute)), Ok(resolved)) => {
+                            if absolute.as_ref() != resolved.as_ref() {
+                                writeln!(
+                                    f,
+                                    "{}",
+                                    style::bullet(format!("Canonical {}", resolved))
+                                )?;
+                            }
+                        }
+                        (Ok(_), Err(error)) => {
+                            writeln!(
+                                f,
+                                "{}",
+                                style::bullet(format!("Cannot resolve target ({})", error))
+                            )?;
+                        }
+                        (Err(_), _) => {
+                            // Already printed error above
+                        }
+                    }
                 }
 
                 // The path exists in its parent but does not fully resolve. A broken or
@@ -99,10 +121,6 @@ impl PathFacts {
                 // unsearchable parent stopped the walk before canonicalizing, so ask now.
                 // `state` reports both as `CannotCanonicalize`.
                 let cannot_canonicalize = match &trace.last_step().contents {
-                    PhysicalNode::Symlink {
-                        resolved: Err(error),
-                        ..
-                    } => Some(error.to_string()),
                     PhysicalNode::ParentNoExec { entry: Some(_), .. } => {
                         std::fs::canonicalize(trace.absolute().as_ref())
                             .err()
@@ -891,7 +909,7 @@ mod tests {
             @r"
         exists `/path/to/directory/link1`
          - Symlink → `/path/to/directory/link2`
-         - Cannot canonicalize due to error ({error})
+         - Cannot resolve target ({error})
          - `/path/to/directory`
              ├── `link1` (exists)
              └── `link2`
@@ -924,7 +942,7 @@ mod tests {
         exists `link1` → `/path/to/directory/link1`
          - Symlink → `link2`
          - Absolute → `/path/to/directory/link2`
-         - Cannot canonicalize due to error ({error})
+         - Cannot resolve target ({error})
          - `/path/to/directory`
              ├── `link1` (exists)
              └── `link2`
@@ -955,7 +973,7 @@ mod tests {
             @r"
         exists `/path/to/directory/broken_link`
          - Symlink → `/path/to/directory/does_not_exist`
-         - Cannot canonicalize due to error ({error})
+         - Cannot resolve target ({error})
          - `/path/to/directory`
              └── `broken_link` (exists)
         🛑
@@ -984,7 +1002,7 @@ mod tests {
         `/path/to/directory/broken_link/and/more.txt`
          - Prior directory exists `/path/to/directory/broken_link`
             - Symlink → `/path/to/directory/does_not_exist`
-            - Cannot canonicalize due to error ({error})
+            - Cannot resolve target ({error})
             - `/path/to/directory`
                 └── `broken_link` (exists)
         🛑
@@ -1015,7 +1033,7 @@ mod tests {
          - Prior directory exists `/path/to/directory/broken_link`
             - Symlink → `../does_not_exist`
             - Absolute → `/path/to/directory/../does_not_exist`
-            - Cannot canonicalize due to error ({error})
+            - Cannot resolve target ({error})
             - `/path/to/directory`
                 └── `broken_link` (exists)
         🛑
@@ -1077,7 +1095,7 @@ mod tests {
         exists `broken_link` → `/path/to/directory/broken_link`
          - Symlink → `does_not_exist`
          - Absolute → `/path/to/directory/does_not_exist`
-         - Cannot canonicalize due to error ({error})
+         - Cannot resolve target ({error})
          - `/path/to/directory`
              └── `broken_link` (exists)
         🛑

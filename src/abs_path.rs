@@ -6,7 +6,7 @@
 //! lead to the root path. The parent of an absolute path is also an absolute path [`AbsPath::lex_parent`].
 //!
 //! If the held path is a readable directory, all children are also absolute paths [`AbsPath::read_dir`].
-use crate::canonical_path::CanonicalPath;
+use crate::{canonical_path::CanonicalPath, component::NormalComponent};
 use std::{
     fmt::{Display, Formatter},
     path::{Component, Path, PathBuf},
@@ -65,6 +65,10 @@ impl AbsPath {
     ///
     /// Errors if path is not a directory or is not readable
     pub fn join_relative(&self, path: &RelativePath) -> AbsPath {
+        AbsPath(self.as_ref().join(path.as_ref()))
+    }
+
+    pub fn join_normal(&self, path: &NormalComponent) -> AbsPath {
         AbsPath(self.as_ref().join(path.as_ref()))
     }
 

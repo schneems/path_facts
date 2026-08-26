@@ -1,5 +1,5 @@
 //! Facts about paths
-use crate::abs_path::{AbsPath, AbsPathError, RelativePath};
+use crate::abs_path::{AbsPath, AbsPathError};
 use crate::canonical_path::CannotCanonicalizeAnything;
 use crate::happy_path::DirOk;
 use crate::resolved_metadata::ResolvedMetadata;
@@ -142,133 +142,141 @@ impl PathFacts {
     fn fmt_parent_facts(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
         match self.trace.as_ref() {
             Ok(trace) => {
-                // Shape 1: an ancestor blocked descent to the final component. `prior_stop`
-                // names that ancestor; its `at` is always `Some` for an early stop (every
-                // blocker is observed from a resolved directory).
-                if let Some(step) = trace.prior_stop() {
-                    let prior_dir = step
-                        .at
-                        .as_ref()
-                        .expect("an early stop names a physical location");
+                match &trace.stop_status() {
+                    crate::trace::StopStatus::Early(step) => {
+                        let Some(prior_dir) = step.at.as_ref() else {
+                            return writeln!(f, "internal error, expected step in trace to have physical location but it did not.\nStep: {step:?}\nTrace: {trace:?}");
+                        };
 
-                    // Only a file ancestor is called out as "not a directory". Every other
-                    // blocker is rendered as a prior directory.
-                    if matches!(step.contents, PhysicalNode::File(_)) {
-                        writeln!(
-                            f,
-                            "{}",
-                            style::bullet(format!("Prior path is not a directory {prior_dir}"))
-                        )?;
-
-                        // We've already stated the prior path (and that it's a file) above, so
-                        // emit only its parent directory listing here. Using `write_facts` would
-                        // repeat the redundant `exists ...` individual-fact line.
-                        let mut parent_facts = String::new();
-                        PathFacts::new(prior_dir.as_ref()).fmt_parent_facts(&mut parent_facts)?;
-                        // Use `write!` because `parent_facts` already has a newline at the end.
-                        write!(
-                            f,
-                            "{}",
-                            style::prefix_first_rest_lines("   ", "   ", &parent_facts)
-                        )?;
-                    } else {
-                        // The prior path hasn't been described yet, so emit its full facts
-                        // (individual + parent), e.g. `does not exist ...` plus the dir listing.
-                        let mut prior = String::new();
-                        PathFacts::new(prior_dir.as_ref()).write_facts(&mut prior)?;
-                        writeln!(f, "{}", style::bullet(format!("Prior directory {prior}")))?;
-                    }
-                } else if let Some(listing) = trace.listing() {
-                    // The final component resolved by *searching* through its parent. Build the
-                    // parent's listing (the one `read_dir` the walk never made): failure means the
-                    // parent is searchable but not readable (shape 2); success gives the directory
-                    // listing the happy render needs. `listing().dir` is the resolved parent,
-                    // exactly what `state`'s `DirOk::new` calls `read_dir` on.
-                    let parent_path = AbsPath::from(listing.dir);
-                    match DirOk::new(parent_path.clone()) {
-                        // Shape 2: searchable, not readable (`0o111`). `state` returns
-                        // `ParentProblem` for this same failed `read_dir`.
-                        Err(_) => {
-                            let mut prior = String::new();
-                            PathFacts::new(parent_path.as_ref()).write_facts(&mut prior)?;
-                            writeln!(f, "{}", style::bullet(format!("Prior directory {prior}")))?;
-                        }
-                        // Parent is readable. Happy iff the final component resolved to a location
-                        // whose metadata we can still read; otherwise render the unresolved cases
-                        // (DoesNotExist / CannotCanonicalize / CannotMetadata).
-                        Ok(parent) => {
-                            // The entry to annotate as it appears in `parent`'s listing, shared by
-                            // the happy render and the unresolved fall-through. Canonical-prefixed
-                            // (from `listing.dir`), matching `parent.entries` from `read_dir`.
-                            let entry = parent_path.join_relative(
-                                &RelativePath::new(listing.entry.as_ref())
-                                    .expect("a directory entry name is a relative path"),
-                            );
-                            // Happy iff the final component resolved to a location whose metadata
-                            // we can still read; `None` means it did not fully resolve.
-                            let resolved =
-                                trace
-                                    .last_step()
-                                    .contents
-                                    .resolved_to()
-                                    .and_then(|resolved| {
-                                        let resolved_path =
-                                            AsRef::<Path>::as_ref(resolved.as_ref()).to_path_buf();
-                                        ResolvedMetadata::new(&resolved_path)
-                                            .map(|m| (resolved_path, m.resolved_type()))
-                                            .ok()
-                                    });
-                            if let Some((resolved_path, resolved_type)) = resolved {
-                                let read = resolved_path.access(AccessMode::READ).is_ok();
-                                let write = resolved_path.access(AccessMode::WRITE).is_ok();
-                                let execute = resolved_path.access(AccessMode::EXECUTE).is_ok();
+                        match &step.contents {
+                            PhysicalNode::File(_) => {
                                 writeln!(
                                     f,
                                     "{}",
-                                    style::bullet(style::fmt_dir(&parent, |e| {
-                                        if e == &entry {
-                                            Some(format!(
-                                                "{resolved_type} {}",
-                                                permissions(read, write, execute)
-                                            ))
-                                        } else {
-                                            None
-                                        }
-                                    }))
+                                    style::bullet(format!(
+                                        "Prior path is not a directory {prior_dir}"
+                                    ))
                                 )?;
-                            } else {
-                                // The final component did not fully resolve: missing, a broken or
-                                // circular symlink, or an unsearchable parent. `state` returns
-                                // DoesNotExist / CannotCanonicalize / CannotMetadata for these.
-                                if !parent.write {
+
+                                // We've already stated the prior path (and that it's a file) above, so
+                                // emit only its parent directory listing here. Using `write_facts` would
+                                // repeat the redundant `exists ...` individual-fact line.
+                                let mut parent_facts = String::new();
+                                PathFacts::new(prior_dir.as_ref())
+                                    .fmt_parent_facts(&mut parent_facts)?;
+                                // Use `write!` because `parent_facts` already has a newline at the end.
+                                write!(
+                                    f,
+                                    "{}",
+                                    style::prefix_first_rest_lines("   ", "   ", &parent_facts)
+                                )?;
+                            }
+                            _ => {
+                                // The prior path hasn't been described yet, so emit its full facts
+                                // (individual + parent), e.g. `does not exist ...` plus the dir listing.
+                                let mut prior = String::new();
+                                PathFacts::new(prior_dir.as_ref()).write_facts(&mut prior)?;
+                                writeln!(
+                                    f,
+                                    "{}",
+                                    style::bullet(format!("Prior directory {prior}"))
+                                )?;
+                            }
+                        }
+                    }
+                    crate::trace::StopStatus::Final(step) => {
+                        if let Some(listing) = trace.listing() {
+                            // The final component resolved by *searching* through its parent. Build the
+                            // parent's listing (the one `read_dir` the walk never made): failure means the
+                            // parent is searchable but not readable (shape 2); success gives the directory
+                            // listing the happy render needs. `listing().dir` is the resolved parent,
+                            // exactly what `state`'s `DirOk::new` calls `read_dir` on.
+                            let parent_path = AbsPath::from(listing.dir);
+                            match DirOk::new(parent_path.clone()) {
+                                // Shape 2: searchable, not readable (`0o111`). `state` returns
+                                // `ParentProblem` for this same failed `read_dir`.
+                                Err(_) => {
+                                    let mut prior = String::new();
+                                    PathFacts::new(parent_path.as_ref()).write_facts(&mut prior)?;
                                     writeln!(
                                         f,
                                         "{}",
-                                        style::bullet("Parent directory is missing write permissions (cannot create, delete, or modify files)")
+                                        style::bullet(format!("Prior directory {prior}"))
                                     )?;
                                 }
-                                if parent.has_entry(&entry) {
-                                    writeln!(
-                                        f,
-                                        "{}",
-                                        style::bullet(style::fmt_dir(&parent, |e| {
-                                            if e == &entry {
-                                                Some("(exists)".to_string())
-                                            } else {
-                                                None
-                                            }
-                                        }))
-                                    )?;
-                                } else {
-                                    writeln!(
-                                        f,
-                                        "{}",
-                                        style::bullet(format!(
-                                            "Missing `{filename}` from parent directory:\n{dir}",
-                                            filename = style::filename_or_path(&self.path),
-                                            dir = style::fmt_dir(&parent, |_| None)
-                                        ))
-                                    )?;
+                                // Parent is readable. Happy iff the final component resolved to a location
+                                // whose metadata we can still read; otherwise render the unresolved cases
+                                // (DoesNotExist / CannotCanonicalize / CannotMetadata).
+                                Ok(parent) => {
+                                    // The entry to annotate as it appears in `parent`'s listing, shared by
+                                    // the happy render and the unresolved fall-through. Canonical-prefixed
+                                    // (from `listing.dir`), matching `parent.entries` from `read_dir`.
+                                    let entry = parent_path.join_normal(&listing.entry);
+                                    // Happy iff the final component resolved to a location whose metadata
+                                    // we can still read; `None` means it did not fully resolve.
+                                    let resolved =
+                                        step.contents.resolved_to().and_then(|resolved| {
+                                            let resolved_path =
+                                                AsRef::<Path>::as_ref(resolved.as_ref())
+                                                    .to_path_buf();
+                                            ResolvedMetadata::new(&resolved_path)
+                                                .map(|m| (resolved_path, m.resolved_type()))
+                                                .ok()
+                                        });
+                                    if let Some((resolved_path, resolved_type)) = resolved {
+                                        let read = resolved_path.access(AccessMode::READ).is_ok();
+                                        let write = resolved_path.access(AccessMode::WRITE).is_ok();
+                                        let execute =
+                                            resolved_path.access(AccessMode::EXECUTE).is_ok();
+                                        writeln!(
+                                            f,
+                                            "{}",
+                                            style::bullet(style::fmt_dir(&parent, |e| {
+                                                if e == &entry {
+                                                    Some(format!(
+                                                        "{resolved_type} {}",
+                                                        permissions(read, write, execute)
+                                                    ))
+                                                } else {
+                                                    None
+                                                }
+                                            }))
+                                        )?;
+                                    } else {
+                                        // The final component did not fully resolve: missing, a broken or
+                                        // circular symlink, or an unsearchable parent. `state` returns
+                                        // DoesNotExist / CannotCanonicalize / CannotMetadata for these.
+                                        if !parent.write {
+                                            writeln!(
+                                            f,
+                                            "{}",
+                                            style::bullet("Parent directory is missing write permissions (cannot create, delete, or modify files)")
+                                        )?;
+                                        }
+                                        if parent.has_entry(&entry) {
+                                            writeln!(
+                                                f,
+                                                "{}",
+                                                style::bullet(style::fmt_dir(&parent, |e| {
+                                                    if e == &entry {
+                                                        Some("(exists)".to_string())
+                                                    } else {
+                                                        None
+                                                    }
+                                                }))
+                                            )?;
+                                        } else {
+                                            writeln!(
+                                            f,
+                                            "{}",
+                                            style::bullet(format!(
+                                                "Missing `{filename}` from parent directory:\n{dir}",
+                                                filename = style::filename_or_path(&self.path),
+                                                dir = style::fmt_dir(&parent, |_| None)
+                                            ))
+                                        )?;
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1009,7 +1017,7 @@ mod tests {
     }
 
     /// A symlink-to-directory ancestor whose target holds a file that blocks descent. The
-    /// prior stop is reported at its physical location under the resolved target (`.../real/a.txt`),
+    /// early stop is reported at its physical location under the resolved target (`.../real/a.txt`),
     /// not under the link's own name, pinning that `step.at` is physical-through-parent and not a
     /// lexical spelling of the input.
     #[test]

@@ -535,22 +535,6 @@ impl Trace {
             StopStatus::Early(step)
         }
     }
-
-    /// The component the walk stopped at before reaching the final one, if any
-    ///
-    /// `Some(step)` exactly when [`Trace::stop_status`] is `Early`: an ancestor (a file, a
-    /// missing name, a denial, an unsearchable directory, or a broken symlink) blocked descent
-    /// to the final component. [`Step::at`] names that ancestor's physical location and
-    /// [`Step::contents`] says what was found there.
-    ///
-    /// `None` when the walk reached its final component, even when that final component is itself
-    /// a problem. That is the path's own facts, not a prior ancestor's.
-    pub(crate) fn prior_stop(&self) -> Option<&Step> {
-        match self.stop_status() {
-            StopStatus::Early(step) => Some(step),
-            StopStatus::Final(_) => None,
-        }
-    }
 }
 
 /// A pointer to a specific step, allows us to inspect up or down
@@ -1350,47 +1334,48 @@ mod tests {
         assert_eq!(listing(&trace), (dir, norm("f")));
     }
 
-    /// An ancestor that blocks descent is a prior stop, and it carries the physical location
-    /// and the node the walk found there.
+    /// An ancestor that blocks descent stops the walk early, and that step carries the physical
+    /// location and the node the walk found there.
     #[test]
-    fn test_prior_stop_names_the_file_ancestor_that_blocked_descent() {
+    fn test_early_stop_names_the_file_ancestor_that_blocked_descent() {
         let (_temp, dir) = tempdir();
         std::fs::write(dir.join("f"), "").unwrap();
 
         let trace = walk(dir.join("f").join("c"));
-        let step = trace
-            .prior_stop()
-            .expect("the file below the final component is a prior stop");
+        let StopStatus::Early(step) = trace.stop_status() else {
+            panic!("expected the file below the final component to stop the walk early");
+        };
         assert_eq!(step.at.as_ref().unwrap().as_ref(), dir.join("f"));
         assert!(matches!(step.contents, PhysicalNode::File(_)));
     }
 
     /// A missing name below the final component blocks descent the same way a file does.
     #[test]
-    fn test_prior_stop_names_a_missing_ancestor() {
+    fn test_early_stop_names_a_missing_ancestor() {
         let (_temp, dir) = tempdir();
         std::fs::create_dir(dir.join("a")).unwrap();
         let b = dir.join("a").join("b");
 
         let trace = walk(b.join("c"));
-        let step = trace
-            .prior_stop()
-            .expect("the missing name below the final component is a prior stop");
+
+        let StopStatus::Early(step) = trace.stop_status() else {
+            panic!("expected the missing name below the final component to stop the walk early");
+        };
         assert_eq!(step.at.as_ref().unwrap().as_ref(), b);
         assert!(matches!(step.contents, PhysicalNode::Missing(_)));
     }
 
     #[cfg(unix)]
     #[test]
-    fn test_prior_stop_names_a_broken_symlink_ancestor() {
+    fn test_early_stop_names_a_broken_symlink_ancestor() {
         let (_temp, dir) = tempdir();
         let link = dir.join("dangling");
         std::os::unix::fs::symlink(dir.join("missing"), &link).unwrap();
 
         let trace = walk(link.join("c"));
-        let step = trace
-            .prior_stop()
-            .expect("the broken symlink below the final component is a prior stop");
+        let StopStatus::Early(step) = trace.stop_status() else {
+            panic!("expected the broken symlink below the final component to stop the walk early");
+        };
         assert_eq!(step.at.as_ref().unwrap().as_ref(), link);
         match &step.contents {
             PhysicalNode::Symlink { resolved, .. } => assert!(resolved.is_err()),
@@ -1398,26 +1383,29 @@ mod tests {
         }
     }
 
-    /// A path that resolves all the way to its final component never stopped early, so there
-    /// is no prior ancestor to report.
+    /// A path that resolves all the way to its final component never stopped early, so the
+    /// stop is `Final`.
     #[test]
-    fn test_prior_stop_is_none_when_the_path_resolves() {
+    fn test_stop_is_final_when_the_path_resolves() {
         let (_temp, dir) = tempdir();
         let path = dir.join("a").join("b");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "").unwrap();
 
-        assert!(walk(&path).prior_stop().is_none());
+        assert!(matches!(walk(&path).stop_status(), StopStatus::Final(_)));
     }
 
     /// The final component being the problem is the path's own facts, not a prior ancestor's,
-    /// so `prior_stop` stays `None`.
+    /// so the stop is `Final`, not `Early`.
     #[test]
-    fn test_prior_stop_is_none_when_only_the_final_component_is_missing() {
+    fn test_stop_is_final_when_only_the_final_component_is_missing() {
         let (_temp, dir) = tempdir();
         std::fs::create_dir(dir.join("a")).unwrap();
 
-        assert!(walk(dir.join("a").join("missing")).prior_stop().is_none());
+        assert!(matches!(
+            walk(dir.join("a").join("missing")).stop_status(),
+            StopStatus::Final(_)
+        ));
     }
 
     /// Normalize to linux behavior. Apple's `realpath` answers `<dir>` here, but

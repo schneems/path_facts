@@ -118,7 +118,7 @@ impl PathFacts {
                     writeln!(
                         f,
                         "{}",
-                        style::bullet(format!("Cannot canonicalize due to error `{error}`"))
+                        style::bullet(format!("Cannot canonicalize due to error ({error})"))
                     )?;
                 }
             }
@@ -310,7 +310,7 @@ impl PathFacts {
                     f,
                     "{}",
                     style::bullet(format!(
-                        "Cannot canonicalize root {root} due to error: {root_error}"
+                        "Cannot canonicalize root {root} due to error ({root_error})"
                     ))
                 )?;
             }
@@ -895,7 +895,7 @@ mod tests {
             @r"
         exists `/path/to/directory/link1`
          - Symlink → `/path/to/directory/link2`
-         - Cannot canonicalize due to error `{error}`
+         - Cannot canonicalize due to error ({error})
          - `/path/to/directory`
              ├── `link1` (exists)
              └── `link2`
@@ -928,7 +928,7 @@ mod tests {
         exists `link1` → `/path/to/directory/link1`
          - Symlink → `link2`
          - Absolute → `/path/to/directory/link2`
-         - Cannot canonicalize due to error `{error}`
+         - Cannot canonicalize due to error ({error})
          - `/path/to/directory`
              ├── `link1` (exists)
              └── `link2`
@@ -959,7 +959,7 @@ mod tests {
             @r"
         exists `/path/to/directory/broken_link`
          - Symlink → `/path/to/directory/does_not_exist`
-         - Cannot canonicalize due to error `{error}`
+         - Cannot canonicalize due to error ({error})
          - `/path/to/directory`
              └── `broken_link` (exists)
         🛑
@@ -988,7 +988,7 @@ mod tests {
         `/path/to/directory/broken_link/and/more.txt`
          - Prior directory exists `/path/to/directory/broken_link`
             - Symlink → `/path/to/directory/does_not_exist`
-            - Cannot canonicalize due to error `{error}`
+            - Cannot canonicalize due to error ({error})
             - `/path/to/directory`
                 └── `broken_link` (exists)
         🛑
@@ -1019,7 +1019,7 @@ mod tests {
          - Prior directory exists `/path/to/directory/broken_link`
             - Symlink → `../does_not_exist`
             - Absolute → `/path/to/directory/../does_not_exist`
-            - Cannot canonicalize due to error `{error}`
+            - Cannot canonicalize due to error ({error})
             - `/path/to/directory`
                 └── `broken_link` (exists)
         🛑
@@ -1081,7 +1081,7 @@ mod tests {
         exists `broken_link` → `/path/to/directory/broken_link`
          - Symlink → `does_not_exist`
          - Absolute → `/path/to/directory/does_not_exist`
-         - Cannot canonicalize due to error `{error}`
+         - Cannot canonicalize due to error ({error})
          - `/path/to/directory`
              └── `broken_link` (exists)
         🛑
@@ -1124,7 +1124,7 @@ mod tests {
                 .replace(&std::fs::canonicalize(&file).unwrap_err().to_string(), "{error}") + "🛑",
             @r"
         exists `/path/to/directory/no_exec_dir/file.txt`
-         - Cannot canonicalize due to error `{error}`
+         - Cannot canonicalize due to error ({error})
          - `/path/to/directory/no_exec_dir` [✅ read, ✅ write, ❌ execute]
              └── `file.txt` (exists)
         🛑
@@ -1167,7 +1167,7 @@ mod tests {
             output,
             @r"
         exists `/path/to/directory/no_write_dir/file.txt`
-         - Cannot canonicalize due to error `{error}`
+         - Cannot canonicalize due to error ({error})
          - Parent directory is missing write permissions (cannot create, delete, or modify files)
          - `/path/to/directory/no_write_dir` [✅ read, ❌ write, ❌ execute]
              └── `file.txt` (exists)
@@ -1200,7 +1200,7 @@ mod tests {
             output,
             @r"
         `/pretend/root/does/not/exist/somehow`
-         - Cannot canonicalize root `/` due to error: simulated error
+         - Cannot canonicalize root `/` due to error (simulated error)
         🛑
         "
         );

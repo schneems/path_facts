@@ -69,11 +69,7 @@ impl PathFacts {
                     crate::trace::StatusOnDisk::Unknown => writeln!(f, "{expanded}")?,
                 }
 
-                if let PhysicalNode::Symlink {
-                    target,
-                    resolved: _,
-                } = &trace.last_step().contents
-                {
+                if let PhysicalNode::Symlink { target, resolved } = &trace.last_step().contents {
                     // TODO print resolution
                     match target {
                         Ok((real, absolute)) => {
@@ -704,7 +700,7 @@ mod tests {
             output,
             @r"
         exists `/path/to/link/link_to_target.txt` → `/path/to/target/target.txt`
-         - Symlink target: `/path/to/target/target.txt`
+         - Symlink → `/path/to/target/target.txt`
          - `/path/to/link`
              └── `link_to_target.txt` file [✅ read, ✅ write, ❌ execute]
         🛑
@@ -748,7 +744,7 @@ mod tests {
             output,
             @r"
         exists `/path/to/link/link_to_dir` → `/path/to/target/target_dir`
-         - Symlink target: `/path/to/target/target_dir`
+         - Symlink → `/path/to/target/target_dir`
          - `/path/to/link`
              └── `link_to_dir` directory [✅ read, ✅ write, ✅ execute]
         🛑

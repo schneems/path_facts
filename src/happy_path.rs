@@ -1,6 +1,6 @@
 //! Representations of paths with no problems
 //!
-//! Holds [`KnownPath`] and [`DirOk`]
+//! Holds [`DirOk`]
 use crate::{abs_path::AbsPath, canonical_path::CanonicalPath};
 use faccess::{AccessMode, PathExt};
 

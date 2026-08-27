@@ -69,6 +69,7 @@ use crate::canonical_path::{CannotCanonicalizeAnything, CanonicalPath, Entry};
 use crate::component::{self, NormalComponent, OwnedComponent, ParentDirComponent};
 use faccess::{AccessMode, PathExt};
 use std::borrow::Cow;
+use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
 
 /// What a single `lstat` reported at one component
@@ -121,12 +122,37 @@ pub(crate) enum PhysicalNode {
         parent: CanonicalPath,
         /// Some if the directory has the entry, otherwise None
         entry: Option<NormalComponent>,
+        /// What the lstat on the full path returned, which is the refusal that sent the walk
+        /// looking at the directory's permissions in the first place
+        #[allow(dead_code)]
+        error: std::io::Error,
     },
 
     /// Cannot tell missing from directory from symlink here
     ///
-    /// A denial proves nothing either way, so naming stops.
-    Denied(#[allow(dead_code)] std::io::Error),
+    /// [`CanonicalPath::entry`] (lstat on the path) failed in a way that fits nothing else,
+    /// leaving no reading of the name. The error is from the lstat.
+    ///
+    /// We know it is not:
+    ///
+    /// - [`PhysicalNode::ParentNoExec`] - The path's directory is missing execute (denies
+    ///   access/traversal) but can still be listed.
+    /// - [`PhysicalNode::Raced`] - A second lstat of the directory finds it gone or not a
+    ///   directory.
+    /// - [`PhysicalNode::Missing`] - All of:
+    ///   - The lstat on the full path WAS [`ErrorKind::NotFound`]
+    ///   - The race check lstat of the directory either saw a directory, or errored with
+    ///     something that was NOT [`ErrorKind::NotFound`]
+    ///
+    /// Any other errors/problems land here. Not an exhaustive set, since a filesystem driver
+    /// can fail in ways this crate cannot enumerate, but the ones seen so far:
+    ///
+    /// - A directory denying both search and listing, which is a refusal about the directory
+    ///   rather than about the name
+    /// - A component longer than the filesystem accepts
+    /// - Failing hardware, or a stale handle on a network mount
+    /// - A directory swapped mid-walk in a way the race check could not see
+    UnknownLookup(#[allow(dead_code)] std::io::Error),
 
     /// `..` moved from one resolved directory to another
     ///
@@ -173,18 +199,18 @@ pub(crate) enum PhysicalNode {
 impl PhysicalNode {
     /// The physical location this component resolved to
     ///
-    /// `None` for every observation that is not a place: an absence, a denial, a link that
-    /// goes nowhere, a contradiction, and a component the walk never got to.
+    /// `None` for every observation that is not a place: an absence, a lookup that failed, a
+    /// link that goes nowhere, a contradiction, and a component the walk never got to.
     pub(crate) fn resolved_to(&self) -> Option<Cow<'_, CanonicalPath>> {
         match self {
             PhysicalNode::Directory(path) | PhysicalNode::File(path) => Some(Cow::Borrowed(path)),
             PhysicalNode::Symlink { resolved, .. } => resolved.as_ref().ok().map(Cow::Borrowed),
             PhysicalNode::ParentDir { resolved, .. } => Some(Cow::Borrowed(resolved)),
             PhysicalNode::Missing(_)
-            | PhysicalNode::Denied(_)
+            | PhysicalNode::UnknownLookup(_)
             | PhysicalNode::Raced { .. }
             | PhysicalNode::NotReached => None,
-            PhysicalNode::ParentNoExec { parent, entry } => entry
+            PhysicalNode::ParentNoExec { parent, entry, .. } => entry
                 .as_ref()
                 .map(|entry| unsafe { Cow::Owned(parent.unchecked_join(entry)) }),
         }
@@ -240,8 +266,8 @@ pub(crate) struct Step {
     /// link's target, and `..` names the directory it moved to.
     ///
     /// `None` once naming stops, which happens two ways. A `..` that cannot be folded
-    /// leaves nothing to name, and so does any component below a denial, a loop, or a link
-    /// that goes nowhere. Naming survives a proven absence, because absence rules out a
+    /// leaves nothing to name, and so does any component below a failed lookup, a loop, or a
+    /// link that goes nowhere. Naming survives a proven absence, because absence rules out a
     /// symlink.
     #[allow(dead_code)]
     pub(crate) at: Option<AbsPath>,
@@ -526,7 +552,7 @@ impl Trace {
                 | PhysicalNode::Symlink {
                     resolved: Ok(_), ..
                 } => StatusOnDisk::DoesNotExist,
-                PhysicalNode::Denied(_)
+                PhysicalNode::UnknownLookup(_)
                 | PhysicalNode::Raced { .. }
                 | PhysicalNode::Symlink {
                     resolved: Err(_), ..
@@ -534,7 +560,7 @@ impl Trace {
                 PhysicalNode::ParentDir { .. } => unreachable!("cannot stop on `..` mid-path"),
                 PhysicalNode::Directory(_) => unreachable!("cannot stop on a directory"),
                 PhysicalNode::NotReached => unreachable!("stopped node must be reached"),
-                PhysicalNode::ParentNoExec { parent: _, entry } => {
+                PhysicalNode::ParentNoExec { entry, .. } => {
                     if entry.is_some() {
                         StatusOnDisk::Unknown
                     } else {
@@ -547,7 +573,7 @@ impl Trace {
                 | PhysicalNode::Directory(_)
                 | PhysicalNode::Symlink { .. }
                 | PhysicalNode::ParentDir { .. } => StatusOnDisk::Exists,
-                PhysicalNode::ParentNoExec { parent: _, entry } => {
+                PhysicalNode::ParentNoExec { entry, .. } => {
                     if entry.is_some() {
                         StatusOnDisk::Exists
                     } else {
@@ -555,7 +581,9 @@ impl Trace {
                     }
                 }
                 PhysicalNode::Missing(_) => StatusOnDisk::DoesNotExist,
-                PhysicalNode::Denied(_) | PhysicalNode::Raced { .. } => StatusOnDisk::Unknown,
+                PhysicalNode::UnknownLookup(_) | PhysicalNode::Raced { .. } => {
+                    StatusOnDisk::Unknown
+                }
                 PhysicalNode::NotReached => unreachable!("stopped node must be reached"),
             },
         }
@@ -570,6 +598,38 @@ impl Trace {
         } else {
             StopStatus::Early(step)
         }
+    }
+
+    /// Which component of [`Trace::input`] names `dir`, when the component just before the stop
+    /// does
+    ///
+    /// For pointing a caret at a directory inside the caller's own spelling. `dir` is the
+    /// directory being described, normally [`Trace::listing`]'s.
+    ///
+    /// The match is checked rather than assumed, because "the step before the stop" and "the
+    /// directory the stop sits in" are the same component only most of the time. A trailing `..`
+    /// resolves to its own grandparent, so its listing describes a directory two steps back and
+    /// the component before it names somewhere else entirely. Pointing a caret there would label
+    /// one directory with another's contents.
+    ///
+    /// `None` when there is nothing to point at: the stop is the first step, the step before it
+    /// belongs to the directory a relative path was anchored against and so was never written by
+    /// the caller, or it names a different place than `dir`. A report has to fall back to an
+    /// absolute path in each case.
+    pub(crate) fn parent_input_index(&self, dir: &CanonicalPath) -> Option<usize> {
+        let before = StepCursor::last_reached(&self.steps).before()?;
+        let index = before.input?;
+
+        (before.contents.resolved_to()?.as_ref() == dir).then_some(index)
+    }
+
+    /// The directory holding the stopping component, as an absolute path
+    ///
+    /// Lexical, and so available even when the directory does not exist. `None` only when the
+    /// stopping component sits directly in the root.
+    pub(crate) fn stop_parent(&self) -> Option<AbsPath> {
+        let cursor = StepCursor::last_reached(&self.steps);
+        cursor.current().at.as_ref()?.lex_parent()
     }
 }
 
@@ -744,6 +804,7 @@ fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalN
                             PhysicalNode::ParentNoExec {
                                 parent: dir.clone(),
                                 entry: Some(name.clone()),
+                                error,
                             },
                             Reached::Lost,
                         );
@@ -752,6 +813,7 @@ fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalN
                             PhysicalNode::ParentNoExec {
                                 parent: dir.clone(),
                                 entry: None,
+                                error,
                             },
                             Reached::Lost,
                         );
@@ -759,13 +821,14 @@ fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalN
                 }
             }
 
+            // We know there's a problem with the directory, check to see if a prior assumption failed to hold
             match check_directory_race(dir) {
                 Some(why) => (PhysicalNode::Raced { why, error }, Reached::Lost),
                 None => {
-                    if error.kind() == std::io::ErrorKind::NotFound {
+                    if error.kind() == ErrorKind::NotFound {
                         (PhysicalNode::Missing(error), Reached::Ghost(at.clone()))
                     } else {
-                        (PhysicalNode::Denied(error), Reached::Lost)
+                        (PhysicalNode::UnknownLookup(error), Reached::Lost)
                     }
                 }
             }
@@ -806,7 +869,7 @@ fn check_directory_race(dir: &CanonicalPath) -> Option<&'static str> {
             }
         }
         Err(error) => {
-            if error.kind() == std::io::ErrorKind::NotFound {
+            if error.kind() == ErrorKind::NotFound {
                 Some("the walk stepped into the directory holding this name, and lstat now reports nothing there")
             } else {
                 None
@@ -863,7 +926,7 @@ fn follow(dir: &CanonicalPath, link: &AbsPath) -> (PhysicalNode, Reached) {
         // is searchable, which is everything a `stat` on it needs.
         Err(error) => (
             PhysicalNode::Raced {
-                why: "realpath resolved this link, stat on what it resolved to failed",
+                why: "realpath resolved this link, stat failed to resolve",
                 error,
             },
             Reached::Lost,
@@ -1028,10 +1091,7 @@ mod tests {
             } => {
                 let (_, abs) = to.as_ref().unwrap();
                 assert_eq!(abs.as_ref(), target);
-                assert_eq!(
-                    resolved.as_ref().unwrap_err().kind(),
-                    std::io::ErrorKind::NotFound
-                );
+                assert_eq!(resolved.as_ref().unwrap_err().kind(), ErrorKind::NotFound);
             }
             other => panic!("expected Symlink got {:?}", other),
         }

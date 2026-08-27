@@ -2,10 +2,27 @@
 
 ## Unreleased
 
+- Update the display interface with a new `^^^^` caret feature for highlighting the part of the path
+  we are referencing.
+
+```
+does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+ - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+                       ^^^^^
+                       ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+ - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+             ^^^^^^^^^
+             ↳ Dir [✅ read, ✅ write, ✅ execute]
+             ↳ Contains (1)
+               └── `a.txt` (exists)
+```
+
+- Directory contents are now sorted by name which matches `cargo package --list`
 - Fix bug with readlink. A symlink such as `/a/b/c` → `d/e/f` (relative symlink) will be joined to the
   dir of the file it's in, so the system would read it as `/a/b/d/e/f`. Previously this incorrectly reported
   it was `/a/b/c/d/e/f`.
-- Add expanded path. Previously the library used absolute paths as a common demonimator. However the
+- ~~Add expanded path.~~ (This feature was removed before releasing. However following docs use that format
+  so leaving it for the moment.) Previously the library used absolute paths as a common demonimator. However the
   `std::fs::absolute` does not remove parent parts (`..`) and current dir `.` so two paths could represent
   the same path on disk, but have two different representations. An "expanded" path is either a canonical
   path (if the file/dir exists) or the parts of the prior directories that exist (and can be canonicalized)

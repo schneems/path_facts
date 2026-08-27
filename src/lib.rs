@@ -186,19 +186,24 @@
 //! at some point earlier than "completely reverse-engineer rust stdlib behavior" and somewhere further
 //! than "simply state the facts". However, we're here. We have the facts, we might as well show those.
 mod abs_path;
+mod callout;
 mod canonical_path;
 mod component;
 mod fact_check;
 mod happy_path;
 mod path_facts;
+mod report;
 mod resolved_metadata;
 mod style;
+#[cfg(test)]
+mod test_support;
 mod trace;
 
 #[cfg(test)]
 use std::path::{Path, PathBuf};
 
 pub use path_facts::PathFacts;
+pub use report::Report;
 
 /// Append components to `base` without folding a `..` away.
 ///

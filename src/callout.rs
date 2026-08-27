@@ -192,6 +192,7 @@ fn push_fact(lines: &mut Vec<String>, fact: &Fact, caret_col: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::module_doc_example;
 
     fn text(fact: &str) -> Fact {
         Fact::Text(fact.to_string())
@@ -220,25 +221,10 @@ mod tests {
         }
     }
 
-    /// The body of the first fenced block in this file's module doc, with the `//!` prefixes
-    /// removed.
-    fn module_doc_example() -> String {
-        const FENCE: &str = "```";
-
-        include_str!("callout.rs")
-            .lines()
-            .map_while(|line| line.strip_prefix("//!"))
-            .skip_while(|line| !line.trim_start().starts_with(FENCE))
-            .skip(1)
-            .take_while(|line| !line.trim_start().starts_with(FENCE))
-            .map(|line| line.strip_prefix(' ').unwrap_or(line))
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-
     #[test]
     fn module_doc_example_is_real_output() {
-        let documented = module_doc_example();
+        // The module doc opens with the callout it describes, and has no other fenced block.
+        let documented = module_doc_example(include_str!("callout.rs"), 0);
         let rendered = render_callout(&doc_example_callout());
 
         // Not `assert_eq!`: its `Debug` output escapes every newline, which turns a caret

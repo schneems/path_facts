@@ -228,6 +228,35 @@ fn join_unfolded(base: &Path, parts: &[&str]) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_support::{module_doc_example, snapshot_body};
+
+    /// The output advertised at the top of this file is real, not typed by hand.
+    ///
+    /// It is the same rendering `path_facts::tests::test_prior_dir_problem_is_file` records, so
+    /// the pitch a reader sees first cannot promise a format the library stopped producing. The
+    /// snapshot file is the intermediary rather than a fresh walk: this example is built under a
+    /// scrubbed tempdir, and re-walking one here would only duplicate that test.
+    ///
+    /// `verify_rdme_updated` carries the same claim to the README, which `cargo rdme` generates
+    /// from these docs.
+    #[test]
+    fn module_doc_example_is_real_output() {
+        // The `No such file or directory` block comes first; this is the one after it.
+        let documented = module_doc_example(include_str!("lib.rs"), 1);
+        let recorded = snapshot_body(include_str!("snapshots/prior_dir_problem_is_file.snap"));
+
+        // Not `assert_eq!`: its `Debug` output escapes every newline, which turns a caret
+        // misaligned by one column into two unreadable one-line blobs.
+        assert!(
+            documented == recorded,
+            "the example in the module docs of `lib.rs` is no longer what the library \
+             renders. Update it to match and re-run `cargo rdme`.\n\nDocumented:\n{}\n\n\
+             Recorded:\n{}\n",
+            documented,
+            recorded
+        );
+    }
+
     #[test]
     fn enforce_nextest() {
         assert!(

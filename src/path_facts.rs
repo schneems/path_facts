@@ -96,14 +96,9 @@ mod tests {
     #[test]
     fn verify_rdme_updated() {
         assert!(
-            include_str!("../README.md").contains(
-                include_str!("snapshots/prior_dir_problem_is_file.snap")
-                    .split("---")
-                    .nth(2)
-                    .expect("Snapshot should have YAML frontmatter")
-                    .replace("🛑", "")
-                    .trim()
-            ),
+            include_str!("../README.md").contains(&snapshot_body(include_str!(
+                "snapshots/prior_dir_problem_is_file.snap"
+            ))),
             "README missing correct example output. Update the module docs and re-run `cargo rdme`"
         );
     }

@@ -4,6 +4,11 @@
 //! so they want the same directories on disk and the same platform workarounds to build them.
 //! Keeping one copy is what stops the two suites from quietly drifting into testing different
 //! filesystems.
+//!
+//! [`module_doc_example`] and [`snapshot_body`] are here for the same reason. Several files paste
+//! rendered output into their documentation, and each one wants to prove its paste is still what
+//! the renderer produces. That comparison needs the doc read back out of the source and the
+//! recorded output read back out of a snapshot file, which is the same two readers every time.
 
 use std::path::{Path, PathBuf};
 
@@ -13,6 +18,53 @@ use std::os::unix::fs::PermissionsExt;
 /// Marks the end of a snapshot so a trailing newline is visible rather than trimmed away by an
 /// editor, a diff, or the eye.
 pub(crate) const STOP: &str = "🛑";
+
+/// The body of the `index`-th fenced block in a file's module doc, with the `//!` prefixes gone.
+///
+/// Takes the source text rather than a path because `include_str!` only accepts a literal, so a
+/// file is the only place that can name itself.
+///
+/// Blocks are counted in source order, which is the only handle a caller has: the fence's info
+/// string is `text` on every block worth checking, so it cannot tell two of them apart.
+pub(crate) fn module_doc_example(source: &str, index: usize) -> String {
+    const FENCE: &str = "```";
+
+    let mut blocks = Vec::new();
+    let mut open: Option<Vec<&str>> = None;
+
+    // `map_while` stops at the first line that is not module doc, so a `//!` appearing later in
+    // the file (inside a string, say) cannot be mistaken for more documentation.
+    for line in source.lines().map_while(|line| line.strip_prefix("//!")) {
+        if line.trim_start().starts_with(FENCE) {
+            match open.take() {
+                Some(block) => blocks.push(block.join("\n")),
+                None => open = Some(Vec::new()),
+            }
+        } else if let Some(block) = open.as_mut() {
+            block.push(line.strip_prefix(' ').unwrap_or(line));
+        }
+    }
+
+    blocks
+        .into_iter()
+        .nth(index)
+        .unwrap_or_else(|| panic!("module doc has no fenced block at index {}", index))
+}
+
+/// The output an `insta` snapshot file records, without the YAML frontmatter or the [`STOP`]
+/// marker the suite appends.
+///
+/// `splitn` rather than `split` so a `---` inside the recorded output keeps the rest of it: the
+/// frontmatter is the first two fences and everything after them is the body.
+pub(crate) fn snapshot_body(snapshot: &str) -> String {
+    snapshot
+        .splitn(3, "---")
+        .nth(2)
+        .expect("snapshot should have YAML frontmatter")
+        .replace(STOP, "")
+        .trim()
+        .to_string()
+}
 
 /// A tempdir whose fixture root is spelled `/path/to/directory` once scrubbed.
 ///

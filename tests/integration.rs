@@ -4,7 +4,7 @@
 //! way a dependent gets it: unit tests compile with `cfg(test)` on, and the doctests that link
 //! against the real build are `no_run`. Behavior that differs between the two configurations is
 //! invisible to everything else — see the `read_dir` sort in `abs_path.rs` for the trap.
-use path_facts::Report;
+use path_facts::PathFacts;
 use std::path::Path;
 
 const PLACEHOLDER: &str = "/TMP";
@@ -51,7 +51,7 @@ fn walks_into_a_file_and_stops() {
     std::fs::write(project.join("sibling.txt"), "hi").unwrap();
 
     let input = project.join("a.txt").join("b").join("nope.txt");
-    let rendered = Report::new(&input).to_string();
+    let rendered = PathFacts::new(&input).to_string();
 
     insta::assert_snapshot!(scrub(&rendered, &root), @r"
     does not exist `/TMP/project/a.txt/b/nope.txt`

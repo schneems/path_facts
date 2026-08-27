@@ -1278,7 +1278,7 @@ mod tests {
         let path = dir.join("d");
         std::fs::create_dir(&path).unwrap();
 
-        assert_eq!(no_longer_a_directory(&entered(&path)), None);
+        assert_eq!(check_directory_race(&entered(&path)), None);
     }
 
     #[test]
@@ -1291,7 +1291,7 @@ mod tests {
         std::fs::remove_dir(&path).unwrap();
         std::fs::write(&path, "").unwrap();
 
-        assert!(no_longer_a_directory(&entered).is_some());
+        assert!(check_directory_race(&entered).is_some());
     }
 
     #[test]
@@ -1303,7 +1303,7 @@ mod tests {
 
         std::fs::remove_dir(&path).unwrap();
 
-        assert!(no_longer_a_directory(&entered).is_some());
+        assert!(check_directory_race(&entered).is_some());
     }
 
     /// Pointing at a directory does not make it the directory the walk entered. A
@@ -1322,7 +1322,7 @@ mod tests {
         std::os::unix::fs::symlink(dir.join("elsewhere"), &path).unwrap();
 
         assert!(std::fs::metadata(&path).unwrap().is_dir());
-        assert!(no_longer_a_directory(&entered).is_some());
+        assert!(check_directory_race(&entered).is_some());
     }
 
     /// The guarantee that matters most: a second look that cannot see has proven nothing,
@@ -1344,7 +1344,7 @@ mod tests {
         std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o600)).unwrap();
 
         assert!(std::fs::symlink_metadata(&path).is_err());
-        assert_eq!(no_longer_a_directory(&entered), None);
+        assert_eq!(check_directory_race(&entered), None);
     }
 
     /// Without execute the directory cannot be searched, so a name inside it could be

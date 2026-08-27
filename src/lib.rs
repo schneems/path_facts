@@ -206,7 +206,6 @@ mod trace;
 use std::path::{Path, PathBuf};
 
 pub use path_facts::PathFacts;
-pub use report::Report;
 
 /// Append components to `base` without folding a `..` away.
 ///
@@ -232,8 +231,8 @@ mod tests {
 
     /// The output advertised at the top of this file is real, not typed by hand.
     ///
-    /// It is the same rendering `path_facts::tests::test_prior_dir_problem_is_file` records, so
-    /// the pitch a reader sees first cannot promise a format the library stopped producing. The
+    /// It is the same rendering `report::tests::test_prior_dir_problem_is_file` records, so the
+    /// pitch a reader sees first cannot promise a format the library stopped producing. The
     /// snapshot file is the intermediary rather than a fresh walk: this example is built under a
     /// scrubbed tempdir, and re-walking one here would only duplicate that test.
     ///
@@ -254,6 +253,20 @@ mod tests {
              Recorded:\n{}\n",
             documented,
             recorded
+        );
+    }
+
+    /// The README makes the same promise as the module docs above, one `cargo rdme` run later.
+    ///
+    /// Checked separately because the generation is a manual step: the docs can be corrected and
+    /// the snapshot re-recorded while the committed README still advertises the old format.
+    #[test]
+    fn verify_rdme_updated() {
+        assert!(
+            include_str!("../README.md").contains(&snapshot_body(include_str!(
+                "snapshots/prior_dir_problem_is_file.snap"
+            ))),
+            "README missing correct example output. Update the module docs and re-run `cargo rdme`"
         );
     }
 

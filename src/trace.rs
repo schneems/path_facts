@@ -422,7 +422,7 @@ impl Trace {
     ///
     /// A [`PhysicalNode::Raced`] leaves the walk `Lost`, so it is the deepest component
     /// reached and there is at most one: nothing below a race is examined. It is not always
-    /// [`Trace::last_step`] though. A race before the final component leaves the steps after
+    /// `Trace::last_step` though. A race before the final component leaves the steps after
     /// it [`PhysicalNode::NotReached`], so testing the last step alone would miss it, which is
     /// why this scans.
     ///

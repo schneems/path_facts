@@ -15,16 +15,7 @@ use std::path::{Path, PathBuf};
 ///
 /// Same walk and same facts as [`PathFacts`](crate::PathFacts), different presentation. Pick one
 /// per call site; they are not meant to be interleaved.
-///
-/// ```rust,no_run
-/// use path_facts::Report;
-///
-/// let path = std::path::Path::new("doesnotexist.txt");
-/// std::fs::read_to_string(path)
-///     .map_err(|error| format!("{error}\n{}", Report::new(path)))
-///     .unwrap();
-/// ```
-pub struct Report {
+pub(crate) struct Report {
     /// Original input path, exactly as the caller spelled it
     path: PathBuf,
     /// Detected state of the path, paired with the callouts built from it
@@ -32,7 +23,7 @@ pub struct Report {
 }
 
 impl Report {
-    pub fn new(path: impl AsRef<Path>) -> Self {
+    pub(crate) fn new(path: impl AsRef<Path>) -> Self {
         let result = Trace::new(path.as_ref());
         Self::from_trace_result(path, result)
     }
@@ -407,8 +398,11 @@ fn triad(path: &Path) -> String {
     )
 }
 
-/// One case per scenario `PathFacts` covers, so the two renderings of the same walk can be read
-/// side by side and neither can drift without the difference showing up here.
+/// Every scenario the library renders, asserted once.
+///
+/// [`PathFacts`](crate::PathFacts) forwards its `Display` here, so these snapshots are the only
+/// copy. `path_facts::tests` keeps a single test proving that forwarding is verbatim, which is
+/// what makes each snapshot below a claim about both types without a second suite to keep in step.
 ///
 /// Every snapshot ends in `🛑` so a trailing newline is visible rather than trimmed away, and
 /// every fixture is built under [`Fixture::root`] so the carets have stable names to point at.
@@ -449,9 +443,9 @@ mod tests {
 
     // A `0o111` (search-only, no-read) parent directory: the walk can *search* through it to
     // resolve `child.txt`, so the path reaches its final component, but the parent cannot be
-    // `read_dir`'d. The report says so on the parent callout rather than climbing to a listable
-    // ancestor the way `PathFacts` does. Unix-only: search-without-read is a POSIX mode the
-    // Windows runner cannot reproduce.
+    // `read_dir`'d. The refused listing is reported on the parent callout itself, which is why the
+    // callout names a directory and then declines to show what is in it. Unix-only:
+    // search-without-read is a POSIX mode the Windows runner cannot reproduce.
     #[test]
     #[cfg(unix)]
     fn test_prior_dir_problem_search_only_parent() {
@@ -527,6 +521,11 @@ mod tests {
         ");
     }
 
+    /// Recorded to a file, unlike every other snapshot here, because two other tests read this one
+    /// back: the module docs of `lib.rs` and the README generated from them both paste this
+    /// rendering, and each proves its paste against
+    /// `src/snapshots/prior_dir_problem_is_file.snap`. An inline snapshot lives in the source of
+    /// this function, where `include_str!` cannot reach it.
     #[test]
     fn test_prior_dir_problem_is_file() {
         let fixture = Fixture::new();
@@ -538,18 +537,12 @@ mod tests {
             .join("c")
             .join("does_not_exist.txt");
 
-        insta::assert_snapshot!(report(&fixture.scrub(), path), @r"
-        does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
-         - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
-                               ^^^^^
-                               ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
-         - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
-                     ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (1)
-                       └── `a.txt` (exists)
-        🛑
-        ");
+        insta::with_settings!({prepend_module_to_snapshot => false}, {
+            insta::assert_snapshot!(
+                "prior_dir_problem_is_file",
+                report(&fixture.scrub(), path)
+            );
+        });
     }
 
     #[test]
@@ -692,7 +685,8 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n\n");
 
-        insta::assert_snapshot!(fixture.scrub().plain(&table), @r"
+        // `root_of` so the `..` at root row reads `/` rather than the drive the tempdir landed on.
+        insta::assert_snapshot!(fixture.scrub().root_of(fixture.root()).plain(&table), @r"
         a file spelled where it lives
           `/path/to/directory/file.txt`
           → None

@@ -13,8 +13,14 @@ const STOP: &str = "🛑";
 
 /// Rewrites the tempdir prefix out of `rendered`, keeping every caret over the characters it
 /// actually points at.
+///
+/// Separators are spelled `/` on both sides first, so one snapshot serves every platform. A
+/// separator is one character wide either way, so rewriting them cannot move a caret. Both sides,
+/// because `root` carries the `\\?\` prefix `canonicalize` adds on Windows and has to keep
+/// matching the rendered path it was built from.
 fn scrub(rendered: &str, root: &Path) -> String {
-    let root = root.display().to_string();
+    let rendered = rendered.replace('\\', "/");
+    let root = root.display().to_string().replace('\\', "/");
     let dedent = root.chars().count() - PLACEHOLDER.chars().count();
 
     let scrubbed = rendered

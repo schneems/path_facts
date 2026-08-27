@@ -1,16 +1,16 @@
-//! Fixtures and output scrubbing shared by the display test suites.
+//! Fixtures and output scrubbing for the tests that render a path.
 //!
-//! Both [`PathFacts`](crate::PathFacts) and [`Report`](crate::Report) render the same walk,
-//! so they want the same directories on disk and the same platform workarounds to build them.
-//! Keeping one copy is what stops the two suites from quietly drifting into testing different
-//! filesystems.
+//! A rendering test wants directories with stable names on disk, the platform workarounds to build
+//! them, and the tempdir prefix scrubbed back out of what it recorded. [`Report`](crate::Report)
+//! holds nearly all of those tests, but the fixtures live here rather than beside them so a test
+//! elsewhere in the crate can set up the same filesystem without copying the workarounds.
 //!
-//! [`module_doc_example`] and [`snapshot_body`] are here for the same reason. Several files paste
+//! [`module_doc_example`] and [`snapshot_body`] are here for a related reason. Several files paste
 //! rendered output into their documentation, and each one wants to prove its paste is still what
 //! the renderer produces. That comparison needs the doc read back out of the source and the
 //! recorded output read back out of a snapshot file, which is the same two readers every time.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -155,6 +155,25 @@ impl Scrubber {
         let from = from.as_ref().display().to_string().replace(r"\\?\", "");
         self.rules.push((from, to.to_string()));
         self
+    }
+
+    /// Spells the filesystem root `path` hangs off `/`, for output that names a root itself.
+    ///
+    /// A root is `/` on unix and a drive like `C:\` on Windows, so a snapshot that shows one can
+    /// only be shared across platforms if the two are rewritten to the same thing.
+    ///
+    /// Add this after every [`Scrubber::path`] rule. On Windows a root is the front of *every*
+    /// absolute path, so a longer prefix has to be stripped before this rule gets a look at the
+    /// line.
+    pub(crate) fn root_of(self, path: impl AsRef<Path>) -> Self {
+        let root = path
+            .as_ref()
+            .components()
+            .take_while(|component| matches!(component, Component::Prefix(_) | Component::RootDir))
+            .map(|component| component.as_os_str())
+            .collect::<PathBuf>();
+
+        self.path(root, "/")
     }
 
     /// Replaces an OS error message with `{error}`, whose wording varies by platform and libc.

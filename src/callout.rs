@@ -22,7 +22,8 @@
 //! renders them at a different cell width.
 
 use crate::style;
-use std::path::Path;
+use std::ops::Range;
+use std::path::{Component, Path};
 
 /// Columns before the path text on a bullet line: `" - "` (3 chars) plus the opening backtick.
 const PATH_INDENT: usize = 4;
@@ -98,18 +99,35 @@ pub(crate) fn highlight(path: &Path, caret: Caret) -> Option<Span> {
 
     let mut byte_cursor = 0;
     for (index, component) in path.components().enumerate() {
-        let text = component.as_os_str().to_string_lossy();
-        let relative = full[byte_cursor..].find(text.as_ref())?;
-        let start = byte_cursor + relative;
+        let found = find_component(&full, byte_cursor, component)?;
         if index == target_index {
             return Some(Span {
-                char_start: full[..start].chars().count(),
-                char_width: text.chars().count(),
+                char_start: full[..found.start].chars().count(),
+                char_width: full[found.start..found.end].chars().count(),
             });
         }
-        byte_cursor = start + text.len();
+        byte_cursor = found.end;
     }
     None
+}
+
+/// The byte range `component` occupies in `full`, searched forward from `from`.
+///
+/// Every component reports its own text except [`Component::RootDir`], which reports the
+/// platform's preferred separator: `\` on Windows, whichever separator the path was actually
+/// written with. Windows accepts `/` too, so a search for the reported text misses the root of
+/// `C:/tmp/x` and returns no caret for the whole path. Matching whichever separator is there keeps
+/// the cursor — and therefore every column after it — correct on both spellings.
+fn find_component(full: &str, from: usize, component: Component<'_>) -> Option<Range<usize>> {
+    if component == Component::RootDir {
+        // A separator is one ASCII byte, so its match is one byte and one character wide.
+        let start = from + full[from..].find(std::path::is_separator)?;
+        return Some(start..start + 1);
+    }
+
+    let text = component.as_os_str().to_string_lossy();
+    let start = from + full[from..].find(text.as_ref())?;
+    Some(start..start + text.len())
 }
 
 /// Render a sequence of callouts, one after another. The standalone summary line
@@ -297,6 +315,27 @@ mod tests {
                 char_start: 16,
                 char_width: 4
             })
+        );
+    }
+
+    /// Windows accepts either separator in the same position, and `Component::RootDir` reports `\`
+    /// for both, so the caret has to be found by looking at the path rather than at what the root
+    /// component calls itself.
+    #[test]
+    #[cfg(windows)]
+    fn highlight_windows_root_with_either_separator() {
+        let expected = Some(Span {
+            char_start: 18,
+            char_width: 4,
+        });
+
+        assert_eq!(
+            highlight(Path::new(r"C:\tmp\lnk\..\lnk\real"), Caret::Last),
+            expected
+        );
+        assert_eq!(
+            highlight(Path::new("C:/tmp/lnk/../lnk/real"), Caret::Last),
+            expected
         );
     }
 

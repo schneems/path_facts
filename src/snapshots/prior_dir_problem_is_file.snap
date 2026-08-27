@@ -1,6 +1,6 @@
 ---
-source: src/path_facts.rs
-expression: "facts(&fixture.scrub(), path)"
+source: src/report.rs
+expression: "report(&fixture.scrub(), path)"
 ---
 does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
  - `/path/to/directory/a.txt/b/c/does_not_exist.txt`

@@ -33,17 +33,21 @@ pub struct Report {
 
 impl Report {
     pub fn new(path: impl AsRef<Path>) -> Self {
-        let path = path.as_ref().to_owned();
-        let trace = Trace::new(&path).map(|trace| traced(&path, trace));
-        Report { path, trace }
+        let result = Trace::new(path.as_ref());
+        Self::from_trace_result(path, result)
     }
 
     /// A report over a walk the caller already has, for a state the filesystem cannot be asked
     /// to produce on demand.
-    #[cfg(test)]
-    fn from_trace(path: PathBuf, trace: Trace) -> Self {
-        let trace = Ok(traced(&path, trace));
-        Report { path, trace }
+    pub(crate) fn from_trace_result(
+        path: impl AsRef<Path>,
+        result: Result<Trace, CannotTrace>,
+    ) -> Self {
+        let trace = result.map(|trace| traced(path.as_ref(), trace));
+        Report {
+            path: path.as_ref().to_path_buf(),
+            trace,
+        }
     }
 }
 
@@ -1348,7 +1352,7 @@ mod tests {
             std::fs::metadata(fixture.join("does_not_exist")).unwrap_err(),
         );
 
-        let report = Report::from_trace(path.clone(), trace);
+        let report = Report::from_trace_result(path.clone(), Ok(trace));
 
         insta::assert_snapshot!(fixture.scrub().carets(&report.to_string()), @r"
         `/path/to/directory/a/b`

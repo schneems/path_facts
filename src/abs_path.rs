@@ -4,9 +4,7 @@
 //!
 //! A property of absolute paths is that recursively retrieving their parent paths will eventually
 //! lead to the root path. The parent of an absolute path is also an absolute path [`AbsPath::lex_parent`].
-//!
-//! If the held path is a readable directory, all children are also absolute paths [`AbsPath::read_dir`].
-use crate::{canonical_path::CanonicalPath, component::NormalComponent};
+use crate::canonical_path::CanonicalPath;
 use std::{
     fmt::{Display, Formatter},
     path::{Component, Path, PathBuf},
@@ -53,45 +51,9 @@ impl AbsPath {
         }
     }
 
-    /// Tries to read the current path as a directory
-    ///
-    /// The properties of `read_dir` state that the resulting paths returned from `DirEntry`
-    /// match the original path appended with the filename of the entry. Because we know
-    /// the directory path is absolute, we know the resulting paths are absolute.
-    ///
-    /// Further this gives us the properties that calling `AbsPath::parent().read_dir()` should
-    /// return a vector of paths that contain the original path if the original file exists. i.e.
-    /// the format is the same.
-    ///
-    /// Errors if path is not a directory or is not readable
+    /// Appends a relative path, which keeps the result absolute
     pub fn join_relative(&self, path: &RelativePath) -> AbsPath {
         AbsPath(self.as_ref().join(path.as_ref()))
-    }
-
-    pub fn join_normal(&self, path: &NormalComponent) -> AbsPath {
-        AbsPath(self.as_ref().join(path.as_ref()))
-    }
-
-    /// The directory's entries, sorted by name
-    ///
-    /// Sorted in every build, not only under `cfg(test)`. A gated sort means the order a snapshot
-    /// pins is not the order anyone is ever shown, so the tests agree with each other and with
-    /// nothing else. See [`CanonicalPath::normal_entries`] for why the comparison is on name bytes
-    /// and not on the reader's locale.
-    pub(crate) fn read_dir(&self) -> Result<Vec<AbsPath>, std::io::Error> {
-        let mut entries: Vec<AbsPath> = std::fs::read_dir(&self.0)?
-            .map(|entry| entry.map(|e| e.path()).map(AbsPath))
-            .collect::<Result<Vec<AbsPath>, std::io::Error>>()?;
-
-        // By name rather than by whole path: every entry shares a directory, so the prefix is the
-        // same on both sides of every comparison and only the name can decide it.
-        entries.sort_by(|a, b| {
-            let a_name = a.0.file_name().unwrap_or(a.0.as_os_str());
-            let b_name = b.0.file_name().unwrap_or(b.0.as_os_str());
-            a_name.cmp(b_name)
-        });
-
-        Ok(entries)
     }
 
     /// Similar semantics to [`Path::parent`], but returning a None here would guarantee self is the root path

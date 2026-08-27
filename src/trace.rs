@@ -413,6 +413,7 @@ impl Trace {
     }
 
     // The step of the last part of the input path
+    #[cfg(test)]
     pub(crate) fn last_step(&self) -> &Step {
         self.steps.last().expect("Steps is never empty")
     }

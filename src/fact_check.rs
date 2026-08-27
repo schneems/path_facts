@@ -3,8 +3,6 @@
 //! in this library.
 #[cfg(test)]
 mod tests {
-    #[cfg(unix)]
-    use crate::happy_path::DirOk;
     use crate::{abs_path::AbsPath, canonical_path::CanonicalPath};
     use std::path::{Component, Path};
 
@@ -87,6 +85,14 @@ mod tests {
         }
     }
 
+    /// The full path of every entry in a directory
+    #[cfg(unix)]
+    fn entry_paths(dir: &Path) -> std::io::Result<Vec<std::path::PathBuf>> {
+        std::fs::read_dir(dir)?
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect()
+    }
+
     /// Two spellings reach one directory. Comparing the paths cannot answer this, since a
     /// `..` or a symlink leaves them sharing no common prefix.
     #[cfg(unix)]
@@ -116,8 +122,7 @@ mod tests {
 
         set_read_write_no_execute(dir).unwrap();
 
-        let read_dir = std::fs::read_dir(dir).map(|_| ());
-        let dir_ok = DirOk::new(AbsPath::new(dir).unwrap());
+        let entries = entry_paths(dir);
         let symlink_metadata = std::fs::symlink_metadata(&path);
         let canonical = CanonicalPath::new(&AbsPath::new(&path).unwrap());
         let contents = std::fs::read_to_string(&path);
@@ -129,9 +134,7 @@ mod tests {
         set_read_write_execute(dir).unwrap();
 
         // Can see the file, but cannot read it's metadata
-        assert!(read_dir.is_ok());
-        let dir_ok = dir_ok.unwrap();
-        assert!(dir_ok.has_entry(&AbsPath::new(&path).unwrap()));
+        assert!(entries.unwrap().contains(&path));
 
         assert_err_kind(symlink_metadata, std::io::ErrorKind::PermissionDenied);
         assert_err_kind(canonical, std::io::ErrorKind::PermissionDenied);
@@ -159,8 +162,7 @@ mod tests {
 
         set_write_execute_no_read(&dir).unwrap();
 
-        let read_dir = std::fs::read_dir(&dir).map(|_| ());
-        let dir_ok = DirOk::new(AbsPath::new(&dir).unwrap());
+        let entries = entry_paths(&dir);
         let symlink_metadata = std::fs::symlink_metadata(&path);
         let canonical = CanonicalPath::new(&AbsPath::new(&path).unwrap());
         let contents = std::fs::read_to_string(&path);
@@ -170,10 +172,9 @@ mod tests {
         // below would otherwise leave a directory that cannot be listed to delete.
         set_read_write_execute(&dir).unwrap();
 
-        // Cannot enumerate the names in the directory, so we cannot build a `DirOk`
-        // and lose `has_entry` as a way to prove the child exists
-        assert_err_kind(read_dir, std::io::ErrorKind::PermissionDenied);
-        assert!(dir_ok.is_err());
+        // Cannot enumerate the names in the directory, so listing is gone as a way to
+        // prove the child exists
+        assert_err_kind(entries, std::io::ErrorKind::PermissionDenied);
 
         // Everything about the child is still available, including its contents
         assert!(symlink_metadata.is_ok());

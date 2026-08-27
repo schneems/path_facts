@@ -190,10 +190,8 @@ mod callout;
 mod canonical_path;
 mod component;
 mod fact_check;
-mod happy_path;
 mod path_facts;
 mod report;
-mod resolved_metadata;
 mod style;
 #[cfg(test)]
 mod test_support;

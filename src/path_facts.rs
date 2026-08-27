@@ -1,375 +1,35 @@
 //! Facts about paths
-use crate::abs_path::{AbsPath, AbsPathError};
-use crate::canonical_path::CannotCanonicalizeAnything;
-use crate::happy_path::DirOk;
-use crate::resolved_metadata::ResolvedMetadata;
-use crate::style::{self, permissions};
-use crate::trace::{CannotTrace, PhysicalNode, Trace};
-use faccess::{AccessMode, PathExt};
-use std::{
-    fmt::Display,
-    path::{Path, PathBuf},
-};
+use crate::Report;
+use std::{fmt::Display, path::Path};
 
 /// Shows helpful facts about a path when `Display`ed.
 pub struct PathFacts {
-    /// Original input path
-    path: PathBuf,
-    /// Detected state of the path
-    trace: Result<Trace, CannotTrace>,
+    _inner: Report,
 }
 
 impl PathFacts {
     pub fn new(path: impl AsRef<Path>) -> Self {
         PathFacts {
-            path: path.as_ref().to_owned(),
-            trace: Trace::new(path.as_ref()),
+            _inner: Report::new(path),
         }
     }
 }
 
 impl Display for PathFacts {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut buf = String::new();
-        self.write_facts(&mut buf)?;
-        writeln!(f, "{}", buf.trim_end_matches('\n'))
-    }
-}
-
-impl PathFacts {
-    fn write_facts(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
-        self.fmt_individual_facts(f)?;
-        self.fmt_parent_facts(f)?;
-        Ok(())
-    }
-
-    fn fmt_individual_facts(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
-        match self.trace.as_ref() {
-            Ok(trace) => {
-                // The resolved side of the `→` arrow comes from where the walk landed, not
-                // from `canonicalize(self.path)`. They agree except for a trailing `..`, which
-                // `canonicalize` will not fold inside a Windows verbatim (`\\?\`) path; the
-                // trace folded it left to right, so it names `<dir>/a` on every platform.
-                //
-                // When the walk named no physical location (a missing name, a broken symlink)
-                // fall back to the anchored path, so a relative input still expands to its
-                // absolute spelling (`broken_link` → `/dir/broken_link`).
-                let resolved = trace
-                    .last_step()
-                    .contents
-                    .resolved_to()
-                    .map(|resolved| AsRef::<Path>::as_ref(resolved.as_ref()).to_path_buf())
-                    .unwrap_or_else(|| trace.absolute().as_ref().to_path_buf());
-                let expanded = style::expanded(&self.path, &resolved);
-                match trace.status_on_disk() {
-                    crate::trace::StatusOnDisk::Exists => writeln!(f, "exists {expanded}")?,
-                    crate::trace::StatusOnDisk::DoesNotExist => {
-                        writeln!(f, "does not exist {expanded}")?
-                    }
-                    crate::trace::StatusOnDisk::Unknown => writeln!(f, "{expanded}")?,
-                }
-
-                // let read = self.path.access(AccessMode::READ).is_ok();
-                // let write = self.path.access(AccessMode::WRITE).is_ok();
-                // let execute = self.path.access(AccessMode::EXECUTE).is_ok();
-                if let Some(PhysicalNode::Raced { why, error }) =
-                    trace.raced().map(|step| &step.contents)
-                {
-                    writeln!(
-                        f,
-                        "{}",
-                        style::bullet(format!("Race condition \"{why}\"  {error}"))
-                    )?;
-                }
-
-                match &trace.last_step().contents {
-                    PhysicalNode::Directory(_) => {}
-                    PhysicalNode::File(_) => {}
-                    PhysicalNode::Symlink { target, resolved } => {
-                        // Symlink target
-                        match target {
-                            Ok((real, absolute)) => {
-                                writeln!(
-                                    f,
-                                    "{}",
-                                    style::bullet(format!("Symlink → `{}`", real.display()))
-                                )?;
-                                if absolute.as_ref() != real {
-                                    writeln!(
-                                        f,
-                                        "{}",
-                                        style::bullet(format!("Absolute → {}", absolute))
-                                    )?;
-                                }
-                            }
-                            Err(error) => writeln!(
-                                f,
-                                "{}",
-                                style::bullet(format!("Cannot readlink: {}", error))
-                            )?,
-                        };
-                        // Symlink resolved
-                        match (target, resolved) {
-                            (Ok((_, absolute)), Ok(resolved)) => {
-                                if absolute.as_ref() != resolved.as_ref() {
-                                    writeln!(
-                                        f,
-                                        "{}",
-                                        style::bullet(format!("Canonical {}", resolved))
-                                    )?;
-                                }
-                            }
-                            (Ok(_), Err(error)) => {
-                                writeln!(
-                                    f,
-                                    "{}",
-                                    style::bullet(format!("Cannot resolve target: {}", error))
-                                )?;
-                            }
-                            (Err(_), _) => {
-                                // Already printed target error above
-                            }
-                        }
-                    }
-                    PhysicalNode::Missing(_) => {
-                        // Show in parent facts
-                    }
-                    PhysicalNode::ParentNoExec {
-                        parent: _,
-                        entry: _,
-                        error: _,
-                    } => {
-                        if let Err(error) = std::fs::canonicalize(&self.path) {
-                            writeln!(
-                                f,
-                                "{}",
-                                style::bullet(format!("Cannot canonicalize due to error: {error}"))
-                            )?;
-                        }
-                        // Show in parent facts
-                    }
-                    PhysicalNode::UnknownLookup(_) => {
-                        // Show in parent facts
-                    }
-                    PhysicalNode::ParentDir {
-                        folded: _,
-                        resolved: _,
-                    } => {
-                        // writeln!(f, "{}", style::bullet(format!("Canonical {}", resolved)))?;
-                    }
-                    PhysicalNode::Raced { why, error } => {
-                        writeln!(
-                            f,
-                            "{}",
-                            style::bullet(format!("Data race error: {error}\n{why}."))
-                        )?;
-                    }
-                    PhysicalNode::NotReached => {}
-                }
-            }
-            Err(CannotTrace::Anchor(AbsPathError::PathIsEmpty(path))) => {
-                writeln!(f, "path `{}` is empty", path.display())?;
-            }
-            Err(CannotTrace::Anchor(AbsPathError::CannotReadCWD(path, _))) => {
-                writeln!(f, "`{}`", path.display())?;
-                // parent states cannot read CWD
-            }
-            Err(CannotTrace::IsRoot(root)) => {
-                if self.path == root.as_ref() {
-                    writeln!(f, "is root {root}")?;
-                } else {
-                    writeln!(f, "is root `{path}` → {root}", path = self.path.display())?;
-                }
-            }
-            Err(CannotTrace::RootNotReachable(CannotCanonicalizeAnything { original, .. })) => {
-                writeln!(f, "`{}`", self.path.display())?;
-                if self.path.is_relative() {
-                    writeln!(f, "{}", style::bullet(format!("Absolute: {original}",)))?;
-                };
-                // Error is in root, show message in the parent facts
-            }
-        }
-
-        Ok(())
-    }
-
-    fn fmt_parent_facts(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
-        match self.trace.as_ref() {
-            Ok(trace) => {
-                match &trace.stop_status() {
-                    crate::trace::StopStatus::Early(step) => {
-                        let Some(prior_dir) = step.at.as_ref() else {
-                            return writeln!(f, "internal error, expected step in trace to have physical location but it did not.\nStep: {step:?}\nTrace: {trace:?}");
-                        };
-
-                        match &step.contents {
-                            PhysicalNode::File(_) => {
-                                writeln!(
-                                    f,
-                                    "{}",
-                                    style::bullet(format!(
-                                        "Prior path is not a directory {prior_dir}"
-                                    ))
-                                )?;
-
-                                // We've already stated the prior path (and that it's a file) above, so
-                                // emit only its parent directory listing here. Using `write_facts` would
-                                // repeat the redundant `exists ...` individual-fact line.
-                                let mut parent_facts = String::new();
-                                PathFacts::new(prior_dir.as_ref())
-                                    .fmt_parent_facts(&mut parent_facts)?;
-                                // Use `write!` because `parent_facts` already has a newline at the end.
-                                write!(
-                                    f,
-                                    "{}",
-                                    style::prefix_first_rest_lines("   ", "   ", &parent_facts)
-                                )?;
-                            }
-                            _ => {
-                                // The prior path hasn't been described yet, so emit its full facts
-                                // (individual + parent), e.g. `does not exist ...` plus the dir listing.
-                                let mut prior = String::new();
-                                PathFacts::new(prior_dir.as_ref()).write_facts(&mut prior)?;
-                                writeln!(
-                                    f,
-                                    "{}",
-                                    style::bullet(format!("Prior directory {prior}"))
-                                )?;
-                            }
-                        }
-                    }
-                    crate::trace::StopStatus::Final(step) => {
-                        if let Some(listing) = trace.listing() {
-                            // The final component resolved by *searching* through its parent. Build the
-                            // parent's listing (the one `read_dir` the walk never made): failure means the
-                            // parent is searchable but not readable (shape 2); success gives the directory
-                            // listing the happy render needs. `listing().dir` is the resolved parent,
-                            // exactly what `state`'s `DirOk::new` calls `read_dir` on.
-                            let parent_path = AbsPath::from(listing.dir);
-                            match DirOk::new(parent_path.clone()) {
-                                // Shape 2: searchable, not readable (`0o111`). `state` returns
-                                // `ParentProblem` for this same failed `read_dir`.
-                                Err(_) => {
-                                    let mut prior = String::new();
-                                    PathFacts::new(parent_path.as_ref()).write_facts(&mut prior)?;
-                                    writeln!(
-                                        f,
-                                        "{}",
-                                        style::bullet(format!("Prior directory {prior}"))
-                                    )?;
-                                }
-                                // Parent is readable. Happy iff the final component resolved to a location
-                                // whose metadata we can still read; otherwise render the unresolved cases
-                                // (DoesNotExist / CannotCanonicalize / CannotMetadata).
-                                Ok(parent) => {
-                                    // The entry to annotate as it appears in `parent`'s listing, shared by
-                                    // the happy render and the unresolved fall-through. Canonical-prefixed
-                                    // (from `listing.dir`), matching `parent.entries` from `read_dir`.
-                                    let entry = parent_path.join_normal(&listing.entry);
-                                    // Happy iff the final component resolved to a location whose metadata
-                                    // we can still read; `None` means it did not fully resolve.
-                                    let resolved =
-                                        step.contents.resolved_to().and_then(|resolved| {
-                                            let resolved_path =
-                                                AsRef::<Path>::as_ref(resolved.as_ref())
-                                                    .to_path_buf();
-                                            ResolvedMetadata::new(&resolved_path)
-                                                .map(|m| (resolved_path, m.resolved_type()))
-                                                .ok()
-                                        });
-                                    if let Some((resolved_path, resolved_type)) = resolved {
-                                        let read = resolved_path.access(AccessMode::READ).is_ok();
-                                        let write = resolved_path.access(AccessMode::WRITE).is_ok();
-                                        let execute =
-                                            resolved_path.access(AccessMode::EXECUTE).is_ok();
-                                        writeln!(
-                                            f,
-                                            "{}",
-                                            style::bullet(style::fmt_dir(&parent, |e| {
-                                                if e == &entry {
-                                                    Some(format!(
-                                                        "{resolved_type} {}",
-                                                        permissions(read, write, execute)
-                                                    ))
-                                                } else {
-                                                    None
-                                                }
-                                            }))
-                                        )?;
-                                    } else {
-                                        // The final component did not fully resolve: missing, a broken or
-                                        // circular symlink, or an unsearchable parent. `state` returns
-                                        // DoesNotExist / CannotCanonicalize / CannotMetadata for these.
-                                        if !parent.write {
-                                            writeln!(
-                                            f,
-                                            "{}",
-                                            style::bullet("Parent directory is missing write permissions (cannot create, delete, or modify files)")
-                                        )?;
-                                        }
-                                        if parent.has_entry(&entry) {
-                                            writeln!(
-                                                f,
-                                                "{}",
-                                                style::bullet(style::fmt_dir(&parent, |e| {
-                                                    if e == &entry {
-                                                        Some("(exists)".to_string())
-                                                    } else {
-                                                        None
-                                                    }
-                                                }))
-                                            )?;
-                                        } else {
-                                            writeln!(
-                                            f,
-                                            "{}",
-                                            style::bullet(format!(
-                                                "Missing `{filename}` from parent directory:\n{dir}",
-                                                filename = style::filename_or_path(&self.path),
-                                                dir = style::fmt_dir(&parent, |_| None)
-                                            ))
-                                        )?;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            Err(CannotTrace::IsRoot(_)) => {}
-            Err(CannotTrace::Anchor(AbsPathError::PathIsEmpty(_))) => {}
-            Err(CannotTrace::Anchor(AbsPathError::CannotReadCWD(_, error))) => {
-                writeln!(
-                    f,
-                    "{}",
-                    style::bullet(format!("Cannot read current working directory: {}", error))
-                )?;
-            }
-            Err(CannotTrace::RootNotReachable(CannotCanonicalizeAnything {
-                original: _,
-                root,
-                root_error,
-            })) => {
-                writeln!(
-                    f,
-                    "{}",
-                    style::bullet(format!(
-                        "Cannot canonicalize root {root} due to error ({root_error})"
-                    ))
-                )?;
-            }
-        }
-
-        Ok(())
+        self._inner.fmt(f)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::abs_path::AbsPath;
+    use crate::canonical_path::CannotCanonicalizeAnything;
     use crate::join_unfolded;
     use crate::test_support::*;
+    use crate::trace::{CannotTrace, Trace};
+    use std::path::PathBuf;
 
     // A `0o111` (search-only, no-read) parent directory: the walk can *search* through it to
     // resolve `child.txt`, so the path reaches its final component, but the parent cannot be
@@ -1121,15 +781,17 @@ mod tests {
     fn test_cannot_canonicalize_anything() {
         let path = PathBuf::from(r"/pretend/root/does/not/exist/somehow");
         let output = PathFacts {
-            path: path.clone(),
-            trace: Err(CannotTrace::RootNotReachable(CannotCanonicalizeAnything {
-                original: AbsPath::new(&path).unwrap(),
-                root: AbsPath::new(Path::new("/")).unwrap(),
-                root_error: std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    "simulated error",
-                ),
-            })),
+            _inner: Report::from_trace_result(
+                &path,
+                Err(CannotTrace::RootNotReachable(CannotCanonicalizeAnything {
+                    original: AbsPath::new(&path).unwrap(),
+                    root: AbsPath::new(Path::new("/")).unwrap(),
+                    root_error: std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "simulated error",
+                    ),
+                })),
+            ),
         }
         .to_string()
             + "🛑";
@@ -1162,8 +824,7 @@ mod tests {
         );
 
         let output = PathFacts {
-            path: path.clone(),
-            trace: Ok(trace),
+            _inner: Report::from_trace_result(path.clone(), Ok(trace)),
         }
         .to_string()
         .replace(&dir.display().to_string(), "/path/to/directory")

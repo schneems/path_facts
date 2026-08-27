@@ -1,17 +1,31 @@
 ---
 source: src/path_facts.rs
-expression: "result.unwrap_err().to_string().replace(&tempdir.path().canonicalize().unwrap().display().to_string(),\n\"/path/to/directory\") + \"🛑\""
+expression: fixture.scrub().carets(&result.unwrap_err())
 ---
 cannot rename from `doesnotexist.txt` to `also_does_not_exist.txt` due to: {error}.
 
-From path does not exist `doesnotexist.txt` → `/path/to/directory/doesnotexist.txt`
- - Missing `doesnotexist.txt` from parent directory:
-   `/path/to/directory`
-      └── (empty)
+From path does not exist `doesnotexist.txt`
+ - `doesnotexist.txt`
+    ^^^^^^^^^^^^^^^^
+    ↳ Missing: No such file or directory (os error 2)
+    ↳ Absolute `/path/to/directory/doesnotexist.txt`
+ - `/path/to/directory`
+             ^^^^^^^^^
+             ↳ Dir [✅ read, ✅ write, ✅ execute]
+             ↳ ❌ Missing `doesnotexist.txt`
+             ↳ Contains (0)
+               └── (empty)
 
-To path does not exist `also_does_not_exist.txt` → `/path/to/directory/also_does_not_exist.txt`
- - Missing `also_does_not_exist.txt` from parent directory:
-   `/path/to/directory`
-      └── (empty)
+To path does not exist `also_does_not_exist.txt`
+ - `also_does_not_exist.txt`
+    ^^^^^^^^^^^^^^^^^^^^^^^
+    ↳ Missing: No such file or directory (os error 2)
+    ↳ Absolute `/path/to/directory/also_does_not_exist.txt`
+ - `/path/to/directory`
+             ^^^^^^^^^
+             ↳ Dir [✅ read, ✅ write, ✅ execute]
+             ↳ ❌ Missing `also_does_not_exist.txt`
+             ↳ Contains (0)
+               └── (empty)
 
 🛑

@@ -759,18 +759,24 @@ fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalN
                 }
             }
 
-            match no_longer_a_directory(dir) {
+            match check_directory_race(dir) {
                 Some(why) => (PhysicalNode::Raced { why, error }, Reached::Lost),
-                None if error.kind() == std::io::ErrorKind::NotFound => {
-                    (PhysicalNode::Missing(error), Reached::Ghost(at.clone()))
+                None => {
+                    if error.kind() == std::io::ErrorKind::NotFound {
+                        (PhysicalNode::Missing(error), Reached::Ghost(at.clone()))
+                    } else {
+                        (PhysicalNode::Denied(error), Reached::Lost)
+                    }
                 }
-                None => (PhysicalNode::Denied(error), Reached::Lost),
             }
         }
     }
 }
 
 /// Looks again at a directory the walk already stepped into, once a lookup inside it failed
+///
+/// Returns Some() with a reason for why a data race occured, or None when the path is
+/// still a directory.
 ///
 /// Answers the sentence for [`PhysicalNode::Raced`] when the directory is not one any more,
 /// which is the case neither reading of that failure can survive. `NotFound` on a name
@@ -790,14 +796,22 @@ fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalN
 /// reading it already had. That direction is deliberate: a missed contradiction leaves a
 /// report no worse than before, while an invented one blames the filesystem for a bug in
 /// here.
-fn no_longer_a_directory(dir: &CanonicalPath) -> Option<&'static str> {
+fn check_directory_race(dir: &CanonicalPath) -> Option<&'static str> {
     match std::fs::symlink_metadata(dir.as_ref()) {
-        Ok(lstat) if lstat.is_dir() => None,
-        Ok(_) => Some("the walk stepped into the directory holding this name, and lstat now reports something that is not a directory in its place"),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            Some("the walk stepped into the directory holding this name, and lstat now reports nothing there")
+        Ok(lstat) => {
+            if lstat.is_dir() {
+                None
+            } else {
+                Some("the walk stepped into the directory holding this name, and lstat now reports something that is not a directory in its place")
+            }
         }
-        Err(_) => None,
+        Err(error) => {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                Some("the walk stepped into the directory holding this name, and lstat now reports nothing there")
+            } else {
+                None
+            }
+        }
     }
 }
 

@@ -57,13 +57,23 @@ pub(crate) fn module_doc_example(source: &str, index: usize) -> String {
 /// `splitn` rather than `split` so a `---` inside the recorded output keeps the rest of it: the
 /// frontmatter is the first two fences and everything after them is the body.
 pub(crate) fn snapshot_body(snapshot: &str) -> String {
-    snapshot
+    let body = snapshot
         .splitn(3, "---")
         .nth(2)
         .expect("snapshot should have YAML frontmatter")
-        .replace(STOP, "")
-        .trim()
-        .to_string()
+        .replace(STOP, "");
+
+    unix_newlines(&body).trim().to_string()
+}
+
+/// The text with its line endings rewritten to `\n`.
+///
+/// Git checks files out with CRLF on Windows, so text read back out of the source tree carries a
+/// `\r` that rendered output never has. Two strings differing only there look identical in a
+/// failure message, so anything compared against rendered output is normalized rather than left to
+/// be debugged twice. [`module_doc_example`] gets this from the `lines()` it already splits on.
+pub(crate) fn unix_newlines(text: &str) -> String {
+    text.lines().collect::<Vec<_>>().join("\n")
 }
 
 /// A tempdir whose fixture root is spelled `/path/to/directory` once scrubbed.

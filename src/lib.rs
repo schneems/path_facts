@@ -227,7 +227,7 @@ fn join_unfolded(base: &Path, parts: &[&str]) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_support::{module_doc_example, snapshot_body};
+    use crate::test_support::{module_doc_example, snapshot_body, unix_newlines};
 
     /// The output advertised at the top of this file is real, not typed by hand.
     ///
@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn verify_rdme_updated() {
         assert!(
-            include_str!("../README.md").contains(&snapshot_body(include_str!(
+            unix_newlines(include_str!("../README.md")).contains(&snapshot_body(include_str!(
                 "snapshots/prior_dir_problem_is_file.snap"
             ))),
             "README missing correct example output. Update the module docs and re-run `cargo rdme`"

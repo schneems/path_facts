@@ -159,7 +159,7 @@ impl AsRef<Path> for AbsPath {
 ///
 /// A target that opens with `..` is folded against that directory rather than left spelled with
 /// the two dots in it, so `../gone` beside `/a/sub/rel` reports `/a/gone` — the place it lands.
-/// See [`CanonicalPath::join_folded`].
+/// See [`CanonicalPath::join_fold_leading_parent_dirs`].
 ///
 /// The interface is wrong, it is displayed to the user such that it makes it seem that
 /// an absolute path is written to the symlink (when relative). When in reality the relative

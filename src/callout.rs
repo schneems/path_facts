@@ -114,10 +114,10 @@ pub(crate) fn highlight(path: &Path, caret: Caret) -> Option<Span> {
 /// The byte range `component` occupies in `full`, searched forward from `from`.
 ///
 /// Every component reports its own text except [`Component::RootDir`], which reports the
-/// platform's preferred separator: `\` on Windows, whichever separator the path was actually
-/// written with. Windows accepts `/` too, so a search for the reported text misses the root of
-/// `C:/tmp/x` and returns no caret for the whole path. Matching whichever separator is there keeps
-/// the cursor — and therefore every column after it — correct on both spellings.
+/// platform's preferred separator rather than the one the path was written with — always `\` on
+/// Windows, which accepts `/` just as well. So searching for the reported text finds no root in
+/// `C:/tmp/x`, and the whole path comes back with no caret at all. Matching whichever separator is
+/// actually there keeps the cursor, and therefore every column after it, right on both spellings.
 fn find_component(full: &str, from: usize, component: Component<'_>) -> Option<Range<usize>> {
     if component == Component::RootDir {
         // A separator is one ASCII byte, so its match is one byte and one character wide.

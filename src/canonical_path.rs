@@ -8,12 +8,12 @@
 //! Built from a [`AbsPath`] so we know the program has access to CWD.
 //! May have un-normalized parts i.e. `..`
 use crate::{
-    abs_path::AbsPath,
+    abs_path::{AbsPath, RelativePath},
     component::{self, NormalComponent},
 };
 use std::{
     fmt::Display,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 #[derive(Debug)]
@@ -82,6 +82,56 @@ impl CanonicalPath {
     /// in a directory (when the directory has read, but not execute permission).
     pub(crate) unsafe fn unchecked_join(&self, rest: &NormalComponent) -> CanonicalPath {
         CanonicalPath(self.as_ref().join(rest.as_ref()))
+    }
+
+    /// Resolves a relative path against this directory, folding the `..` parts it opens with
+    ///
+    /// Returns an [`AbsPath`] rather than a [`CanonicalPath`]: the fold answers where the relative
+    /// path is anchored, and says nothing about whether the name it ends in is there. The main
+    /// caller is a symlink's target, which is often exactly the name that is missing.
+    ///
+    /// Folding a leading `..` is sound for the same reason [`CanonicalPath::parent`] is: `self`
+    /// holds no symlinks, so the lexical parent is the physical one, which is what POSIX resolves
+    /// `..` to. Root is its own parent, matching `realpath` on `/..`.
+    ///
+    /// The fold stops at the first name, and it has to. A `..` *after* a name (`a/../b`) is a `..`
+    /// out of `a`, which belongs to `rest` rather than to `self` and so was never shown to be a
+    /// directory rather than a symlink somewhere else. Cancelling it would name a place the kernel
+    /// would not go.
+    ///
+    /// Windows folds those too, in the [`Path::join`] below, because `self` is verbatim there and
+    /// `push` normalizes onto a verbatim base. That matches the platform: Win32 collapses `..`
+    /// lexically before the kernel sees a path at all.
+    pub(crate) fn join_fold_leading_parent_dirs(&self, rest: &RelativePath) -> AbsPath {
+        let mut base = self.clone();
+        let mut rest = rest.as_ref().components().peekable();
+
+        while let Some(component) = rest.peek() {
+            match component {
+                // A `.` denotes the directory it sits in, so there is nothing to fold
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    if let Some(parent) = base.parent() {
+                        base = parent;
+                    }
+                }
+                _ => break,
+            }
+            rest.next();
+        }
+
+        let rest = rest.map(Component::as_os_str).collect::<PathBuf>();
+        let base = AbsPath::from(base);
+
+        // A path of nothing but dot parts is folded away entirely, and appending the empty
+        // remainder would leave a trailing separator on the directory it landed on.
+        if rest.as_os_str().is_empty() {
+            return base;
+        }
+
+        base.join_relative(
+            &RelativePath::new(rest).expect("what follows the dot parts of a relative path"),
+        )
     }
 
     /// Returns the filename of the path
@@ -179,5 +229,75 @@ impl AsRef<Path> for CanonicalPath {
 impl Display for CanonicalPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "`{}`", self.0.display())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn canonical(path: &Path) -> CanonicalPath {
+        CanonicalPath::new(&AbsPath::new(path).unwrap()).unwrap()
+    }
+
+    /// Relative paths are spelled with `/`, which Windows accepts, so both platforms see the same
+    /// components. Expected values are built with `join` so the separators are the platform's.
+    fn folded(dir: &CanonicalPath, rest: &str) -> PathBuf {
+        dir.join_fold_leading_parent_dirs(&RelativePath::new(rest).unwrap())
+            .as_ref()
+            .to_path_buf()
+    }
+
+    /// Every leading dot part folds, not only the first, and a `.` is stepped over on the way.
+    #[test]
+    fn test_join_folded_consumes_the_whole_leading_run() {
+        let temp = tempfile::tempdir().unwrap();
+        let anchor = temp.path().canonicalize().unwrap();
+        let b = anchor.join("a").join("b");
+        std::fs::create_dir_all(&b).unwrap();
+        let dir = canonical(&b);
+
+        assert_eq!(folded(&dir, "x"), b.join("x"));
+        assert_eq!(folded(&dir, "../x"), anchor.join("a").join("x"));
+        assert_eq!(folded(&dir, "../../x"), anchor.join("x"));
+        assert_eq!(folded(&dir, "./../x"), anchor.join("a").join("x"));
+
+        // Consumed entirely, so the directory the fold landed on is the whole answer
+        assert_eq!(folded(&dir, ".."), anchor.join("a"));
+    }
+
+    /// Root is its own parent, so a `..` run cannot walk off the top of the filesystem.
+    #[test]
+    fn test_join_folded_clamps_at_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp
+            .path()
+            .canonicalize()
+            .unwrap()
+            .components()
+            .take_while(|component| matches!(component, Component::Prefix(_) | Component::RootDir))
+            .map(|component| component.as_os_str())
+            .collect::<PathBuf>();
+        let dir = canonical(&root);
+
+        assert_eq!(folded(&dir, "../../x"), dir.as_ref().join("x"));
+    }
+
+    /// A `..` after a name is a `..` out of that name, which belongs to the relative path rather
+    /// than to this directory and was never shown to be a directory rather than a symlink
+    /// somewhere else. So it is left for the kernel to resolve.
+    ///
+    /// Unix-only: Windows collapses those itself, in the `join` the fold ends with, which matches
+    /// Win32 collapsing `..` lexically before the kernel sees a path.
+    #[test]
+    #[cfg(unix)]
+    fn test_join_folded_leaves_a_dot_dot_after_a_name_alone() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = canonical(&temp.path().canonicalize().unwrap());
+
+        assert_eq!(
+            folded(&dir, "a/../x"),
+            dir.as_ref().join("a").join("..").join("x")
+        );
     }
 }

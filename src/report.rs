@@ -554,11 +554,12 @@ mod tests {
             .join("c")
             .join("does_not_exist.txt");
 
-        insta::assert_snapshot!(report(&fixture.scrub(), path), @r"
+        let scrubber = fixture.scrub().not_found(fixture.join("a"));
+        insta::assert_snapshot!(report(&scrubber, path), @r"
         does not exist `/path/to/directory/a/b/c/does_not_exist.txt`
          - `/path/to/directory/a/b/c/does_not_exist.txt`
                                ^
-                               ↳ Missing: No such file or directory (os error 2)
+                               ↳ Missing: {error}
          - `/path/to/directory/a/b/c/does_not_exist.txt`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
@@ -760,12 +761,14 @@ mod tests {
     #[test]
     fn test_parent_exists_missing_file() {
         let fixture = Fixture::new();
+        let missing = fixture.join("does_not_exist.txt");
 
-        insta::assert_snapshot!(report(&fixture.scrub(), fixture.join("does_not_exist.txt")), @r"
+        let scrubber = fixture.scrub().not_found(&missing);
+        insta::assert_snapshot!(report(&scrubber, &missing), @r"
         does not exist `/path/to/directory/does_not_exist.txt`
          - `/path/to/directory/does_not_exist.txt`
                                ^^^^^^^^^^^^^^^^^^
-                               ↳ Missing: No such file or directory (os error 2)
+                               ↳ Missing: {error}
          - `/path/to/directory/does_not_exist.txt`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
@@ -804,13 +807,15 @@ mod tests {
             })
             .unwrap_err();
 
-        insta::assert_snapshot!(fixture.scrub().carets(&error), @r"
+        // Both reports quote the same refusal, so one rule covers the pair.
+        let scrubber = fixture.scrub().not_found(from);
+        insta::assert_snapshot!(scrubber.carets(&error), @r"
         cannot rename from `doesnotexist.txt` to `also_does_not_exist.txt` due to: {error}.
 
         From path does not exist `doesnotexist.txt`
          - `doesnotexist.txt`
             ^^^^^^^^^^^^^^^^
-            ↳ Missing: No such file or directory (os error 2)
+            ↳ Missing: {error}
             ↳ Absolute `/path/to/directory/doesnotexist.txt`
          - `/path/to/directory`
                      ^^^^^^^^^
@@ -822,7 +827,7 @@ mod tests {
         To path does not exist `also_does_not_exist.txt`
          - `also_does_not_exist.txt`
             ^^^^^^^^^^^^^^^^^^^^^^^
-            ↳ Missing: No such file or directory (os error 2)
+            ↳ Missing: {error}
             ↳ Absolute `/path/to/directory/also_does_not_exist.txt`
          - `/path/to/directory`
                      ^^^^^^^^^
@@ -970,11 +975,12 @@ mod tests {
         let fixture = Fixture::new();
         fixture.enter();
 
-        insta::assert_snapshot!(report(&fixture.scrub(), "a/b/c/does_not_exist.txt"), @r"
+        let scrubber = fixture.scrub().not_found("a");
+        insta::assert_snapshot!(report(&scrubber, "a/b/c/does_not_exist.txt"), @r"
         does not exist `a/b/c/does_not_exist.txt`
          - `a/b/c/does_not_exist.txt`
             ^
-            ↳ Missing: No such file or directory (os error 2)
+            ↳ Missing: {error}
             ↳ Absolute `/path/to/directory/a/b/c/does_not_exist.txt`
          - `/path/to/directory`
                      ^^^^^^^^^
@@ -991,10 +997,14 @@ mod tests {
         let fixture = Fixture::new();
         let readonly_dir = fixture.join("readonly_dir");
         std::fs::create_dir(&readonly_dir).unwrap();
+        let missing = readonly_dir.join("does_not_exist.txt");
+
+        // Read before the deny-write ACE goes on, so the wording comes from an ordinary refusal.
+        let scrubber = fixture.scrub().not_found(&missing);
 
         set_read_only(&readonly_dir).unwrap();
 
-        let output = report(&fixture.scrub(), readonly_dir.join("does_not_exist.txt"));
+        let output = report(&scrubber, &missing);
 
         // Remove the deny-write ACE so the tempdir can be cleaned up.
         #[cfg(windows)]
@@ -1004,7 +1014,7 @@ mod tests {
         does not exist `/path/to/directory/readonly_dir/does_not_exist.txt`
          - `/path/to/directory/readonly_dir/does_not_exist.txt`
                                             ^^^^^^^^^^^^^^^^^^
-                                            ↳ Missing: No such file or directory (os error 2)
+                                            ↳ Missing: {error}
          - `/path/to/directory/readonly_dir/does_not_exist.txt`
                                ^^^^^^^^^^^^
                                ↳ Dir [✅ read, ❌ write, ✅ execute]
@@ -1150,7 +1160,7 @@ mod tests {
                                ^^^^^^^^^^^
                                ↳ Symlink, unresolved
                                ↳ Points to `../does_not_exist`
-                               ↳ Points to (absolute) `/path/to/directory/../does_not_exist`
+                               ↳ Points to (absolute) `/path/to/does_not_exist`
                                ↳ Cannot resolve target: {error}
          - `/path/to/directory/broken_link/and/more.txt`
                      ^^^^^^^^^
@@ -1348,7 +1358,8 @@ mod tests {
 
         let report = Report::from_trace_result(path.clone(), Ok(trace));
 
-        insta::assert_snapshot!(fixture.scrub().carets(&report.to_string()), @r"
+        let scrubber = fixture.scrub().not_found(fixture.join("does_not_exist"));
+        insta::assert_snapshot!(scrubber.carets(&report.to_string()), @r"
         `/path/to/directory/a/b`
          - `/path/to/directory/a/b`
                                  ^
@@ -1356,7 +1367,7 @@ mod tests {
                                    ⚠️ Facts displayed may be invalid, stale or disagree.
                                    ⚠️
                                    ⚠️ Detected: realpath resolved this link, stat failed to resolve
-                                   ⚠️ Error: No such file or directory (os error 2)
+                                   ⚠️ Error: {error}
          - `/path/to/directory/a/b`
                                ^
                                ↳ Dir [✅ read, ✅ write, ✅ execute]

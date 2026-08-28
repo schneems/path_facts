@@ -182,6 +182,29 @@ impl Scrubber {
         self
     }
 
+    /// Replaces the OS's wording for "nothing is at this name" with `{error}`.
+    ///
+    /// A `Missing:` fact quotes the system, which says `No such file or directory (os error 2)` on
+    /// unix and `The system cannot find the file specified. (os error 2)` on Windows, so a snapshot
+    /// holding either one belongs to a single platform.
+    ///
+    /// Takes the wording from a real failed lookup of `missing` rather than listing the spellings,
+    /// so it stays right on a platform that words it a third way. `missing` must not exist, and is
+    /// normally the same path the report is about.
+    pub(crate) fn not_found(self, missing: impl AsRef<Path>) -> Self {
+        let missing = missing.as_ref();
+        let error = std::fs::symlink_metadata(missing).expect_err("a path that does not exist");
+        assert_eq!(
+            error.kind(),
+            std::io::ErrorKind::NotFound,
+            "expected `{}` to be missing, got: {}",
+            missing.display(),
+            error
+        );
+
+        self.error(error)
+    }
+
     /// Scrubs output that carries carets, realigning them, and marks the end with [`STOP`].
     pub(crate) fn carets(&self, rendered: &str) -> String {
         let mut shift = 0isize;

@@ -157,6 +157,10 @@ impl AsRef<Path> for AbsPath {
 /// A relative target resolves against the directory holding the symlink, not against the
 /// symlink itself. A link at `/a/sub/rel` pointing at `gone` names `/a/sub/gone`.
 ///
+/// A target that opens with `..` is folded against that directory rather than left spelled with
+/// the two dots in it, so `../gone` beside `/a/sub/rel` reports `/a/gone` — the place it lands.
+/// See [`CanonicalPath::join_folded`].
+///
 /// The interface is wrong, it is displayed to the user such that it makes it seem that
 /// an absolute path is written to the symlink (when relative). When in reality the relative
 /// path can matter if the file is/was moved.
@@ -166,10 +170,9 @@ pub(crate) fn readlink(
 ) -> Result<(PathBuf, AbsPath), std::io::Error> {
     let target = std::fs::read_link(absolute.as_ref())?;
 
-    if target.is_relative() {
-        Ok((target.clone(), AbsPath(dir.as_ref().join(target))))
-    } else {
-        Ok((target.clone(), AbsPath(target)))
+    match RelativePath::new(&target) {
+        Some(relative) => Ok((target, dir.join_fold_leading_parent_dirs(&relative))),
+        None => Ok((target.clone(), AbsPath(target))),
     }
 }
 

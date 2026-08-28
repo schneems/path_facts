@@ -7,7 +7,7 @@
 use crate::canonical_path::CanonicalPath;
 use std::{
     fmt::{Display, Formatter},
-    path::{Component, Path, PathBuf},
+    path::{Component, Path, PathBuf, Prefix},
 };
 
 /// Guaranteed to be relative
@@ -134,6 +134,51 @@ impl AbsPath {
         }
         AbsPath(root)
     }
+
+    /// Checks if the same physical URL is represented
+    ///
+    /// Handles differeing canonical leaders i.e. comparing `\\?\C:\a\b` and `C:\a\b` is true.
+    pub(crate) fn same_place_as(&self, other: &Path) -> bool {
+        same_volume_prefix(volume_prefix(self.as_ref()), volume_prefix(other))
+            && path_without_prefix(self.as_ref()).eq(path_without_prefix(other))
+    }
+}
+
+fn path_without_prefix(path: &Path) -> impl Iterator<Item = Component<'_>> {
+    path.components()
+        .filter(|component| !matches!(component, Component::Prefix(_)))
+}
+
+fn volume_prefix(path: &Path) -> Option<Prefix<'_>> {
+    match path.components().next() {
+        Some(Component::Prefix(prefix)) => Some(prefix.kind()),
+        _ => None,
+    }
+}
+
+/// Whether two path prefixes name the same volume, ignoring which spelling of it was used
+///
+/// A prefix is Windows-only: unix paths have none, and two `None`s agree. See
+/// [`AbsPath::same_place_as`].
+fn same_volume_prefix(left: Option<Prefix<'_>>, right: Option<Prefix<'_>>) -> bool {
+    match (left, right) {
+        (
+            Some(Prefix::Disk(left) | Prefix::VerbatimDisk(left)),
+            Some(Prefix::Disk(right) | Prefix::VerbatimDisk(right)),
+        ) => left.eq_ignore_ascii_case(&right),
+        (
+            Some(
+                Prefix::UNC(left_server, left_share) | Prefix::VerbatimUNC(left_server, left_share),
+            ),
+            Some(
+                Prefix::UNC(right_server, right_share)
+                | Prefix::VerbatimUNC(right_server, right_share),
+            ),
+        ) => left_server == right_server && left_share == right_share,
+        // A device namespace (`\\.\COM1`) or a bare verbatim prefix (`\\?\pictures`) names no
+        // volume to compare, so nothing but the same spelling can be shown to be the same place.
+        (left, right) => left == right,
+    }
 }
 
 impl Display for AbsPath {
@@ -232,6 +277,30 @@ mod tests {
             abs(dir.join("a").join("..").join("b")).lex_root(),
             abs(&dir).lex_root()
         );
+    }
+
+    /// Every component after the prefix is compared as spelled, so this is only equality plus the
+    /// prefix rule below. The interesting cases are Windows-only.
+    #[test]
+    fn test_same_place_as_compares_the_components() {
+        let (_temp, dir) = tempdir();
+
+        assert!(abs(&dir).same_place_as(&dir));
+        assert!(!abs(&dir).same_place_as(&dir.join("x")));
+        assert!(!abs(dir.join("x")).same_place_as(&dir.join("y")));
+    }
+
+    /// The pair Windows actually hands out: `read_link` reports a target it converted to the
+    /// user-facing spelling and `canonicalize` reports the verbatim one.
+    #[test]
+    #[cfg(windows)]
+    fn test_same_place_as_across_the_two_windows_spellings() {
+        assert!(abs(r"\\?\C:\a\b").same_place_as(Path::new(r"C:\a\b")));
+        assert!(abs(r"\\?\C:\a\b").same_place_as(Path::new(r"c:\a\b")));
+
+        // A volume is still a volume: the loose prefix does not make two drives one place.
+        assert!(!abs(r"\\?\C:\a\b").same_place_as(Path::new(r"D:\a\b")));
+        assert!(!abs(r"\\?\C:\a\b").same_place_as(Path::new(r"C:\a\c")));
     }
 
     #[test]

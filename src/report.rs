@@ -337,7 +337,7 @@ fn resolved_elsewhere(step: &Step) -> Option<CanonicalPath> {
         PhysicalNode::Symlink {
             target: Ok((_, absolute)),
             resolved: Ok(resolved),
-        } => (absolute.as_ref() != AsRef::<Path>::as_ref(resolved)).then(|| resolved.clone()),
+        } => (!absolute.same_place_as(resolved.as_ref())).then(|| resolved.clone()),
         _ => {
             let resolved = step.contents.resolved_to()?;
             let spelled = step.at.as_ref()?;
@@ -633,9 +633,7 @@ mod tests {
         std::fs::write(nested.join("inside.txt"), "").unwrap();
         symlink_dir(&nested, fixture.join("dir_link")).unwrap();
 
-        // `<root>/..`, the one `..` that cannot move: root is its own parent. Built by pushing onto
-        // the root's own `OsString` rather than with `join_unfolded`, which would add a second
-        // separator to a root that already ends in one.
+        // `<root>/..`, the one `..` that cannot move: root is its own parent.
         let root_dot_dot = {
             let root = fixture
                 .root()
@@ -645,9 +643,7 @@ mod tests {
                 })
                 .map(|component| component.as_os_str())
                 .collect::<PathBuf>();
-            let mut raw = root.into_os_string();
-            raw.push("..");
-            PathBuf::from(raw)
+            join_unfolded(&root, &[".."])
         };
 
         let cases: Vec<(&str, PathBuf)> = vec![

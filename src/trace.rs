@@ -1639,7 +1639,7 @@ mod tests {
     #[test]
     fn test_verbatim_root_with_a_dot_does_not_produce_a_zero_step_trace() {
         let verbatim_root = root_of(&std::env::current_dir().unwrap().canonicalize().unwrap());
-        let dotted = verbatim_root.join(".");
+        let dotted = join_unfolded(&verbatim_root, &["."]);
         assert!(
             dotted.components().any(|c| matches!(c, Component::CurDir)),
             "expected the verbatim `.` to survive in {:?}, got {:?}",

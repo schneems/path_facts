@@ -88,8 +88,8 @@ pub(crate) enum PhysicalNode {
     ///
     /// Pointing somewhere and arriving somewhere are separate facts, so both are kept.
     /// `target` is a single `readlink`, reporting where the link points without following
-    /// it. `resolved` is where following it lands, and carries the error when it lands
-    /// nowhere.
+    /// it. `resolved` is where following it lands and what is there, and carries the error
+    /// when it lands nowhere.
     ///
     /// Both are results because `lstat` calling a name a symlink does not promise that
     /// either call succeeds. Apple's libc checks the link's own permission bits on
@@ -107,7 +107,7 @@ pub(crate) enum PhysicalNode {
     /// may not resolve either, and symlinks can be made to point in a circle.
     Symlink {
         target: Result<(PathBuf, AbsPath), std::io::Error>,
-        resolved: Result<CanonicalPath, std::io::Error>,
+        resolved: Result<Resolved, std::io::Error>,
     },
 
     /// Nothing is at this name
@@ -196,6 +196,29 @@ pub(crate) enum PhysicalNode {
     NotReached,
 }
 
+/// Where following a symlink landed, and whether it can hold anything below it
+///
+/// The same split [`PhysicalNode::Directory`] and [`PhysicalNode::File`] draw at a name the
+/// walk looked at directly. It is recorded rather than asked for later because the walk
+/// already has to make the distinction to know whether it may continue, and a second `stat`
+/// at render time would answer for a different moment than the rest of the walk.
+#[derive(Debug)]
+pub(crate) enum Resolved {
+    /// The link lands on a directory, so the walk can continue through it
+    Dir(CanonicalPath),
+    /// The link lands on something that is not a directory, so nothing is below it
+    File(CanonicalPath),
+}
+
+impl Resolved {
+    /// Where the link landed, whatever is there
+    pub(crate) fn path(&self) -> &CanonicalPath {
+        match self {
+            Resolved::Dir(path) | Resolved::File(path) => path,
+        }
+    }
+}
+
 impl PhysicalNode {
     /// The physical location this component resolved to
     ///
@@ -204,7 +227,10 @@ impl PhysicalNode {
     pub(crate) fn resolved_to(&self) -> Option<Cow<'_, CanonicalPath>> {
         match self {
             PhysicalNode::Directory(path) | PhysicalNode::File(path) => Some(Cow::Borrowed(path)),
-            PhysicalNode::Symlink { resolved, .. } => resolved.as_ref().ok().map(Cow::Borrowed),
+            PhysicalNode::Symlink { resolved, .. } => resolved
+                .as_ref()
+                .ok()
+                .map(|landed| Cow::Borrowed(landed.path())),
             PhysicalNode::ParentDir { resolved, .. } => Some(Cow::Borrowed(resolved)),
             PhysicalNode::Missing(_)
             | PhysicalNode::UnknownLookup(_)
@@ -910,15 +936,21 @@ fn follow(dir: &CanonicalPath, link: &AbsPath) -> (PhysicalNode, Reached) {
     // standing in something that is not a directory, which would make `..` unsound.
     match std::fs::metadata(resolved.as_ref()) {
         Ok(metadata) => {
-            let next = if metadata.is_dir() {
-                Reached::Dir(resolved.clone())
+            let (landed, next) = if metadata.is_dir() {
+                (
+                    Resolved::Dir(resolved.clone()),
+                    Reached::Dir(resolved.clone()),
+                )
             } else {
-                Reached::Ghost(AbsPath::from(resolved.clone()))
+                (
+                    Resolved::File(resolved.clone()),
+                    Reached::Ghost(AbsPath::from(resolved)),
+                )
             };
             (
                 PhysicalNode::Symlink {
                     target,
-                    resolved: Ok(resolved),
+                    resolved: Ok(landed),
                 },
                 next,
             )
@@ -1546,7 +1578,7 @@ mod tests {
         let trace = walk(dir.join("flink").join("c"));
         match &stopped(&trace).contents {
             PhysicalNode::Symlink { resolved, .. } => {
-                assert_eq!(resolved.as_ref().unwrap().as_ref(), dir.join("f"))
+                assert_eq!(resolved.as_ref().unwrap().path().as_ref(), dir.join("f"))
             }
             other => panic!("expected Symlink got {:?}", other),
         }

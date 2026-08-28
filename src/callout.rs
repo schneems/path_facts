@@ -380,18 +380,16 @@ mod tests {
             path: "/tmp/lnk/dangling".to_string(),
             caret: highlight(Path::new("/tmp/lnk/dangling"), Caret::Last),
             facts: vec![
-                text("Symlink → `../lnk/real/nope.txt`"),
-                text("Absolute → `/tmp/lnk/../lnk/real/nope.txt`"),
-                text("Cannot resolve target: No such file or directory (os error 2)"),
+                text("Symlink, cannot follow: No such file or directory (os error 2)"),
+                text("Target `../lnk/real/nope.txt` → `/tmp/lnk/../lnk/real/nope.txt`"),
             ],
         };
 
         insta::assert_snapshot!(render_callout(&callout), @r"
          - `/tmp/lnk/dangling`
                      ^^^^^^^^
-                     ↳ Symlink → `../lnk/real/nope.txt`
-                     ↳ Absolute → `/tmp/lnk/../lnk/real/nope.txt`
-                     ↳ Cannot resolve target: No such file or directory (os error 2)
+                     ↳ Symlink, cannot follow: No such file or directory (os error 2)
+                     ↳ Target `../lnk/real/nope.txt` → `/tmp/lnk/../lnk/real/nope.txt`
         ");
     }
 
@@ -401,9 +399,8 @@ mod tests {
             path: "/tmp/lnk/dangling".to_string(),
             caret: highlight(Path::new("/tmp/lnk/dangling"), Caret::Last),
             facts: vec![
-                text("Symlink → `../lnk/real/nope.txt`"),
-                text("Absolute → `/tmp/lnk/../lnk/real/nope.txt`"),
-                text("Cannot resolve target: No such file or directory (os error 2)"),
+                text("Symlink, cannot follow: No such file or directory (os error 2)"),
+                text("Target `../lnk/real/nope.txt` → `/tmp/lnk/../lnk/real/nope.txt`"),
             ],
         };
         let dir = doc_example_callout();
@@ -411,9 +408,8 @@ mod tests {
         insta::assert_snapshot!(render_callouts(&[leaf, dir]), @r"
          - `/tmp/lnk/dangling`
                      ^^^^^^^^
-                     ↳ Symlink → `../lnk/real/nope.txt`
-                     ↳ Absolute → `/tmp/lnk/../lnk/real/nope.txt`
-                     ↳ Cannot resolve target: No such file or directory (os error 2)
+                     ↳ Symlink, cannot follow: No such file or directory (os error 2)
+                     ↳ Target `../lnk/real/nope.txt` → `/tmp/lnk/../lnk/real/nope.txt`
          - `/tmp/lnk/../lnk/real/`
                             ^^^^
                             ↳ Dir [✅ read, ✅ write, ✅ execute]

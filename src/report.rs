@@ -6,7 +6,7 @@ use crate::abs_path::AbsPathError;
 use crate::callout::{self, Callout, Caret, Entry, Fact};
 use crate::canonical_path::{CannotCanonicalizeAnything, CanonicalPath};
 use crate::style;
-use crate::trace::{CannotTrace, PhysicalNode, StatusOnDisk, Step, StopStatus, Trace};
+use crate::trace::{CannotTrace, PhysicalNode, Resolved, StatusOnDisk, Step, StopStatus, Trace};
 use faccess::{AccessMode, PathExt};
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
@@ -264,12 +264,20 @@ fn stopped_step_type_line(step: &Step, early: bool) -> String {
         }
         PhysicalNode::ParentDir { resolved, .. } => format!("Dir {}", triad(resolved.as_ref())),
         PhysicalNode::Symlink {
-            resolved: Ok(canonical),
+            resolved: Ok(Resolved::Dir(canonical)),
             ..
-        } => format!("Symlink{not_a_dir} {}", triad(canonical.as_ref())),
+        } => format!("Symlink, resolves to dir {}", triad(canonical.as_ref())),
         PhysicalNode::Symlink {
-            resolved: Err(_), ..
-        } => "Symlink, unresolved".to_string(),
+            resolved: Ok(Resolved::File(canonical)),
+            ..
+        } => format!(
+            "Symlink, resolves to file{not_a_dir} {}",
+            triad(canonical.as_ref())
+        ),
+        PhysicalNode::Symlink {
+            resolved: Err(error),
+            ..
+        } => format!("Symlink, cannot follow: {error}"),
         PhysicalNode::Missing(error) => format!("Missing: {error}"),
         PhysicalNode::UnknownLookup(error) => format!("Cannot lstat: {error}"),
         PhysicalNode::ParentNoExec { .. } => {
@@ -292,24 +300,16 @@ fn stopped_step_type_line(step: &Step, early: bool) -> String {
 /// through to the name.
 fn stopped_step_detail_facts(step: &Step) -> Vec<Fact> {
     match &step.contents {
-        PhysicalNode::Symlink { target, resolved } => {
-            let mut facts = Vec::new();
-            match target {
-                Ok((written, absolute)) => {
-                    facts.push(Fact::Text(format!("Points to `{}`", written.display())));
-                    // A relative target resolves against the directory holding the link, which is
-                    // worth spelling out because the two look nothing alike.
-                    if absolute.as_ref() != written.as_path() {
-                        facts.push(Fact::Text(format!("Points to (absolute) {absolute}")));
-                    }
-                }
-                Err(error) => facts.push(Fact::Text(format!("Cannot readlink: {error}"))),
+        PhysicalNode::Symlink { target, .. } => match target {
+            Ok((written, absolute)) if absolute.as_ref() == written.as_path() => {
+                vec![Fact::Text(format!("Target `{}`", written.display()))]
             }
-            if let Err(error) = resolved {
-                facts.push(Fact::Text(format!("Cannot resolve target: {error}")));
-            }
-            facts
-        }
+            Ok((written, absolute)) => vec![Fact::Text(format!(
+                "Target `{}` → {absolute}",
+                written.display()
+            ))],
+            Err(error) => vec![Fact::Text(format!("Cannot readlink: {error}"))],
+        },
         // The type line says the name was only ever seen in a listing. This says what the system
         // answered when the walk asked about it directly, which is the sentence a reader can
         // search for. The error is the one the walk already holds rather than a fresh call: asking
@@ -333,11 +333,11 @@ fn resolved_elsewhere(step: &Step) -> Option<CanonicalPath> {
             folded: _,
             resolved,
         } => Some(resolved.clone()),
-        // A link whose target is already spelled absolutely was named by `Points to` above.
+        // A link whose target lands where it points was named by `Target` above.
         PhysicalNode::Symlink {
             target: Ok((_, absolute)),
-            resolved: Ok(resolved),
-        } => (!absolute.same_place_as(resolved.as_ref())).then(|| resolved.clone()),
+            resolved: Ok(landed),
+        } => (!absolute.same_place_as(landed.path().as_ref())).then(|| landed.path().clone()),
         _ => {
             let resolved = step.contents.resolved_to()?;
             let spelled = step.at.as_ref()?;
@@ -876,9 +876,39 @@ mod tests {
         exists `/path/to/link/link_to_target.txt`
          - `/path/to/link/link_to_target.txt`
                           ^^^^^^^^^^^^^^^^^^
-                          ↳ Symlink [✅ read, ✅ write, ❌ execute]
-                          ↳ Points to `/path/to/target/target.txt`
+                          ↳ Symlink, resolves to file [✅ read, ✅ write, ❌ execute]
+                          ↳ Target `/path/to/target/target.txt`
          - `/path/to/link/link_to_target.txt`
+                     ^^^^
+                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                     ↳ Contains (1)
+                       └── `link_to_target.txt` (exists)
+        🛑
+        ");
+    }
+
+    /// The link resolves, so the type line can say what it landed on, and what it landed on is
+    /// why the walk stopped. `, not a dir` is the same contrast a plain `File` draws when the
+    /// caller wrote more path after it, said here about the destination rather than the link.
+    #[test]
+    fn test_symlink_to_file_with_more_path_after_it() {
+        let target = Fixture::named("target");
+        let link = Fixture::named("link");
+
+        let target_file = target.join("target.txt");
+        std::fs::write(&target_file, "content").unwrap();
+
+        let symlink_path = link.join("link_to_target.txt");
+        symlink_file(&target_file, &symlink_path).unwrap();
+
+        let scrubber = link.scrub().path(target.anchor(), "");
+        insta::assert_snapshot!(report(&scrubber, symlink_path.join("below.txt")), @r"
+        does not exist `/path/to/link/link_to_target.txt/below.txt`
+         - `/path/to/link/link_to_target.txt/below.txt`
+                          ^^^^^^^^^^^^^^^^^^
+                          ↳ Symlink, resolves to file, not a dir [✅ read, ✅ write, ❌ execute]
+                          ↳ Target `/path/to/target/target.txt`
+         - `/path/to/link/link_to_target.txt/below.txt`
                      ^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
                      ↳ Contains (1)
@@ -903,8 +933,8 @@ mod tests {
         exists `/path/to/link/link_to_dir`
          - `/path/to/link/link_to_dir`
                           ^^^^^^^^^^^
-                          ↳ Symlink [✅ read, ✅ write, ✅ execute]
-                          ↳ Points to `/path/to/target/target_dir`
+                          ↳ Symlink, resolves to dir [✅ read, ✅ write, ✅ execute]
+                          ↳ Target `/path/to/target/target_dir`
          - `/path/to/link/link_to_dir`
                      ^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
@@ -1039,9 +1069,8 @@ mod tests {
         exists `/path/to/directory/link1`
          - `/path/to/directory/link1`
                                ^^^^^
-                               ↳ Symlink, unresolved
-                               ↳ Points to `/path/to/directory/link2`
-                               ↳ Cannot resolve target: {error}
+                               ↳ Symlink, cannot follow: {error}
+                               ↳ Target `/path/to/directory/link2`
          - `/path/to/directory/link1`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
@@ -1067,10 +1096,8 @@ mod tests {
         exists `link1`
          - `link1`
             ^^^^^
-            ↳ Symlink, unresolved
-            ↳ Points to `link2`
-            ↳ Points to (absolute) `/path/to/directory/link2`
-            ↳ Cannot resolve target: {error}
+            ↳ Symlink, cannot follow: {error}
+            ↳ Target `link2` → `/path/to/directory/link2`
             ↳ Absolute `/path/to/directory/link1`
          - `/path/to/directory`
                      ^^^^^^^^^
@@ -1096,9 +1123,8 @@ mod tests {
         exists `/path/to/directory/broken_link`
          - `/path/to/directory/broken_link`
                                ^^^^^^^^^^^
-                               ↳ Symlink, unresolved
-                               ↳ Points to `/path/to/directory/does_not_exist`
-                               ↳ Cannot resolve target: {error}
+                               ↳ Symlink, cannot follow: {error}
+                               ↳ Target `/path/to/directory/does_not_exist`
          - `/path/to/directory/broken_link`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
@@ -1124,9 +1150,8 @@ mod tests {
         `/path/to/directory/broken_link/and/more.txt`
          - `/path/to/directory/broken_link/and/more.txt`
                                ^^^^^^^^^^^
-                               ↳ Symlink, unresolved
-                               ↳ Points to `/path/to/directory/does_not_exist`
-                               ↳ Cannot resolve target: {error}
+                               ↳ Symlink, cannot follow: {error}
+                               ↳ Target `/path/to/directory/does_not_exist`
          - `/path/to/directory/broken_link/and/more.txt`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
@@ -1154,10 +1179,8 @@ mod tests {
         `/path/to/directory/broken_link/and/more.txt`
          - `/path/to/directory/broken_link/and/more.txt`
                                ^^^^^^^^^^^
-                               ↳ Symlink, unresolved
-                               ↳ Points to `../does_not_exist`
-                               ↳ Points to (absolute) `/path/to/does_not_exist`
-                               ↳ Cannot resolve target: {error}
+                               ↳ Symlink, cannot follow: {error}
+                               ↳ Target `../does_not_exist` → `/path/to/does_not_exist`
          - `/path/to/directory/broken_link/and/more.txt`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
@@ -1210,10 +1233,8 @@ mod tests {
         exists `broken_link`
          - `broken_link`
             ^^^^^^^^^^^
-            ↳ Symlink, unresolved
-            ↳ Points to `does_not_exist`
-            ↳ Points to (absolute) `/path/to/directory/does_not_exist`
-            ↳ Cannot resolve target: {error}
+            ↳ Symlink, cannot follow: {error}
+            ↳ Target `does_not_exist` → `/path/to/directory/does_not_exist`
             ↳ Absolute `/path/to/directory/broken_link`
          - `/path/to/directory`
                      ^^^^^^^^^

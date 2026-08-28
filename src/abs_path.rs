@@ -206,9 +206,10 @@ impl AsRef<Path> for AbsPath {
 /// the two dots in it, so `../gone` beside `/a/sub/rel` reports `/a/gone` — the place it lands.
 /// See [`CanonicalPath::join_fold_leading_parent_dirs`].
 ///
-/// The interface is wrong, it is displayed to the user such that it makes it seem that
-/// an absolute path is written to the symlink (when relative). When in reality the relative
-/// path can matter if the file is/was moved.
+/// Both spellings come back because they are different facts. The written target is what the
+/// link holds, and it is what survives the link being moved; the absolute one is only where that
+/// text lands while the link sits where it sits. A caller that shows one must show the written
+/// one, or it claims the link holds a path it does not.
 pub(crate) fn readlink(
     dir: &CanonicalPath,
     absolute: &AbsPath,

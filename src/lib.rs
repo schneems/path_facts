@@ -215,11 +215,24 @@ pub use path_facts::PathFacts;
 /// `base.join("..")` to exercise `..` handling would find the `..` already gone. Building
 /// the `OsString` by hand with explicit separators skips the fold, so the `..` survives
 /// into `components()` on every platform. See `fact_check.rs` for the underlying fact.
+///
+/// A separator is only added where one is needed. A root is spelled with a trailing separator
+/// already (`/`, or `\\?\C:\` behind a verbatim prefix), and doubling it would build a path no
+/// caller writes.
 #[cfg(test)]
 fn join_unfolded(base: &Path, parts: &[&str]) -> PathBuf {
     let mut raw = base.as_os_str().to_os_string();
     for part in parts {
-        raw.push(std::path::MAIN_SEPARATOR_STR);
+        let ends_with_separator = raw
+            .as_encoded_bytes()
+            .last()
+            .copied()
+            .map(char::from)
+            .is_some_and(std::path::is_separator);
+
+        if !ends_with_separator {
+            raw.push(std::path::MAIN_SEPARATOR_STR);
+        }
         raw.push(part);
     }
     PathBuf::from(raw)
@@ -227,7 +240,28 @@ fn join_unfolded(base: &Path, parts: &[&str]) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::test_support::{module_doc_example, snapshot_body, unix_newlines};
+
+    #[test]
+    fn join_unfolded_writes_one_separator_between_parts() {
+        let separator = std::path::MAIN_SEPARATOR_STR;
+        let joined = |base: &Path, parts: &[&str]| join_unfolded(base, parts).into_os_string();
+
+        let base = PathBuf::from(format!("{separator}a"));
+        let expected = std::ffi::OsString::from(format!("{separator}a{separator}b{separator}c"));
+
+        assert_eq!(joined(&base, &["b", "c"]), expected);
+
+        // A part that ends in a separator, so the next one must not add a second
+        // assert_eq!(joined(&base, &[&format!("b{separator}"), "c"]), expected);
+
+        // A root, which is the base every `..` test in the suite starts from
+        assert_eq!(
+            joined(Path::new(separator), &[".."]),
+            std::ffi::OsString::from(format!("{separator}.."))
+        );
+    }
 
     /// The output advertised at the top of this file is real, not typed by hand.
     ///

@@ -1061,12 +1061,6 @@ mod tests {
             .collect()
     }
 
-    /// The directory to list and the name to point at, as plain values
-    fn listing(trace: &Trace) -> (PathBuf, NormalComponent) {
-        let listing = trace.listing().expect("a listing");
-        (listing.dir.as_ref().to_path_buf(), listing.entry)
-    }
-
     /// The step the walk stopped at, which has to exist for the test to be about anything
     fn stopped(trace: &Trace) -> &Step {
         trace.stopped_early_at().expect("steps is never empty")
@@ -1082,10 +1076,10 @@ mod tests {
         let trace = walk(&path);
         assert!(trace.stopped_early_at().is_none());
         assert_eq!(trace.physical_location().unwrap().as_ref(), path);
-        assert_eq!(
-            listing(&trace),
-            (dir.join("a").join("b"), one("c").normal().unwrap().clone())
-        );
+
+        let listing = trace.listing().unwrap();
+        assert_eq!(listing.dir.as_ref(), dir.join("a").join("b"));
+        assert_eq!(listing.entry, norm("c"));
     }
 
     /// A name that is not there is still a name in a directory that is, so the listing
@@ -1099,10 +1093,10 @@ mod tests {
         let trace = walk(b.join("c"));
         assert!(trace.physical_location().is_none());
         assert!(matches!(stopped(&trace).contents, PhysicalNode::Missing(_)));
-        assert_eq!(
-            listing(&trace),
-            (b.clone(), one("c").normal().unwrap().clone())
-        );
+
+        let listing = trace.listing().unwrap();
+        assert_eq!(listing.dir.as_ref(), b);
+        assert_eq!(listing.entry, norm("c"));
         assert_eq!(trace.parent_name().unwrap().as_ref(), b);
     }
 
@@ -1128,10 +1122,10 @@ mod tests {
             }
             other => panic!("expected Symlink got {:?}", other),
         }
-        assert_eq!(
-            listing(&trace),
-            (dir.clone(), one("c").normal().unwrap().clone())
-        );
+
+        let listing = trace.listing().unwrap();
+        assert_eq!(listing.dir.as_ref(), dir);
+        assert_eq!(listing.entry, norm("c"));
     }
 
     /// A circular link is the same shape as a dangling one: `lstat` succeeds on the link
@@ -1153,10 +1147,10 @@ mod tests {
             }
             other => panic!("expected Symlink got {:?}", other),
         }
-        assert_eq!(
-            listing(&trace),
-            (dir, one("loop1").normal().unwrap().clone())
-        );
+
+        let listing = trace.listing().unwrap();
+        assert_eq!(listing.dir.as_ref(), dir);
+        assert_eq!(listing.entry, norm("loop1"));
     }
 
     /// The case a canonical path cannot express: `b` is missing, so `<dir>/a/b` is an exact
@@ -1173,10 +1167,9 @@ mod tests {
         assert_eq!(stop.at.as_ref().unwrap().as_ref(), b);
 
         // The listing points at the missing name itself, inside a directory that exists
-        assert_eq!(
-            listing(&trace),
-            (dir.join("a"), one("b").normal().unwrap().clone())
-        );
+        let listing = trace.listing().unwrap();
+        assert_eq!(listing.dir.as_ref(), dir.join("a"));
+        assert_eq!(listing.entry, norm("b"));
         assert_eq!(trace.parent_name().unwrap().as_ref(), b);
     }
 
@@ -1189,7 +1182,10 @@ mod tests {
 
         let trace = walk(b.join("c").join("d"));
         assert_eq!(stopped(&trace).at.as_ref().unwrap().as_ref(), b);
-        assert_eq!(listing(&trace), (dir.join("a"), norm("b")));
+
+        let listing = trace.listing().unwrap();
+        assert_eq!(listing.dir.as_ref(), dir.join("a"));
+        assert_eq!(listing.entry, norm("b"));
         assert_eq!(trace.parent_name().unwrap().as_ref(), b.join("c"));
     }
 
@@ -1207,7 +1203,10 @@ mod tests {
         let stop = stopped(&trace);
         assert!(matches!(stop.contents, PhysicalNode::Missing(_)));
         assert_eq!(stop.at.as_ref().unwrap().as_ref(), c);
-        assert_eq!(listing(&trace), (b, norm("c")));
+
+        let listing = trace.listing().unwrap();
+        assert_eq!(listing.dir.as_ref(), b);
+        assert_eq!(listing.entry, norm("c"));
 
         // The only query the `..` takes away
         assert!(trace.parent_name().is_none());
@@ -1223,7 +1222,10 @@ mod tests {
 
         let trace = walk(join_unfolded(&b, &["..", "c"]));
         assert_eq!(stopped(&trace).at.as_ref().unwrap().as_ref(), b);
-        assert_eq!(listing(&trace), (dir.join("a"), norm("b")));
+
+        let listing = trace.listing().unwrap();
+        assert_eq!(listing.dir.as_ref(), dir.join("a"));
+        assert_eq!(listing.entry, norm("b"));
         assert!(trace.parent_name().is_none());
     }
 
@@ -1239,7 +1241,10 @@ mod tests {
 
         let trace = walk(link.join("c"));
         assert!(trace.physical_location().is_none());
-        assert_eq!(listing(&trace), (target.clone(), norm("c")));
+
+        let listing = trace.listing().unwrap();
+        assert_eq!(listing.dir.as_ref(), target);
+        assert_eq!(listing.entry, norm("c"));
         assert_eq!(trace.parent_name().unwrap().as_ref(), target);
 
         let trace = walk(link.join("c").join("d").join("e"));
@@ -1247,7 +1252,10 @@ mod tests {
             stopped(&trace).at.as_ref().unwrap().as_ref(),
             target.join("c")
         );
-        assert_eq!(listing(&trace), (target.clone(), norm("c")));
+
+        let listing = trace.listing().unwrap();
+        assert_eq!(listing.dir.as_ref(), target);
+        assert_eq!(listing.entry, norm("c"));
         assert_eq!(
             trace.parent_name().unwrap().as_ref(),
             target.join("c").join("d")
@@ -1278,7 +1286,9 @@ mod tests {
         }
 
         // Wherever the link points, the link itself sits in a directory that exists
-        assert_eq!(listing(&trace), (dir, norm("dangling")));
+        let listing = trace.listing().unwrap();
+        assert_eq!(listing.dir.as_ref(), dir);
+        assert_eq!(listing.entry, norm("dangling"));
 
         // A child of the link would live under the target, which does not resolve
         assert!(trace.parent_name().is_none());
@@ -1460,7 +1470,9 @@ mod tests {
         assert_eq!(stop.at.as_ref().unwrap().as_ref(), closed.join("inner"));
         assert!(closed.join("inner").access(AccessMode::EXECUTE).is_err());
 
-        assert_eq!(listing(&trace), (closed, norm("inner")));
+        let listing = trace.listing().unwrap();
+        assert_eq!(listing.dir.as_ref(), closed);
+        assert_eq!(listing.entry, norm("inner"));
         assert!(trace.parent_name().is_none());
     }
 
@@ -1474,7 +1486,10 @@ mod tests {
             PhysicalNode::File(file) => assert_eq!(file.as_ref(), dir.join("f")),
             other => panic!("expected File got {:?}", other),
         }
-        assert_eq!(listing(&trace), (dir, norm("f")));
+
+        let listing = trace.listing().unwrap();
+        assert_eq!(listing.dir.as_ref(), dir);
+        assert_eq!(listing.entry, norm("f"));
     }
 
     /// An ancestor that blocks descent stops the walk early, and that step carries the physical
@@ -1565,7 +1580,10 @@ mod tests {
             PhysicalNode::File(file) => assert_eq!(file.as_ref(), dir.join("f")),
             other => panic!("expected File got {:?}", other),
         }
-        assert_eq!(listing(&trace), (dir, norm("f")));
+
+        let listing = trace.listing().unwrap();
+        assert_eq!(listing.dir.as_ref(), dir);
+        assert_eq!(listing.entry, norm("f"));
     }
 
     #[cfg(unix)]
@@ -1582,7 +1600,10 @@ mod tests {
             }
             other => panic!("expected Symlink got {:?}", other),
         }
-        assert_eq!(listing(&trace), (dir, norm("flink")));
+
+        let listing = trace.listing().unwrap();
+        assert_eq!(listing.dir.as_ref(), dir);
+        assert_eq!(listing.entry, norm("flink"));
     }
 
     /// The entry name comes from the resolved location, so a trailing `..` points at `a`
@@ -1596,7 +1617,10 @@ mod tests {
 
         let trace = walk(b.join(".."));
         assert_eq!(trace.physical_location().unwrap().as_ref(), dir.join("a"));
-        assert_eq!(listing(&trace), (dir.clone(), norm("a")));
+
+        let listing = trace.listing().unwrap();
+        assert_eq!(listing.dir.as_ref(), dir);
+        assert_eq!(listing.entry, norm("a"));
         assert_eq!(trace.parent_name().unwrap().as_ref(), dir);
     }
 

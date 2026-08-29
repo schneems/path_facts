@@ -3,13 +3,33 @@
 //! Holding this type guarantees that the path is not empty and the program has permission to read CWD.
 //!
 //! A property of absolute paths is that recursively retrieving their parent paths will eventually
-//! lead to the root path. The parent of an absolute path is also an absolute path [`AbsPath::parent`].
-//!
-//! If the held path is a readable directory, all children are also absolute paths [`AbsPath::read_dir`].
+//! lead to the root path. The parent of an absolute path is also an absolute path [`AbsPath::lex_parent`].
+use crate::canonical_path::CanonicalPath;
 use std::{
     fmt::{Display, Formatter},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf, Prefix},
 };
+
+/// Guaranteed to be relative
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct RelativePath(PathBuf);
+
+impl RelativePath {
+    pub(crate) fn new(path: impl AsRef<Path>) -> Option<Self> {
+        let path = path.as_ref();
+        if path.is_relative() {
+            Some(Self(path.to_owned()))
+        } else {
+            None
+        }
+    }
+}
+
+impl AsRef<Path> for RelativePath {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AbsPath(PathBuf);
@@ -31,42 +51,133 @@ impl AbsPath {
         }
     }
 
-    /// Tries to read the current path as a directory
-    ///
-    /// The properties of `read_dir` state that the resulting paths returned from `DirEntry`
-    /// match the original path appended with the filename of the entry. Because we know
-    /// the directory path is absolute, we know the resulting paths are absolute.
-    ///
-    /// Further this gives us the properties that calling `AbsPath::parent().read_dir()` should
-    /// return a vector of paths that contain the original path if the original file exists. i.e.
-    /// the format is the same.
-    ///
-    /// Errors if path is not a directory or is not readable
-    pub(crate) fn read_dir(&self) -> Result<Vec<AbsPath>, std::io::Error> {
-        #[cfg_attr(not(test), allow(unused_mut))]
-        let mut entries: Vec<AbsPath> = std::fs::read_dir(&self.0)?
-            .map(|entry| entry.map(|e| e.path()).map(AbsPath))
-            .collect::<Result<Vec<AbsPath>, std::io::Error>>()?;
-
-        // Sort by filename for deterministic test output only
-        // In production, preserve the OS's native directory entry order
-        #[cfg(test)]
-        {
-            entries.sort_by(|a, b| {
-                let a_name = a.0.file_name().unwrap_or(a.0.as_os_str());
-                let b_name = b.0.file_name().unwrap_or(b.0.as_os_str());
-                a_name.cmp(b_name)
-            });
-        }
-
-        Ok(entries)
+    /// Appends a relative path, which keeps the result absolute
+    pub fn join_relative(&self, path: &RelativePath) -> AbsPath {
+        AbsPath(self.as_ref().join(path.as_ref()))
     }
 
     /// Similar semantics to [`Path::parent`], but returning a None here would guarantee self is the root path
-    pub(crate) fn parent(&self) -> Option<Self> {
+    ///
+    /// An `AbsPath` is not normalized so it may contain `..` and/or symlinks. This is a lexical operation.
+    ///
+    /// ## Trailing ParentDir part (`..`)
+    ///
+    /// Not true for windows!
+    ///
+    /// A lexical parent might not be a physical ancestor when the last path is `..` i.e.
+    ///
+    /// ```text
+    /// AbsPath::new("a/b/c/..").unwrap().lex_parent() -> Some("a/b/c")
+    /// ```
+    ///
+    /// In this example, the lex_parent does not contain the child. The path `a/b/c/..` maps to the physical
+    /// location of `a/b` therefore the physical parent would be `a`.
+    ///
+    /// The `..` ([`std::path::Component::ParentDir`]) can also interact with
+    /// symlinks. If `a/b` is a symlink to `/x/y/z`, the kernel follows `a/b`
+    /// to `/x/y/z`, so `a/b/c/..` is resolved as `/x/y/z/c/..`, which expands
+    /// to `/x/y/z`. The physical parent would be `/x/y` and not `a`.
+    ///
+    /// ## ParentDir part (`..`) in the middle of a path
+    ///
+    /// Unlike a trailing `..`, one in the middle is not a hazard. When the last component is
+    /// `Normal`, [`Path::parent`] hands back the prefix verbatim, `..` and all:
+    ///
+    /// ```text
+    /// AbsPath::new("/a/b/../c/d").unwrap().lex_parent() -> Some("/a/b/../c")
+    /// ```
+    ///
+    /// That result names the directory holding `d` (`a/b/c`). The kernel
+    /// walks the same characters it walked for the original path, so it stops in the same
+    /// place. Keeping the `..` unresolved is what makes this true: if `a/b` is a symlink to
+    /// `/x/y/z`, then `/a/b/..` is `/x/y`, `d` lives in `/x/y/c`, and `/a/b/../c` resolves
+    /// there too. Folding the `..` away first would give `/a/c`, a different directory that
+    /// may not exist at all.
+    ///
+    /// ## CurrentDir in path
+    ///
+    /// A `.` in the middle is harmless. It survives in the prefix the same way
+    /// (`/a/b/./c/d` -> `/a/b/./c`) and denotes the directory it appears to.
+    ///
+    /// It never survives at the *end* of a returned parent: [`Path::parent`] drops a trailing
+    /// `.` along with the component before it, so `/a/b/./c` -> `/a/b` and `/a/b/.` -> `/a`.
+    /// The second looks like it skips a level but is correct, because `/a/b/.` already denotes
+    /// `/a/b`. Walking parents therefore visits each directory once, with no `/a/b/.` step in
+    /// between. This is the opposite of the trailing `..` case above: `std` normalizes a
+    /// trailing `.` and lands on the physical parent, and leaves a trailing `..` alone and
+    /// does not.
+    ///
+    #[allow(dead_code)]
+    pub(crate) fn lex_parent(&self) -> Option<Self> {
         let parent = self.0.parent()?;
 
         Some(AbsPath(parent.to_path_buf()))
+    }
+
+    /// The filesystem root this path hangs off
+    ///
+    /// Lexical, like the rest of the `lex_` family: it reads the [`Component::Prefix`] and
+    /// [`Component::RootDir`] parts off the front and asks the filesystem nothing. Every
+    /// `AbsPath` has one, which is what being absolute means, so this cannot fail. A root
+    /// is its own root.
+    ///
+    /// What comes back holds no `.` or `..` parts and no symlinks, which is normalized but
+    /// not reachable. `\\server\share` names a machine that can be off. A caller that needs
+    /// the root to *answer* has to canonicalize this and handle the failure.
+    pub(crate) fn lex_root(&self) -> Self {
+        let mut root = PathBuf::new();
+        for component in self.0.components() {
+            match component {
+                Component::Prefix(_) | Component::RootDir => root.push(component.as_os_str()),
+                _ => break,
+            }
+        }
+        AbsPath(root)
+    }
+
+    /// Checks if the same physical URL is represented
+    ///
+    /// Handles differeing canonical leaders i.e. comparing `\\?\C:\a\b` and `C:\a\b` is true.
+    pub(crate) fn same_place_as(&self, other: &Path) -> bool {
+        same_volume_prefix(volume_prefix(self.as_ref()), volume_prefix(other))
+            && path_without_prefix(self.as_ref()).eq(path_without_prefix(other))
+    }
+}
+
+fn path_without_prefix(path: &Path) -> impl Iterator<Item = Component<'_>> {
+    path.components()
+        .filter(|component| !matches!(component, Component::Prefix(_)))
+}
+
+fn volume_prefix(path: &Path) -> Option<Prefix<'_>> {
+    match path.components().next() {
+        Some(Component::Prefix(prefix)) => Some(prefix.kind()),
+        _ => None,
+    }
+}
+
+/// Whether two path prefixes name the same volume, ignoring which spelling of it was used
+///
+/// A prefix is Windows-only: unix paths have none, and two `None`s agree. See
+/// [`AbsPath::same_place_as`].
+fn same_volume_prefix(left: Option<Prefix<'_>>, right: Option<Prefix<'_>>) -> bool {
+    match (left, right) {
+        (
+            Some(Prefix::Disk(left) | Prefix::VerbatimDisk(left)),
+            Some(Prefix::Disk(right) | Prefix::VerbatimDisk(right)),
+        ) => left.eq_ignore_ascii_case(&right),
+        (
+            Some(
+                Prefix::UNC(left_server, left_share) | Prefix::VerbatimUNC(left_server, left_share),
+            ),
+            Some(
+                Prefix::UNC(right_server, right_share)
+                | Prefix::VerbatimUNC(right_server, right_share),
+            ),
+        ) => left_server == right_server && left_share == right_share,
+        // A device namespace (`\\.\COM1`) or a bare verbatim prefix (`\\?\pictures`) names no
+        // volume to compare, so nothing but the same spelling can be shown to be the same place.
+        (left, right) => left == right,
     }
 }
 
@@ -82,23 +193,32 @@ impl AsRef<Path> for AbsPath {
     }
 }
 
-/// Returns Err if `read_link` fails
-/// Returns Ok(None) if the path is not a symlink or if [`std::fs::symlink_metadata`] fails
-/// Otherwise returns Ok(Some(AbsPath)) with the target of the symlink
-pub(crate) fn try_readlink(absolute: &AbsPath) -> Result<Option<AbsPath>, std::io::Error> {
-    let path = absolute.as_ref();
-    if path.is_symlink() {
-        std::fs::read_link(path)
-            .map(|target| {
-                if target.is_relative() {
-                    AbsPath(absolute.as_ref().join(target))
-                } else {
-                    AbsPath(target)
-                }
-            })
-            .map(Some)
-    } else {
-        Ok(None)
+/// Reads where a symlink points
+///
+/// The caller must already know `absolute` is a symlink. [`std::fs::read_link`] answers
+/// `InvalidInput` for anything that is not one, which arrives here indistinguishable from a
+/// genuine failure, so a caller that has not checked cannot read this result.
+///
+/// A relative target resolves against the directory holding the symlink, not against the
+/// symlink itself. A link at `/a/sub/rel` pointing at `gone` names `/a/sub/gone`.
+///
+/// A target that opens with `..` is folded against that directory rather than left spelled with
+/// the two dots in it, so `../gone` beside `/a/sub/rel` reports `/a/gone` — the place it lands.
+/// See [`CanonicalPath::join_fold_leading_parent_dirs`].
+///
+/// Both spellings come back because they are different facts. The written target is what the
+/// link holds, and it is what survives the link being moved; the absolute one is only where that
+/// text lands while the link sits where it sits. A caller that shows one must show the written
+/// one, or it claims the link holds a path it does not.
+pub(crate) fn readlink(
+    dir: &CanonicalPath,
+    absolute: &AbsPath,
+) -> Result<(PathBuf, AbsPath), std::io::Error> {
+    let target = std::fs::read_link(absolute.as_ref())?;
+
+    match RelativePath::new(&target) {
+        Some(relative) => Ok((target, dir.join_fold_leading_parent_dirs(&relative))),
+        None => Ok((target.clone(), AbsPath(target))),
     }
 }
 
@@ -106,4 +226,148 @@ pub(crate) fn try_readlink(absolute: &AbsPath) -> Result<Option<AbsPath>, std::i
 pub(crate) enum AbsPathError {
     PathIsEmpty(PathBuf),
     CannotReadCWD(PathBuf, std::io::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn abs(path: impl AsRef<Path>) -> AbsPath {
+        AbsPath::new(path).unwrap()
+    }
+
+    fn can(path: impl AsRef<Path>) -> CanonicalPath {
+        CanonicalPath::new(&AbsPath::new(path).unwrap()).unwrap()
+    }
+
+    fn tempdir() -> (tempfile::TempDir, PathBuf) {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().canonicalize().unwrap();
+        (temp, dir)
+    }
+
+    /// Spelled through properties rather than through `/`, so the test says the same thing
+    /// on a platform where a root is a drive letter or a share.
+    #[test]
+    fn test_lex_root_is_the_part_of_the_path_before_any_name() {
+        let path = abs(tempdir().1.join("a").join("b"));
+
+        let root = path.lex_root();
+
+        assert!(path.as_ref().starts_with(root.as_ref()));
+        assert!(root
+            .as_ref()
+            .components()
+            .all(|part| matches!(part, Component::Prefix(_) | Component::RootDir)));
+    }
+
+    #[test]
+    fn test_lex_root_of_a_root_is_itself() {
+        let root = abs(tempdir().1).lex_root();
+
+        assert_eq!(root.lex_root(), root);
+    }
+
+    /// Unlike `lex_parent`, nothing about this needs the path to be normalized: the parts it
+    /// reads sit in front of anything that could be a `..` or a symlink.
+    #[test]
+    fn test_lex_root_ignores_the_rest_of_the_path() {
+        let dir = tempdir().1;
+
+        assert_eq!(
+            abs(dir.join("a").join("..").join("b")).lex_root(),
+            abs(&dir).lex_root()
+        );
+    }
+
+    /// Every component after the prefix is compared as spelled, so this is only equality plus the
+    /// prefix rule below. The interesting cases are Windows-only.
+    #[test]
+    fn test_same_place_as_compares_the_components() {
+        let (_temp, dir) = tempdir();
+
+        assert!(abs(&dir).same_place_as(&dir));
+        assert!(!abs(&dir).same_place_as(&dir.join("x")));
+        assert!(!abs(dir.join("x")).same_place_as(&dir.join("y")));
+    }
+
+    /// The pair Windows actually hands out: `read_link` reports a target it converted to the
+    /// user-facing spelling and `canonicalize` reports the verbatim one.
+    #[test]
+    #[cfg(windows)]
+    fn test_same_place_as_across_the_two_windows_spellings() {
+        assert!(abs(r"\\?\C:\a\b").same_place_as(Path::new(r"C:\a\b")));
+        assert!(abs(r"\\?\C:\a\b").same_place_as(Path::new(r"c:\a\b")));
+
+        // A volume is still a volume: the loose prefix does not make two drives one place.
+        assert!(!abs(r"\\?\C:\a\b").same_place_as(Path::new(r"D:\a\b")));
+        assert!(!abs(r"\\?\C:\a\b").same_place_as(Path::new(r"C:\a\c")));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_readlink_dotdot_on_relative_windows() {
+        use crate::join_unfolded;
+
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let target = PathBuf::from("x").join("y").join("z");
+        assert!(target.is_relative());
+
+        std::env::set_current_dir(dir).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+
+        let link = dir.join("link");
+        std::os::windows::fs::symlink_dir(&target, &link).unwrap();
+
+        assert!(link.is_symlink());
+        assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+
+        let trailing = join_unfolded(&link, &["eaten", ".."]);
+        std::fs::create_dir_all(trailing.parent().unwrap()).unwrap();
+
+        let (_, readlink) = readlink(&can(dir), &abs(&trailing)).unwrap();
+
+        // Both name the same directory; `canonicalize` settles the `\\?\` prefix so neither
+        // path holds a `..` that Windows would reject.
+        assert_eq!(
+            readlink.as_ref().canonicalize().unwrap(),
+            link.canonicalize().unwrap(),
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_readlink_absolute_target_is_reported_verbatim() {
+        let (_temp, dir) = tempdir();
+        let symlink = dir.join("symlink");
+        let target = dir.join("target");
+        std::os::unix::fs::symlink(&target, &symlink).unwrap();
+
+        let (_, readlink) = readlink(&can(&dir), &abs(&symlink)).unwrap();
+        assert_eq!(readlink.as_ref(), target);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_readlink_relative_target_resolves_against_the_link_directory() {
+        let (_temp, dir) = tempdir();
+        let symlink = dir.join("symlink");
+        std::fs::create_dir_all(symlink.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink("target", &symlink).unwrap();
+
+        let (_, readlink) = readlink(&can(&dir), &abs(&symlink)).unwrap();
+        assert_eq!(readlink.as_ref(), dir.join("target"));
+    }
+
+    /// Only symlinks have targets. A path that exists but is not a link, and a path that
+    /// does not exist at all, are both "no target" rather than an error.
+    #[test]
+    fn test_readlink_without_a_symlink_is_none() {
+        let (_temp, dir) = tempdir();
+        std::fs::write(dir.join("f"), "").unwrap();
+
+        assert!(readlink(&can(&dir), &abs(dir.join("f"))).is_err());
+        assert!(readlink(&can(&dir), &abs(dir.join("missing"))).is_err());
+    }
 }

@@ -1,6 +1,3 @@
-use crate::{abs_path::AbsPath, happy_path::DirOk};
-use std::path::Path;
-
 pub(crate) fn bullet(contents: impl AsRef<str>) -> String {
     prefix_first_rest_lines(" - ", "   ", contents.as_ref())
 }
@@ -65,71 +62,6 @@ pub(crate) fn prefix_lines<F: Fn(usize, &str) -> String>(contents: &str, f: F) -
             })
             .collect()
     }
-}
-
-pub(crate) fn append_if(append: impl AsRef<str>, contents: impl AsRef<str>) -> String {
-    let out = contents.as_ref();
-    if out.is_empty() {
-        out.to_string()
-    } else {
-        format!("{append}{out}", append = append.as_ref())
-    }
-}
-
-pub(crate) fn fmt_dir<F>(dir: &DirOk, annotate: F) -> String
-where
-    F: Fn(&AbsPath) -> Option<String>,
-{
-    let entries = &dir.entries;
-    let mut out = String::new();
-    let permissions = append_if(
-        " ",
-        if dir.read && dir.write && dir.execute {
-            "".to_string()
-        } else {
-            permissions(dir.read, dir.write, dir.execute)
-        },
-    );
-    out.push_str(&format!("{path}{permissions}\n", path = dir.absolute));
-    out.push_str(&fmt_dir_entries_annotate(entries, annotate));
-    out
-}
-
-/// Formats a vec of filenames
-pub(crate) fn fmt_dir_entries_annotate<F>(entries: &[AbsPath], annotate: F) -> String
-where
-    F: Fn(&AbsPath) -> Option<String>,
-{
-    let mut out = String::new();
-    if entries.is_empty() {
-        out.push_str("   └── (empty)");
-    } else {
-        let mut iter = entries.iter().peekable();
-        while let Some(subpath) = iter.next() {
-            if let Some(name) = filename(subpath.as_ref()) {
-                let mut entry = format!("`{}`", name);
-
-                if let Some(annotation) = annotate(subpath) {
-                    entry = format!("{entry} {annotation}");
-                };
-
-                if iter.peek().is_some() {
-                    out.push_str(&format!("  ├── {entry}\n"));
-                } else {
-                    out.push_str(&format!("  └── {entry}\n"));
-                }
-            }
-        }
-    }
-    out
-}
-
-pub(crate) fn filename(path: &Path) -> Option<std::path::Display<'_>> {
-    path.file_name().map(|name| Path::new(name).display())
-}
-
-pub(crate) fn filename_or_path(path: &Path) -> std::path::Display<'_> {
-    filename(path).unwrap_or_else(|| path.display())
 }
 
 #[cfg(test)]

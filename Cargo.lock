@@ -123,6 +123,7 @@ dependencies = [
  "faccess",
  "indoc",
  "insta",
+ "libc",
  "tempfile",
 ]
 

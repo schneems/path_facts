@@ -1,9 +1,14 @@
 ---
-source: src/path_facts.rs
-expression: "PathFacts::new(path).to_string().replace(&tempdir.path().display().to_string(),\n\"/path/to/directory\") + \"🛑\""
+source: src/report.rs
+expression: "report(&fixture.scrub(), path)"
 ---
-cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
- - Prior path is not a directory `/path/to/directory/a`
-    - `/path/to/directory`
-        └── `a` file [✅ read, ✅ write, ❌ execute]
+does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+ - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+                       ^^^^^
+                       ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+ - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+             ^^^^^^^^^
+             ↳ Dir [✅ read, ✅ write, ✅ execute]
+             ↳ Contains (1)
+               └── `a.txt` (exists)
 🛑

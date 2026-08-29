@@ -20,10 +20,15 @@
 //! When you could be seeing this?
 //!
 //! ```text
-//! cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
-//!  - Prior path is not a directory `/path/to/directory/a`
-//!     - `/path/to/directory`
-//!         └── `a` file [✅ read, ✅ write, ❌ execute]
+//! does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+//!  - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+//!                        ^^^^^
+//!                        ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+//!  - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+//!              ^^^^^^^^^
+//!              ↳ Dir [✅ read, ✅ write, ✅ execute]
+//!              ↳ Contains (1)
+//!                └── `a.txt` (exists)
 //! ```
 //!
 //! Then start using path facts today!
@@ -109,8 +114,13 @@
 //!   and <https://www.redhat.com/sysadmin/suid-sgid-sticky-bit>
 //! - Fact: Different operating systems have different permissions models. Even on Linux, there are
 //!   additional ways to restrict file capabilities, such as Access Control Lists (ACLs).
-//! - This library is OS independent but prioritizes posix systems (Linux, Mac) and, to a lesser
-//!   degree, Windows.
+//!  - This library is OS independent but prioritizes posix systems (Linux, Mac) and, to a lesser
+//!    degree, Windows.
+//!- Fact: A path is both lexical representation (the characters and separators that make up
+//!  an input), and a physical representation (contents on disk).
+//!- Fact: On POSIX systems, the lexical `..` (parent dir) is resolved physically, the kernel walks it
+//!  as a real path component. This means `b` in `/a/b/..` must exist, be a directory, and be searchable
+//!  (executable permission). On Windows, the Win32 layer collapses `..` lexically before the kernel sees the path.
 //! - Fact: The first paths were made by animals. Source: [top 10 facts about ~~paths~~ roads](https://www.funkidslive.com/learn/top-10-facts/top-ten-facts-about-roads/)
 //!
 //! ## Usage considerations
@@ -181,20 +191,123 @@
 //! at some point earlier than "completely reverse-engineer rust stdlib behavior" and somewhere further
 //! than "simply state the facts". However, we're here. We have the facts, we might as well show those.
 mod abs_path;
+mod callout;
 mod canonical_path;
+mod component;
 mod fact_check;
-mod happy_path;
 mod path_facts;
-mod resolved_metadata;
+mod report;
 mod style;
+#[cfg(test)]
+mod test_support;
+mod trace;
+
+#[cfg(test)]
+use std::path::{Path, PathBuf};
 
 pub use path_facts::PathFacts;
 
+/// Append components to `base` without folding a `..` away.
+///
+/// `Path::join`/`PathBuf::push` normalize `.` and `..` at construction when the
+/// receiver has a verbatim (`\\?\`) prefix, which is exactly what `tempdir()` hands
+/// back on Windows. That fold happens before the walk ever runs, so a test that spells
+/// `base.join("..")` to exercise `..` handling would find the `..` already gone. Building
+/// the `OsString` by hand with explicit separators skips the fold, so the `..` survives
+/// into `components()` on every platform. See `fact_check.rs` for the underlying fact.
+///
+/// A separator is only added where one is needed. A root is spelled with a trailing separator
+/// already (`/`, or `\\?\C:\` behind a verbatim prefix), and doubling it would build a path no
+/// caller writes.
+#[cfg(test)]
+fn join_unfolded(base: &Path, parts: &[&str]) -> PathBuf {
+    let mut raw = base.as_os_str().to_os_string();
+    for part in parts {
+        let ends_with_separator = raw
+            .as_encoded_bytes()
+            .last()
+            .copied()
+            .map(char::from)
+            .is_some_and(std::path::is_separator);
+
+        if !ends_with_separator {
+            raw.push(std::path::MAIN_SEPARATOR_STR);
+        }
+        raw.push(part);
+    }
+    PathBuf::from(raw)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::test_support::{module_doc_example, snapshot_body, unix_newlines};
+
+    #[test]
+    fn join_unfolded_writes_one_separator_between_parts() {
+        let separator = std::path::MAIN_SEPARATOR_STR;
+        let joined = |base: &Path, parts: &[&str]| join_unfolded(base, parts).into_os_string();
+
+        let base = PathBuf::from(format!("{separator}a"));
+        let expected = std::ffi::OsString::from(format!("{separator}a{separator}b{separator}c"));
+
+        assert_eq!(joined(&base, &["b", "c"]), expected);
+
+        // A part that ends in a separator, so the next one must not add a second
+        // assert_eq!(joined(&base, &[&format!("b{separator}"), "c"]), expected);
+
+        // A root, which is the base every `..` test in the suite starts from
+        assert_eq!(
+            joined(Path::new(separator), &[".."]),
+            std::ffi::OsString::from(format!("{separator}.."))
+        );
+    }
+
+    /// The output advertised at the top of this file is real, not typed by hand.
+    ///
+    /// It is the same rendering `report::tests::test_prior_dir_problem_is_file` records, so the
+    /// pitch a reader sees first cannot promise a format the library stopped producing. The
+    /// snapshot file is the intermediary rather than a fresh walk: this example is built under a
+    /// scrubbed tempdir, and re-walking one here would only duplicate that test.
+    ///
+    /// `verify_rdme_updated` carries the same claim to the README, which `cargo rdme` generates
+    /// from these docs.
+    #[test]
+    fn module_doc_example_is_real_output() {
+        // The `No such file or directory` block comes first; this is the one after it.
+        let documented = module_doc_example(include_str!("lib.rs"), 1);
+        let recorded = snapshot_body(include_str!("snapshots/prior_dir_problem_is_file.snap"));
+
+        // Not `assert_eq!`: its `Debug` output escapes every newline, which turns a caret
+        // misaligned by one column into two unreadable one-line blobs.
+        assert!(
+            documented == recorded,
+            "the example in the module docs of `lib.rs` is no longer what the library \
+             renders. Update it to match and re-run `cargo rdme`.\n\nDocumented:\n{}\n\n\
+             Recorded:\n{}\n",
+            documented,
+            recorded
+        );
+    }
+
+    /// The README makes the same promise as the module docs above, one `cargo rdme` run later.
+    ///
+    /// Checked separately because the generation is a manual step: the docs can be corrected and
+    /// the snapshot re-recorded while the committed README still advertises the old format.
+    #[test]
+    fn verify_rdme_updated() {
+        assert!(
+            unix_newlines(include_str!("../README.md")).contains(&snapshot_body(include_str!(
+                "snapshots/prior_dir_problem_is_file.snap"
+            ))),
+            "README missing correct example output. Update the module docs and re-run `cargo rdme`"
+        );
+    }
+
     #[test]
     fn enforce_nextest() {
         assert!(
+            // `env NEXTEST=1` set via `cargo nextest run`
             std::env::var_os("NEXTEST").as_deref() == Some(std::ffi::OsStr::new("1")),
             indoc::indoc! {"
                 Cannot run tests

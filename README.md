@@ -82,7 +82,7 @@ std::fs::rename(&from, to).map_err(|error| formatdoc! {"
     ",
     from.display(),
     to.display(),
-    facts = FromTo::new(&from, &new)
+    facts = FromTo::new(&from, &to)
 });
 ```
 

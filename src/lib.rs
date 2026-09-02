@@ -62,10 +62,11 @@
 //!     .unwrap();
 //! ```
 //!
-//! For an operation with multiple paths you can use multiple PATH FACTS structs. For example:
+//! For an operation with two paths you can use multiple PATH FACTS structs or the [`FromTo`]
+//! struct. For example:
 //!
 //! ```rust,no_run
-//! use path_facts::PathFacts;
+//! use path_facts::FromTo;
 //! use indoc::formatdoc;
 //!
 //! let from = std::path::Path::new("doesnotexist.txt");
@@ -73,13 +74,11 @@
 //! std::fs::rename(&from, to).map_err(|error| formatdoc! {"
 //!     cannot rename from `{}` to `{}` due to: {error}.
 //!
-//!     From path {from_facts}
-//!     To path {to_facts}
+//!     {facts}
 //!     ",
 //!     from.display(),
 //!     to.display(),
-//!     from_facts = PathFacts::new(&from),
-//!     to_facts = PathFacts::new(&to)
+//!     facts = FromTo::new(&from, &to)
 //! });
 //! ```
 //!
@@ -195,9 +194,11 @@ mod callout;
 mod canonical_path;
 mod component;
 mod fact_check;
+mod from_to;
 mod path_facts;
 mod report;
 mod style;
+
 #[cfg(test)]
 mod test_support;
 mod trace;
@@ -205,6 +206,7 @@ mod trace;
 #[cfg(test)]
 use std::path::{Path, PathBuf};
 
+pub use from_to::FromTo;
 pub use path_facts::PathFacts;
 
 /// Append components to `base` without folding a `..` away.

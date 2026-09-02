@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 ///
 /// Same walk and same facts as [`PathFacts`](crate::PathFacts), different presentation. Pick one
 /// per call site; they are not meant to be interleaved.
+#[derive(Debug)]
 pub(crate) struct Report {
     /// Original input path, exactly as the caller spelled it
     path: PathBuf,

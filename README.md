@@ -66,10 +66,11 @@ std::fs::read_to_string(&path)
     .unwrap();
 ```
 
-For an operation with multiple paths you can use multiple PATH FACTS structs. For example:
+For an operation with two paths you can use multiple PATH FACTS structs or the [`FromTo`](https://docs.rs/path_facts/latest/path_facts/from_to/struct.FromTo.html)
+struct. For example:
 
 ```rust
-use path_facts::PathFacts;
+use path_facts::FromTo;
 use indoc::formatdoc;
 
 let from = std::path::Path::new("doesnotexist.txt");
@@ -77,13 +78,11 @@ let to = std::path::Path::new("also_does_not_exist.txt");
 std::fs::rename(&from, to).map_err(|error| formatdoc! {"
     cannot rename from `{}` to `{}` due to: {error}.
 
-    From path {from_facts}
-    To path {to_facts}
+    {facts}
     ",
     from.display(),
     to.display(),
-    from_facts = PathFacts::new(&from),
-    to_facts = PathFacts::new(&to)
+    facts = FromTo::new(&from, &to)
 });
 ```
 

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `#[derive(Debug)]` on public structs
+- Introduce `path_facts::FromTo` struct. Use to construct and hold information about a directional pair of paths.
 - Update the display interface with a new `^^^^` caret feature for highlighting the part of the path
   we are referencing.
 
@@ -85,7 +87,6 @@ cannot access `/path/to/directory/a/b/c/does_not_exist.txt`
 ## 0.2.1
 
 - Fix: Always emit permissions for main file/directory [#9](https://github.com/schneems/path_facts/pull/9). Previously we skipped emitting permissions when RWX were all true, but it looked off in some scenarios:
-
 
 ```
                   ├── `link_to_dir` directory []

@@ -68,5 +68,8 @@ jobs:
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
       - name: Install cargo readme
         run: cargo install cargo-rdme
+      - name: Install nightly toolchain for intralink resolution
+        # cargo-rdme pins an exact nightly for rustdoc JSON intralink resolution; install whichever it needs.
+        run: cargo rdme install-rust-toolchain-for-intralinks
       - name: Check if README.md is up-to-date (see README.md for updating instructions)
         run: cargo rdme --check

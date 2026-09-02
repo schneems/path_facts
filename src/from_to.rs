@@ -10,6 +10,7 @@ use std::{fmt::Display, path::Path};
 /// Displaying this must either start at the beginning of a string or only immediately after a newline.
 /// This reserves the right for adding a second line in the future that references the path in the first.
 /// For example, carets `^^^^^^^` otherwise the second line indentation would be off.
+#[derive(Debug)]
 pub struct FromTo {
     from: PathFacts,
     to: PathFacts,

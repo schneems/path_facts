@@ -3,6 +3,7 @@ use crate::report::Report;
 use std::{fmt::Display, path::Path};
 
 /// Shows helpful facts about a path when `Display`ed.
+#[derive(Debug)]
 pub struct PathFacts {
     _inner: Report,
 }

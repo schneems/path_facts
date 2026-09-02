@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add `#[derive(Debug)]` on public structs
 - Introduce `path_facts::FromTo` struct. Use to construct and hold information about a directional pair of paths.
 - Update the display interface with a new `^^^^` caret feature for highlighting the part of the path
   we are referencing.

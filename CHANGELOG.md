@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0
+
 - Add `#[derive(Debug)]` on public structs
 - Introduce `path_facts::FromTo` struct. Use to construct and hold information about a directional pair of paths.
 - Update the display interface with a new `^^^^` caret feature for highlighting the part of the path
@@ -23,19 +25,6 @@ does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
 - Fix bug with readlink. A symlink such as `/a/b/c` → `d/e/f` (relative symlink) will be joined to the
   dir of the file it's in, so the system would read it as `/a/b/d/e/f`. Previously this incorrectly reported
   it was `/a/b/c/d/e/f`.
-- ~~Add expanded path.~~ (This feature was removed before releasing. However following docs use that format
-  so leaving it for the moment.) Previously the library used absolute paths as a common demonimator. However the
-  `std::fs::absolute` does not remove parent parts (`..`) and current dir `.` so two paths could represent
-  the same path on disk, but have two different representations. An "expanded" path is either a canonical
-  path (if the file/dir exists) or the parts of the prior directories that exist (and can be canonicalized)
-  with the remainder that cannot be. This transformation is now shown as an arrow on the top line.
-
-```
-exists `exists.txt` → `/path/to/directory/exists.txt`
- - `/path/to/directory`
-     └── `exists.txt` file [✅ read, ✅ write, ❌ execute]
-```
-
 - Fix the parent-directory listing for a path ending in `..`. The listing is now built from the directory
   the walk physically resolves, rather than the lexical parent of the un-normalized
   absolute path. Previously `/path/to/directory/a/b/..` listed `/path/to/directory/a/b` and failed to
@@ -46,7 +35,7 @@ exists `exists.txt` → `/path/to/directory/exists.txt`
 Before:
 
 ```
-exists `/path/to/directory/a/b/..` → `/path/to/directory/a`
+exists `/path/to/directory/a/b/..`
  - `/path/to/directory/a/b`
      └── `inside_b.txt`
 ```
@@ -54,7 +43,7 @@ exists `/path/to/directory/a/b/..` → `/path/to/directory/a`
 After:
 
 ```
-exists `/path/to/directory/a/b/..` → `/path/to/directory/a`
+exists `/path/to/directory/a/b/..`
  - `/path/to/directory`
      ├── `a` directory [✅ read, ✅ write, ✅ execute]
      └── `inside_dir.txt`

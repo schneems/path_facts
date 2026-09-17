@@ -52,7 +52,7 @@ impl AbsPath {
     }
 
     /// Appends a relative path, which keeps the result absolute
-    pub fn join_relative(&self, path: &RelativePath) -> AbsPath {
+    pub(crate) fn join_relative(&self, path: &RelativePath) -> AbsPath {
         AbsPath(self.as_ref().join(path.as_ref()))
     }
 

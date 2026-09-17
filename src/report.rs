@@ -188,13 +188,15 @@ fn parent_of_stopped_callout(path: &Path, trace: &Trace) -> Option<Callout> {
         .and_then(|index| caret_at(path, Some(index)))
     {
         Some(span) => (path.display().to_string(), Some(span)),
+        // The section we want to show is not present in the original input path for example `foo.txt` doesn't have
+        // any parent dir shown. So instead show the full path
         None => {
-            let fallback = spelled.as_ref().map_or_else(
-                || dir.as_ref().to_path_buf(),
-                |parent| parent.as_ref().to_path_buf(),
-            );
-            let span = callout::highlight(&fallback, Caret::Last);
-            (fallback.display().to_string(), span)
+            let fallback = spelled.clone().unwrap_or_else(|| dir.clone().into());
+            let span = callout::highlight(fallback.as_ref(), Caret::Last);
+            (
+                fallback.join_normal(&sought).as_ref().display().to_string(),
+                span,
+            )
         }
     };
 

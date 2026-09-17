@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- Fix: Previously, if an input was a relative path like `doesnotexist.txt`, then its directory listing would not include the filename.
+
+Before:
+
+```
+ - `/path/to/directory`
+             ^^^^^^^^^
+             ↳ Dir [✅ read, ✅ write, ✅ execute]
+             ↳ ❌ Missing `doesnotexist.txt`
+             ↳ Contains (0)
+               └── (empty)
+```
+
+After this change, it includes the filename:
+
+```
+ - `/path/to/directory/doesnotexist.txt`
+             ^^^^^^^^^
+             ↳ Dir [✅ read, ✅ write, ✅ execute]
+             ↳ ❌ Missing `doesnotexist.txt`
+             ↳ Contains (0)
+               └── (empty)
+```
+
 ## 0.3.0
 
 - Add `#[derive(Debug)]` on public structs

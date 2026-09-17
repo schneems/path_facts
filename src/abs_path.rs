@@ -4,7 +4,7 @@
 //!
 //! A property of absolute paths is that recursively retrieving their parent paths will eventually
 //! lead to the root path. The parent of an absolute path is also an absolute path [`AbsPath::lex_parent`].
-use crate::canonical_path::CanonicalPath;
+use crate::{canonical_path::CanonicalPath, component::NormalComponent};
 use std::{
     fmt::{Display, Formatter},
     path::{Component, Path, PathBuf, Prefix},
@@ -52,7 +52,12 @@ impl AbsPath {
     }
 
     /// Appends a relative path, which keeps the result absolute
-    pub fn join_relative(&self, path: &RelativePath) -> AbsPath {
+    pub(crate) fn join_relative(&self, path: &RelativePath) -> AbsPath {
+        AbsPath(self.as_ref().join(path.as_ref()))
+    }
+
+    /// Appends a normal component which is guaranteed to be relative, which keeps the result absolute
+    pub(crate) fn join_normal(&self, path: &NormalComponent) -> AbsPath {
         AbsPath(self.as_ref().join(path.as_ref()))
     }
 

@@ -73,7 +73,7 @@ mod tests {
             ^^^^^^^^^^^^^^^^
             ↳ Missing: {error}
             ↳ Absolute `/path/to/directory/doesnotexist.txt`
-         - `/path/to/directory`
+         - `/path/to/directory/doesnotexist.txt`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
                      ↳ ❌ Missing `doesnotexist.txt`
@@ -84,7 +84,7 @@ mod tests {
             ^^^^^^^^^^^^^^^^^^^^^^^
             ↳ Missing: {error}
             ↳ Absolute `/path/to/directory/also_does_not_exist.txt`
-         - `/path/to/directory`
+         - `/path/to/directory/also_does_not_exist.txt`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
                      ↳ ❌ Missing `also_does_not_exist.txt`

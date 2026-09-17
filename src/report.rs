@@ -747,7 +747,7 @@ mod tests {
                                    ^^
                                    ↳ Dir [✅ read, ✅ write, ✅ execute]
                                    ↳ Canonical `/path/to/directory/a`
-         - `/path/to/directory`
+         - `/path/to/directory/a`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
                      ↳ Contains (2)
@@ -816,7 +816,7 @@ mod tests {
             ^^^^^^^^^^^^^^^^
             ↳ Missing: {error}
             ↳ Absolute `/path/to/directory/doesnotexist.txt`
-         - `/path/to/directory`
+         - `/path/to/directory/doesnotexist.txt`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
                      ↳ ❌ Missing `doesnotexist.txt`
@@ -828,7 +828,7 @@ mod tests {
             ^^^^^^^^^^^^^^^^^^^^^^^
             ↳ Missing: {error}
             ↳ Absolute `/path/to/directory/also_does_not_exist.txt`
-         - `/path/to/directory`
+         - `/path/to/directory/also_does_not_exist.txt`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
                      ↳ ❌ Missing `also_does_not_exist.txt`
@@ -853,7 +853,7 @@ mod tests {
             ^^^^^^^^^^
             ↳ File [✅ read, ✅ write, ❌ execute]
             ↳ Absolute `/path/to/directory/exists.txt`
-         - `/path/to/directory`
+         - `/path/to/directory/exists.txt`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
                      ↳ Contains (1)
@@ -1011,7 +1011,7 @@ mod tests {
             ^
             ↳ Missing: {error}
             ↳ Absolute `/path/to/directory/a/b/c/does_not_exist.txt`
-         - `/path/to/directory`
+         - `/path/to/directory/a`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
                      ↳ ❌ Missing `a`
@@ -1102,7 +1102,7 @@ mod tests {
             ↳ Symlink, cannot follow: {error}
             ↳ Target `link2` → `/path/to/directory/link2`
             ↳ Absolute `/path/to/directory/link1`
-         - `/path/to/directory`
+         - `/path/to/directory/link1`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
                      ↳ Contains (2)
@@ -1239,7 +1239,7 @@ mod tests {
             ↳ Symlink, cannot follow: {error}
             ↳ Target `does_not_exist` → `/path/to/directory/does_not_exist`
             ↳ Absolute `/path/to/directory/broken_link`
-         - `/path/to/directory`
+         - `/path/to/directory/broken_link`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
                      ↳ Contains (1)

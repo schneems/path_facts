@@ -41,6 +41,31 @@ impl Report {
             trace,
         }
     }
+
+    /// The single entry on disk this path resolves to, when every component resolved.
+    ///
+    /// `None` when the walk stopped early or never began: a missing name, a broken link, an empty
+    /// input. Two reports whose locations are both `Some` and equal name one entry on disk, however
+    /// each path was spelled — which is what [`FromTo`](crate::FromTo) keys its cross-reference on.
+    pub(crate) fn resolved_location(&self) -> Option<CanonicalPath> {
+        let (trace, _) = self.trace.as_ref().ok()?;
+        trace.physical_location()
+    }
+
+    /// Adds a cross-path note beneath the facts of the component the walk stopped at.
+    ///
+    /// The leaf callout (`callouts[0]`) is the one whose caret sits on that component, and it never
+    /// carries a directory tree, so the note lands as a trailing `↳` line rather than wedged
+    /// between a fact and the listing under it. A report that could not be traced has no callouts
+    /// and is left as is; it also has no [`Report::resolved_location`], so no caller reaches here
+    /// for one.
+    pub(crate) fn annotate_leaf(&mut self, note: String) {
+        if let Ok((_, callouts)) = &mut self.trace {
+            if let Some(leaf) = callouts.first_mut() {
+                leaf.facts.push(Fact::Text(note));
+            }
+        }
+    }
 }
 
 impl Display for Report {

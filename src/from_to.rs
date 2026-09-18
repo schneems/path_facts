@@ -1,27 +1,46 @@
-use crate::PathFacts;
+use crate::report::Report;
 use std::{fmt::Display, path::Path};
 
 /// Shows helpful facts about two paths when `Display`ed.
 ///
-/// The output already contains "leader" text, i.e. `From path exists`. Versus a plain [`PathFacts`]
-/// does not. For now this struct outputs the exact same information as if you had constructed two
-/// [`PathFacts`], but in the future I hope to add some de-duplication logic.
+/// The output already contains "leader" text, i.e. `From path exists`, which a plain
+/// [`PathFacts`](crate::PathFacts) does not. Each half is otherwise the same information two
+/// separate [`PathFacts`](crate::PathFacts) would give, plus one cross-reference: when both paths
+/// resolve to the same location on disk, the `from` half says so and points down at the `to` half
+/// below it. That note is the first step toward de-duplicating the information the halves share.
 ///
 /// Displaying this must either start at the beginning of a string or only immediately after a newline.
 /// This reserves the right for adding a second line in the future that references the path in the first.
 /// For example, carets `^^^^^^^` otherwise the second line indentation would be off.
 #[derive(Debug)]
 pub struct FromTo {
-    from: PathFacts,
-    to: PathFacts,
+    from: Report,
+    to: Report,
 }
 
 impl FromTo {
     pub fn new(from: impl AsRef<Path>, to: impl AsRef<Path>) -> Self {
-        FromTo {
-            from: PathFacts::new(from.as_ref()),
-            to: PathFacts::new(to.as_ref()),
+        let mut from = Report::new(from.as_ref());
+        let to = Report::new(to.as_ref());
+
+        if same_location(&from, &to) {
+            from.annotate_leaf("Same location as to path (below)".to_string());
         }
+
+        FromTo { from, to }
+    }
+}
+
+/// Whether both paths resolve to a single shared entry on disk.
+///
+/// Compares physical locations, so it holds across a symlink and its target, a folded `..`, and a
+/// relative path spelled against an absolute one. `false` whenever either path has no one resolved
+/// location — a missing name, a broken link, a root that does not answer — because there is then
+/// nothing to equate.
+fn same_location(from: &Report, to: &Report) -> bool {
+    match (from.resolved_location(), to.resolved_location()) {
+        (Some(from), Some(to)) => from == to,
+        _ => false,
     }
 }
 
@@ -41,8 +60,8 @@ mod tests {
     use crate::test_support::{symlink_file, Fixture};
 
     /// Two spellings of one file: the `from` symlink `latest.log` resolves to the `to` path
-    /// `2024-01.log`, its own target. Today the halves are independent — the `from` names its
-    /// target and the `to` names the file, but neither says they are the same entry on disk.
+    /// `2024-01.log`, its own target. Because both resolve to one entry on disk, the `from` leaf
+    /// gains a `Same location as to path (below)` note pointing down at the `to` half.
     #[test]
     fn from_to_same_file_via_symlink() {
         let fixture = Fixture::new();
@@ -57,6 +76,7 @@ mod tests {
                                ^^^^^^^^^^
                                ↳ Symlink, resolves to file [✅ read, ✅ write, ❌ execute]
                                ↳ Target `2024-01.log` → `/path/to/directory/2024-01.log`
+                               ↳ Same location as to path (below)
          - `/path/to/directory/latest.log`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
@@ -75,6 +95,60 @@ mod tests {
                        └── `latest.log`
         🛑
         ");
+    }
+
+    #[test]
+    fn from_to_same_file_relative_and_absolute() {
+        let fixture = Fixture::new();
+        fixture.enter();
+        std::fs::write(fixture.join("2024-01.log"), "").unwrap();
+
+        let from = Path::new("2024-01.log");
+        let to = fixture.join("2024-01.log");
+
+        insta::assert_snapshot!(fixture.scrub().carets(&FromTo::new(from, &to).to_string()), @r"
+        From path exists `2024-01.log`
+         - `2024-01.log`
+            ^^^^^^^^^^^
+            ↳ File [✅ read, ✅ write, ❌ execute]
+            ↳ Absolute `/path/to/directory/2024-01.log`
+            ↳ Same location as to path (below)
+         - `/path/to/directory/2024-01.log`
+                     ^^^^^^^^^
+                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                     ↳ Contains (1)
+                       └── `2024-01.log` (exists)
+        To path exists `/path/to/directory/2024-01.log`
+         - `/path/to/directory/2024-01.log`
+                               ^^^^^^^^^^^
+                               ↳ File [✅ read, ✅ write, ❌ execute]
+         - `/path/to/directory/2024-01.log`
+                     ^^^^^^^^^
+                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                     ↳ Contains (1)
+                       └── `2024-01.log` (exists)
+        🛑
+        ");
+    }
+
+    #[test]
+    fn from_to_two_different_files_are_not_cross_referenced() {
+        let fixture = Fixture::new();
+        std::fs::write(fixture.join("from.txt"), "").unwrap();
+        std::fs::write(fixture.join("to.txt"), "").unwrap();
+
+        let output = FromTo::new(fixture.join("from.txt"), fixture.join("to.txt")).to_string();
+
+        assert!(
+            output.contains("From path exists") && output.contains("To path exists"),
+            "expected both halves to render:\n{}",
+            output
+        );
+        assert!(
+            !output.contains("Same location"),
+            "two different files must not be cross-referenced:\n{}",
+            output
+        );
     }
 
     #[test]

@@ -424,8 +424,6 @@ impl Trace {
     /// Where the path lands, when every component resolved
     ///
     /// `Some` exactly when `Trace::stopped_early_at` is `None`.
-    ///
-    #[cfg(test)]
     pub(crate) fn physical_location(&self) -> Option<CanonicalPath> {
         if self.stopped_early_at().is_some() {
             return None;
@@ -485,7 +483,6 @@ impl Trace {
     /// `None` exactly when every component resolved, which is when `Trace::physical_location`
     /// answers. Every step after this one is [`PhysicalNode::NotReached`], so this single
     /// observation explains all of them.
-    #[cfg(test)]
     pub(crate) fn stopped_early_at(&self) -> Option<&Step> {
         let cursor = StepCursor::last_reached(&self.steps);
         let step = cursor.current();

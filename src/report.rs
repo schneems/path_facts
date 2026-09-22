@@ -107,7 +107,7 @@ impl Report {
         let (first, rest) = callouts.split_first().expect("callouts is never empty");
         let mut out = format!(
             "{prefix}{summary}\n{}",
-            callout::render_folded_callout(first, path_col)
+            callout::render_caret_and_facts(first, path_col)
         );
         if !rest.is_empty() {
             out.push('\n');

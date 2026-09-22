@@ -9,9 +9,10 @@ use std::{fmt::Display, path::Path};
 /// resolve to the same location on disk, the `from` half says so and points down at the `to` half
 /// below it. That note is the first step toward de-duplicating the information the halves share.
 ///
-/// Displaying this must either start at the beginning of a string or only immediately after a newline.
-/// This reserves the right for adding a second line in the future that references the path in the first.
-/// For example, carets `^^^^^^^` otherwise the second line indentation would be off.
+/// Display must begin a line, either at the start of the string or immediately after a newline.
+/// Each half draws a caret (`^^^^^^^`) and its facts on the lines below, indented to sit under the
+/// path in the summary above. Text printed in front of the first line does not shift those lower
+/// lines, so it would knock the caret out from under the path.
 #[derive(Debug)]
 pub struct FromTo {
     from: Report,
@@ -46,10 +47,20 @@ fn same_location(from: &Report, to: &Report) -> bool {
 
 impl Display for FromTo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "From path ")?;
-        self.from.fmt(f)?;
-        write!(f, "To path ")?;
-        self.to.fmt(f)?;
+        writeln!(
+            f,
+            "{}",
+            self.from
+                .render_with_prefix("From path ")
+                .trim_end_matches('\n')
+        )?;
+        writeln!(
+            f,
+            "{}",
+            self.to
+                .render_with_prefix("To path ")
+                .trim_end_matches('\n')
+        )?;
         Ok(())
     }
 }
@@ -72,11 +83,10 @@ mod tests {
 
         insta::assert_snapshot!(fixture.scrub().carets(&FromTo::new(&link, &real).to_string()), @r"
         From path exists `/path/to/directory/latest.log`
-         - `/path/to/directory/latest.log`
-                               ^^^^^^^^^^
-                               ↳ Symlink, resolves to file [✅ read, ✅ write, ❌ execute]
-                               ↳ Target `2024-01.log` → `/path/to/directory/2024-01.log`
-                               ↳ Same location as to path (below)
+                                             ^^^^^^^^^^
+                                             ↳ Symlink, resolves to file [✅ read, ✅ write, ❌ execute]
+                                             ↳ Target `2024-01.log` → `/path/to/directory/2024-01.log`
+                                             ↳ Same location as to path (below)
          - `/path/to/directory/latest.log`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
@@ -84,9 +94,8 @@ mod tests {
                        ├── `2024-01.log`
                        └── `latest.log` (exists)
         To path exists `/path/to/directory/2024-01.log`
-         - `/path/to/directory/2024-01.log`
-                               ^^^^^^^^^^^
-                               ↳ File [✅ read, ✅ write, ❌ execute]
+                                           ^^^^^^^^^^^
+                                           ↳ File [✅ read, ✅ write, ❌ execute]
          - `/path/to/directory/2024-01.log`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
@@ -108,20 +117,18 @@ mod tests {
 
         insta::assert_snapshot!(fixture.scrub().carets(&FromTo::new(from, &to).to_string()), @r"
         From path exists `2024-01.log`
-         - `2024-01.log`
-            ^^^^^^^^^^^
-            ↳ File [✅ read, ✅ write, ❌ execute]
-            ↳ Absolute `/path/to/directory/2024-01.log`
-            ↳ Same location as to path (below)
+                          ^^^^^^^^^^^
+                          ↳ File [✅ read, ✅ write, ❌ execute]
+                          ↳ Absolute `/path/to/directory/2024-01.log`
+                          ↳ Same location as to path (below)
          - `/path/to/directory/2024-01.log`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
                      ↳ Contains (1)
                        └── `2024-01.log` (exists)
         To path exists `/path/to/directory/2024-01.log`
-         - `/path/to/directory/2024-01.log`
-                               ^^^^^^^^^^^
-                               ↳ File [✅ read, ✅ write, ❌ execute]
+                                           ^^^^^^^^^^^
+                                           ↳ File [✅ read, ✅ write, ❌ execute]
          - `/path/to/directory/2024-01.log`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
@@ -180,10 +187,9 @@ mod tests {
         cannot rename from `doesnotexist.txt` to `also_does_not_exist.txt` due to: {error}.
 
         From path does not exist `doesnotexist.txt`
-         - `doesnotexist.txt`
-            ^^^^^^^^^^^^^^^^
-            ↳ Missing: {error}
-            ↳ Absolute `/path/to/directory/doesnotexist.txt`
+                                  ^^^^^^^^^^^^^^^^
+                                  ↳ Missing: {error}
+                                  ↳ Absolute `/path/to/directory/doesnotexist.txt`
          - `/path/to/directory/doesnotexist.txt`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
@@ -191,10 +197,9 @@ mod tests {
                      ↳ Contains (0)
                        └── (empty)
         To path does not exist `also_does_not_exist.txt`
-         - `also_does_not_exist.txt`
-            ^^^^^^^^^^^^^^^^^^^^^^^
-            ↳ Missing: {error}
-            ↳ Absolute `/path/to/directory/also_does_not_exist.txt`
+                                ^^^^^^^^^^^^^^^^^^^^^^^
+                                ↳ Missing: {error}
+                                ↳ Absolute `/path/to/directory/also_does_not_exist.txt`
          - `/path/to/directory/also_does_not_exist.txt`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
@@ -217,18 +222,16 @@ mod tests {
         let scrubber = fixture.scrub().not_found(&to);
         insta::assert_snapshot!(scrubber.carets(&FromTo::new(&from, &to).to_string()), @r"
         From path exists `/path/to/directory`
-         - `/path/to/directory`
-                     ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                                   ^^^^^^^^^
+                                   ↳ Dir [✅ read, ✅ write, ✅ execute]
          - `/path/to/directory`
                   ^^
                   ↳ Dir [✅ read, ✅ write, ✅ execute]
                   ↳ Contains (1)
                     └── `directory` (exists)
         To path does not exist `/path/to/directory/new.txt`
-         - `/path/to/directory/new.txt`
-                               ^^^^^^^
-                               ↳ Missing: {error}
+                                                   ^^^^^^^
+                                                   ↳ Missing: {error}
          - `/path/to/directory/new.txt`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
@@ -250,9 +253,8 @@ mod tests {
         let scrubber = fixture.scrub().not_found(&from);
         insta::assert_snapshot!(scrubber.carets(&FromTo::new(&from, &to).to_string()), @r"
         From path does not exist `/path/to/directory/new.txt`
-         - `/path/to/directory/new.txt`
-                               ^^^^^^^
-                               ↳ Missing: {error}
+                                                     ^^^^^^^
+                                                     ↳ Missing: {error}
          - `/path/to/directory/new.txt`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
@@ -260,9 +262,8 @@ mod tests {
                      ↳ Contains (0)
                        └── (empty)
         To path exists `/path/to/directory`
-         - `/path/to/directory`
-                     ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                                 ^^^^^^^^^
+                                 ↳ Dir [✅ read, ✅ write, ✅ execute]
          - `/path/to/directory`
                   ^^
                   ↳ Dir [✅ read, ✅ write, ✅ execute]

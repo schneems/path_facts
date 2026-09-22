@@ -165,6 +165,34 @@ pub(crate) fn render_callout(callout: &Callout) -> String {
     lines.join("\n")
 }
 
+/// Render a callout's caret and facts under a path printed on the line above, at the column given
+/// by `path_col`.
+///
+/// Where [`render_callout`] prints the path on its own `- `path`` bullet and measures from there,
+/// this aligns to a path the caller already printed: `path_col` is where that path text starts, so
+/// the caret lands under the same component [`render_callout`] would underline. A callout with no
+/// caret aligns its facts under the path start, as [`render_callout`] does.
+pub(crate) fn render_folded_callout(callout: &Callout, path_col: usize) -> String {
+    let caret_col = callout
+        .caret
+        .map_or(path_col, |span| path_col + span.char_start);
+
+    let mut lines = Vec::new();
+    if let Some(span) = callout.caret {
+        lines.push(format!(
+            "{spaces}{carets}",
+            spaces = " ".repeat(caret_col),
+            carets = "^".repeat(span.char_width)
+        ));
+    }
+
+    for fact in &callout.facts {
+        push_fact(&mut lines, fact, caret_col);
+    }
+
+    lines.join("\n")
+}
+
 /// Append the line(s) for one fact, left-aligned to `caret_col`.
 fn push_fact(lines: &mut Vec<String>, fact: &Fact, caret_col: usize) {
     let indent = " ".repeat(caret_col);

@@ -88,6 +88,33 @@ impl Report {
         )
     }
 
+    /// Renders `prefix`, the summary, then the caret and facts folded onto that first line rather
+    /// than repeated on a bullet below.
+    ///
+    /// The character width of `prefix`'s last line shifts the caret to stay under the path. A
+    /// `prefix` that is empty or ends in a newline folds at the summary's own offset. A walk that
+    /// produced no callouts has nothing to fold, so `prefix` is just printed in front.
+    pub(crate) fn render_with_prefix(&self, prefix: &str) -> String {
+        let (trace, callouts) = match self.trace.as_ref() {
+            Ok(walked) => walked,
+            Err(cannot) => return format!("{prefix}{}", self.render_cannot_trace(cannot)),
+        };
+
+        let summary = self.summary(trace);
+        let path_col = prefix_last_line_width(prefix) + summary_path_col(&summary);
+
+        let (first, rest) = callouts.split_first().expect("callouts is never empty");
+        let mut out = format!(
+            "{prefix}{summary}\n{}",
+            callout::render_folded_callout(first, path_col)
+        );
+        if !rest.is_empty() {
+            out.push('\n');
+            out.push_str(&callout::render_callouts(rest));
+        }
+        out
+    }
+
     /// The standalone verdict line. No arrow, so a caller may prepend arbitrary text.
     fn summary(&self, trace: &Trace) -> String {
         let input = self.path.display();
@@ -143,6 +170,24 @@ impl Report {
             }
         }
     }
+}
+
+/// Character width of the prefix's last line — everything after its final newline — which is what
+/// a folded caret is shifted right by. Empty, or a prefix ending in a newline, measures zero.
+fn prefix_last_line_width(prefix: &str) -> usize {
+    prefix.rsplit('\n').next().unwrap_or("").chars().count()
+}
+
+/// The column a summary line's path text starts at: past the lead and its opening backtick.
+///
+/// The lead (`does not exist `, `exists `, or nothing) never contains a backtick, so the first one
+/// is always the path's opening quote — reading it off the rendered summary keeps this in step with
+/// [`Report::summary`] rather than duplicating its wording.
+fn summary_path_col(summary: &str) -> usize {
+    summary
+        .chars()
+        .position(|char| char == '`')
+        .map_or(0, |index| index + 1)
 }
 
 /// Pairs a walk with the callouts built from it.
@@ -571,6 +616,85 @@ mod tests {
                 report(&fixture.scrub(), path)
             );
         });
+    }
+
+    #[test]
+    fn render_with_prefix_empty_folds_onto_summary() {
+        let fixture = Fixture::new();
+        std::fs::write(fixture.join("a.txt"), "").unwrap();
+        let path = fixture
+            .join("a.txt")
+            .join("b")
+            .join("c")
+            .join("does_not_exist.txt");
+
+        insta::assert_snapshot!(
+            fixture.scrub().carets(&Report::new(&path).render_with_prefix("")),
+            @r"
+        does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+                                           ^^^^^
+                                           ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+         - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+                     ^^^^^^^^^
+                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                     ↳ Contains (1)
+                       └── `a.txt` (exists)
+        🛑
+        "
+        );
+    }
+
+    #[test]
+    fn render_with_prefix_label_accounts_for_its_width() {
+        let fixture = Fixture::new();
+        std::fs::write(fixture.join("a.txt"), "").unwrap();
+        let path = fixture
+            .join("a.txt")
+            .join("b")
+            .join("c")
+            .join("does_not_exist.txt");
+
+        insta::assert_snapshot!(
+            fixture.scrub().carets(&Report::new(&path).render_with_prefix("Path ")),
+            @r"
+        Path does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+                                                ^^^^^
+                                                ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+         - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+                     ^^^^^^^^^
+                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                     ↳ Contains (1)
+                       └── `a.txt` (exists)
+        🛑
+        "
+        );
+    }
+
+    #[test]
+    fn render_with_prefix_measures_only_the_last_line() {
+        let fixture = Fixture::new();
+        std::fs::write(fixture.join("a.txt"), "").unwrap();
+        let path = fixture
+            .join("a.txt")
+            .join("b")
+            .join("c")
+            .join("does_not_exist.txt");
+
+        insta::assert_snapshot!(
+            fixture.scrub().carets(&Report::new(&path).render_with_prefix("lead\n")),
+            @r"
+        lead
+        does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+                                           ^^^^^
+                                           ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+         - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+                     ^^^^^^^^^
+                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                     ↳ Contains (1)
+                       └── `a.txt` (exists)
+        🛑
+        "
+        );
     }
 
     #[test]

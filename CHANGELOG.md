@@ -2,15 +2,16 @@
 
 ## Unreleased
 
+- Change: `FromTo` folds each half's caret and facts onto its `From path`/`To path` summary line rather than repeating the path on a bullet beneath it.
+
 - Add: When a `FromTo`'s two paths resolve to the same location on disk, the `from` half now says so and points down at the `to` half below it. Detection is by resolved location, so it holds across a symlink and its target, a folded `..`, and a relative path spelled against an absolute one.
 
 ```
 From path exists `/path/to/directory/latest.log`
- - `/path/to/directory/latest.log`
-                       ^^^^^^^^^^
-                       ↳ Symlink, resolves to file [✅ read, ✅ write, ❌ execute]
-                       ↳ Target `2024-01.log` → `/path/to/directory/2024-01.log`
-                       ↳ Same location as to path (below)
+                                     ^^^^^^^^^^
+                                     ↳ Symlink, resolves to file [✅ read, ✅ write, ❌ execute]
+                                     ↳ Target `2024-01.log` → `/path/to/directory/2024-01.log`
+                                     ↳ Same location as to path (below)
 ...
 To path exists `/path/to/directory/2024-01.log`
 ```

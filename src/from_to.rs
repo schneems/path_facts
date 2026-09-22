@@ -9,10 +9,8 @@ use std::{fmt::Display, path::Path};
 /// resolve to the same location on disk, the `from` half says so and points down at the `to` half
 /// below it. That note is the first step toward de-duplicating the information the halves share.
 ///
-/// Display must begin a line, either at the start of the string or immediately after a newline.
-/// Each half draws a caret (`^^^^^^^`) and its facts on the lines below, indented to sit under the
-/// path in the summary above. Text printed in front of the first line does not shift those lower
-/// lines, so it would knock the caret out from under the path.
+/// Displaying this must either start at the beginning of a string or only immediately after a newline.
+/// This is so we can reference the path via carets `^^^^^^` on the second line correctly.
 #[derive(Debug)]
 pub struct FromTo {
     from: Report,

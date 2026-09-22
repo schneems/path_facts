@@ -88,12 +88,9 @@ impl Report {
         )
     }
 
-    /// Renders `prefix`, the summary, then the caret and facts folded onto that first line rather
-    /// than repeated on a bullet below.
+    /// Renders the report with a prefix
     ///
-    /// The character width of `prefix`'s last line shifts the caret to stay under the path. A
-    /// `prefix` that is empty or ends in a newline folds at the summary's own offset. A walk that
-    /// produced no callouts has nothing to fold, so `prefix` is just printed in front.
+    /// This rendering method allows us to underline the path in the first line with a caret (`^^^^`).
     pub(crate) fn render_with_prefix(&self, prefix: &str) -> String {
         let (trace, callouts) = match self.trace.as_ref() {
             Ok(walked) => walked,
@@ -101,7 +98,11 @@ impl Report {
         };
 
         let summary = self.summary(trace);
-        let path_col = prefix_last_line_width(prefix) + summary_path_col(&summary);
+        let path_col = last_line_width(prefix)
+            + summary
+                .chars()
+                .position(|char| char == '`')
+                .map_or(0, |index| index + 1);
 
         let (first, rest) = callouts.split_first().expect("callouts is never empty");
         let mut out = format!(
@@ -174,20 +175,8 @@ impl Report {
 
 /// Character width of the prefix's last line — everything after its final newline — which is what
 /// a folded caret is shifted right by. Empty, or a prefix ending in a newline, measures zero.
-fn prefix_last_line_width(prefix: &str) -> usize {
-    prefix.rsplit('\n').next().unwrap_or("").chars().count()
-}
-
-/// The column a summary line's path text starts at: past the lead and its opening backtick.
-///
-/// The lead (`does not exist `, `exists `, or nothing) never contains a backtick, so the first one
-/// is always the path's opening quote — reading it off the rendered summary keeps this in step with
-/// [`Report::summary`] rather than duplicating its wording.
-fn summary_path_col(summary: &str) -> usize {
-    summary
-        .chars()
-        .position(|char| char == '`')
-        .map_or(0, |index| index + 1)
+fn last_line_width(input: &str) -> usize {
+    input.rsplit('\n').next().unwrap_or("").chars().count()
 }
 
 /// Pairs a walk with the callouts built from it.

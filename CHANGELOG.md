@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-- Add: `PathFacts::with_prefix(prefix, path)` renders the facts after `prefix` and folds the caret and facts onto that first line instead of repeating the path on a bullet below it. The width of `prefix` keeps the caret aligned under the path, so a lead like `Path ` no longer shifts it. A `prefix` with no trailing whitespace gains a single space so it does not run into the facts (`"Path"` and `"Path "` render alike), while whitespace you write yourself is kept as-is. Plain `PathFacts::new` keeps the previous two-bullet form.
+- Add: `PathFacts::with_prefix(prefix, path)` renders a `prefix` such as `"Path"` or `"From path"` before rendering information about the path.
+  This function folds the caret and facts onto the first line instead of repeating the path on a bullet below it. The `FromTo` output
+  now uses this format as well.
 
 Before, prepending a lead by hand (`format!("Path {}", PathFacts::new(&path))`) repeated the full path on a bullet below the summary:
 
@@ -11,11 +13,7 @@ Path does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
  - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
                        ^^^^^
                        ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
- - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
-             ^^^^^^^^^
-             ↳ Dir [✅ read, ✅ write, ✅ execute]
-             ↳ Contains (1)
-               └── `a.txt` (exists)
+...
 ```
 
 After (`PathFacts::with_prefix("Path ", &path)`), the facts fold onto the summary with the caret still under the path:
@@ -24,14 +22,8 @@ After (`PathFacts::with_prefix("Path ", &path)`), the facts fold onto the summar
 Path does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
                                         ^^^^^
                                         ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
- - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
-             ^^^^^^^^^
-             ↳ Dir [✅ read, ✅ write, ✅ execute]
-             ↳ Contains (1)
-               └── `a.txt` (exists)
+...
 ```
-
-- Change: `FromTo` folds each half's caret and facts onto its `From path`/`To path` summary line rather than repeating the path on a bullet beneath it.
 
 - Add: When a `FromTo`'s two paths resolve to the same location on disk, the `from` half now says so and points down at the `to` half below it. Detection is by resolved location, so it holds across a symlink and its target, a folded `..`, and a relative path spelled against an absolute one.
 

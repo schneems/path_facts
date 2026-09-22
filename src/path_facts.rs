@@ -6,8 +6,6 @@ use std::{fmt::Display, path::Path};
 #[derive(Debug)]
 pub struct PathFacts {
     _inner: Report,
-    /// Leading text rendered in front of the facts. `None` keeps the standalone two-bullet form.
-    /// `Some` folds the caret and facts onto that first line.
     prefix: Option<String>,
 }
 
@@ -19,13 +17,26 @@ impl PathFacts {
         }
     }
 
-    /// Renders the facts after `prefix`, folding the caret onto that first line.
+    /// Prefix path facts with a given string
     ///
-    /// The character width of `prefix` shifts the caret to stay under the path, so a lead like
-    /// `"Path "` no longer knocks it out of alignment. A `prefix` that does not already end in
-    /// whitespace gains one space, so `"Path"` and `"Path "` render alike. Whitespace you write
-    /// yourself is kept, so `"Path    "` stays padded. Plain [`new`](Self::new) keeps the
-    /// two-bullet form.
+    /// This API allows us to annotate the first line. Here we're prefixing with `"Path"`:
+    ///
+    /// ```text
+    /// Path does not exist `/path/to/thing.rs`
+    ///                               ^^^^^^^^
+    /// ```
+    ///
+    /// Versus [`PathFacts::new`] doesn't know what will come before it, so it must repeat the path
+    /// again:
+    ///
+    /// ```text
+    /// Path does not exist `/path/to/thing.rs`
+    /// - `/path/to/thing.rs`
+    ///             ^^^^^^^^
+    /// ```
+    ///
+    /// The prefix input must either be the start of a line, or contain a newline for the caret spacing
+    /// to work correctly.
     pub fn with_prefix(prefix: impl AsRef<str>, path: impl AsRef<Path>) -> Self {
         let prefix = prefix.as_ref();
         let prefix = if prefix.is_empty() || prefix.ends_with(char::is_whitespace) {

@@ -55,7 +55,20 @@ syntax suggesting algorithm into Ruby core](https://github.com/ruby/syntax_sugge
 
 ### Use
 
-The API is small. Construct a `PathFact` with a path and `Display` it as you like:
+The API is small. [`PathFacts::with_prefix`](https://docs.rs/path_facts/latest/path_facts/path_facts/struct.PathFacts.html#method.with_prefix) takes your lead and the path, folds the caret and
+facts onto that first line, and slides the caret to stay under the path so the lead does not
+knock it out of alignment:
+
+```rust
+use path_facts::PathFacts;
+
+let path = std::path::Path::new("doesnotexist.txt");
+std::fs::read_to_string(&path)
+    .map_err(|error| PathFacts::with_prefix(format!("{error}. Path "), &path).to_string())
+    .unwrap();
+```
+
+[`PathFacts::new`](https://docs.rs/path_facts/latest/path_facts/path_facts/struct.PathFacts.html#method.new) holds just the path, to `Display` however you like:
 
 ```rust
 use path_facts::PathFacts;

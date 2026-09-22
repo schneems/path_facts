@@ -51,7 +51,20 @@
 //!
 //! ## Use
 //!
-//! The API is small. Construct a `PathFact` with a path and `Display` it as you like:
+//! The API is small. [`PathFacts::with_prefix`] takes your lead and the path, folds the caret and
+//! facts onto that first line, and slides the caret to stay under the path so the lead does not
+//! knock it out of alignment:
+//!
+//! ```rust,no_run
+//! use path_facts::PathFacts;
+//!
+//! let path = std::path::Path::new("doesnotexist.txt");
+//! std::fs::read_to_string(&path)
+//!     .map_err(|error| PathFacts::with_prefix(format!("{error}. Path "), &path).to_string())
+//!     .unwrap();
+//! ```
+//!
+//! [`PathFacts::new`] holds just the path, to `Display` however you like:
 //!
 //! ```rust,no_run
 //! use path_facts::PathFacts;

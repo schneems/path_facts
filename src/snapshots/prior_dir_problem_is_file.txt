@@ -1,7 +1,3 @@
----
-source: src/path_facts.rs
-expression: "fixture.scrub().carets(&PathFacts::with_prefix(\"Path\", &path).to_string())"
----
 Path does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
                                         ^^^^^
                                         ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
@@ -10,4 +6,3 @@ Path does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
              ↳ Dir [✅ read, ✅ write, ✅ execute]
              ↳ Contains (1)
                └── `a.txt` (exists)
-🛑

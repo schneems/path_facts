@@ -24,10 +24,9 @@ No such file or directory
 When you could be seeing this?
 
 ```text
-does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
- - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
-                       ^^^^^
-                       ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+Path does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+                                        ^^^^^
+                                        ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
  - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
              ^^^^^^^^^
              ↳ Dir [✅ read, ✅ write, ✅ execute]

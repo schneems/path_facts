@@ -583,30 +583,6 @@ mod tests {
         ");
     }
 
-    /// Recorded to a file, unlike every other snapshot here, because two other tests read this one
-    /// back: the module docs of `lib.rs` and the README generated from them both paste this
-    /// rendering, and each proves its paste against
-    /// `src/snapshots/prior_dir_problem_is_file.snap`. An inline snapshot lives in the source of
-    /// this function, where `include_str!` cannot reach it.
-    #[test]
-    fn test_prior_dir_problem_is_file() {
-        let fixture = Fixture::new();
-        std::fs::write(fixture.join("a.txt"), "").unwrap();
-
-        let path = fixture
-            .join("a.txt")
-            .join("b")
-            .join("c")
-            .join("does_not_exist.txt");
-
-        insta::with_settings!({prepend_module_to_snapshot => false}, {
-            insta::assert_snapshot!(
-                "prior_dir_problem_is_file",
-                report(&fixture.scrub(), path)
-            );
-        });
-    }
-
     #[test]
     fn render_with_prefix_empty_folds_onto_summary() {
         let fixture = Fixture::new();

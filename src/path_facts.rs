@@ -234,7 +234,9 @@ mod tests {
 
     #[test]
     fn include_str_new_txt_file_matches_insta() {
-        let include_str_file = unix_newlines(include_str!("snapshots/prior_dir_problem_orig.txt")).trim().to_string();
+        let include_str_file = unix_newlines(include_str!("snapshots/prior_dir_problem_orig.txt"))
+            .trim()
+            .to_string();
         let insta = snapshot_body(include_str!("snapshots/prior_dir_problem_orig.snap"));
 
         // Not `assert_eq!`: its `Debug` output escapes every newline, which turns a caret
@@ -278,7 +280,10 @@ mod tests {
 
     #[test]
     fn include_str_file_matches_insta() {
-        let include_str_file = unix_newlines(include_str!("snapshots/prior_dir_problem_is_file.txt")).trim().to_string();
+        let include_str_file =
+            unix_newlines(include_str!("snapshots/prior_dir_problem_is_file.txt"))
+                .trim()
+                .to_string();
         let insta = snapshot_body(include_str!("snapshots/prior_dir_problem_is_file.snap"));
 
         // Not `assert_eq!`: its `Debug` output escapes every newline, which turns a caret

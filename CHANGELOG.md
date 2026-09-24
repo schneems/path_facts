@@ -2,15 +2,37 @@
 
 ## Unreleased
 
+- Add: `PathFacts::with_prefix(prefix, path)` renders a `prefix` such as `"Path"` or `"From path"` before rendering information about the path.
+  This function folds the caret and facts onto the first line instead of repeating the path on a bullet below it. The `FromTo` output
+  now uses this format as well.
+
+Before, prepending a lead by hand (`format!("Path {}", PathFacts::new(&path))`) repeated the full path on a bullet below the summary:
+
+```
+Path does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+ - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+                       ^^^^^
+                       ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+...
+```
+
+After (`PathFacts::with_prefix("Path ", &path)`), the facts fold onto the summary with the caret still under the path:
+
+```
+Path does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+                                        ^^^^^
+                                        ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+...
+```
+
 - Add: When a `FromTo`'s two paths resolve to the same location on disk, the `from` half now says so and points down at the `to` half below it. Detection is by resolved location, so it holds across a symlink and its target, a folded `..`, and a relative path spelled against an absolute one.
 
 ```
 From path exists `/path/to/directory/latest.log`
- - `/path/to/directory/latest.log`
-                       ^^^^^^^^^^
-                       ↳ Symlink, resolves to file [✅ read, ✅ write, ❌ execute]
-                       ↳ Target `2024-01.log` → `/path/to/directory/2024-01.log`
-                       ↳ Same location as to path (below)
+                                     ^^^^^^^^^^
+                                     ↳ Symlink, resolves to file [✅ read, ✅ write, ❌ execute]
+                                     ↳ Target `2024-01.log` → `/path/to/directory/2024-01.log`
+                                     ↳ Same location as to path (below)
 ...
 To path exists `/path/to/directory/2024-01.log`
 ```

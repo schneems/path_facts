@@ -24,10 +24,9 @@ No such file or directory
 When you could be seeing this?
 
 ```text
-does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
- - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
-                       ^^^^^
-                       ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+Path does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+                                        ^^^^^
+                                        ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
  - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
              ^^^^^^^^^
              ↳ Dir [✅ read, ✅ write, ✅ execute]
@@ -55,16 +54,17 @@ syntax suggesting algorithm into Ruby core](https://github.com/ruby/syntax_sugge
 
 ### Use
 
-The API is small. Construct a `PathFact` with a path and `Display` it as you like:
-
 ```rust
 use path_facts::PathFacts;
 
 let path = std::path::Path::new("doesnotexist.txt");
 std::fs::read_to_string(&path)
-    .map_err(|error| format!("{error}. Path {}", PathFacts::new(&path)))
+    .map_err(|error| PathFacts::with_prefix(format!("{error}.\n\nPath"), &path).to_string())
     .unwrap();
 ```
+
+Using [`PathFacts::with_prefix`](https://docs.rs/path_facts/latest/path_facts/path_facts/struct.PathFacts.html#method.with_prefix) is preferred over [`PathFacts::new`](https://docs.rs/path_facts/latest/path_facts/path_facts/struct.PathFacts.html#method.new). This interface allows us
+to directly annotate the path on the first line with less repetition.
 
 For an operation with two paths you can use multiple PATH FACTS structs or the [`FromTo`](https://docs.rs/path_facts/latest/path_facts/from_to/struct.FromTo.html)
 struct. For example:

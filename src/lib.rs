@@ -20,10 +20,9 @@
 //! When you could be seeing this?
 //!
 //! ```text
-//! does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
-//!  - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
-//!                        ^^^^^
-//!                        ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+//! Path does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+//!                                         ^^^^^
+//!                                         ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
 //!  - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
 //!              ^^^^^^^^^
 //!              ↳ Dir [✅ read, ✅ write, ✅ execute]
@@ -51,16 +50,17 @@
 //!
 //! ## Use
 //!
-//! The API is small. Construct a `PathFact` with a path and `Display` it as you like:
-//!
 //! ```rust,no_run
 //! use path_facts::PathFacts;
 //!
 //! let path = std::path::Path::new("doesnotexist.txt");
 //! std::fs::read_to_string(&path)
-//!     .map_err(|error| format!("{error}. Path {}", PathFacts::new(&path)))
+//!     .map_err(|error| PathFacts::with_prefix(format!("{error}.\n\nPath"), &path).to_string())
 //!     .unwrap();
 //! ```
+//!
+//! Using [`PathFacts::with_prefix`] is preferred over [`PathFacts::new`]. This interface allows us
+//! to directly annotate the path on the first line with less repetition.
 //!
 //! For an operation with two paths you can use multiple PATH FACTS structs or the [`FromTo`]
 //! struct. For example:
@@ -267,7 +267,7 @@ mod tests {
 
     /// The output advertised at the top of this file is real, not typed by hand.
     ///
-    /// It is the same rendering `report::tests::test_prior_dir_problem_is_file` records, so the
+    /// It is the same rendering `path_facts::tests::test_prior_dir_problem_is_file` records, so the
     /// pitch a reader sees first cannot promise a format the library stopped producing. The
     /// snapshot file is the intermediary rather than a fresh walk: this example is built under a
     /// scrubbed tempdir, and re-walking one here would only duplicate that test.

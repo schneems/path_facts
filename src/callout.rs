@@ -144,12 +144,22 @@ pub(crate) fn render_callouts(callouts: &[Callout]) -> String {
 /// Render a single callout: the ``  - `path` `` bullet, the caret line (when there is one), then each
 /// fact as a `↳` line aligned to the caret column.
 pub(crate) fn render_callout(callout: &Callout) -> String {
+    let mut out = style::bullet(format!("`{}`", callout.path));
+    let caret_and_facts = render_caret_and_facts(callout, PATH_INDENT);
+    if !caret_and_facts.is_empty() {
+        out.push('\n');
+        out.push_str(&caret_and_facts);
+    }
+    out
+}
+
+/// Render a callout's caret (`^^^^^`) and facts indented by path_col
+pub(crate) fn render_caret_and_facts(callout: &Callout, path_col: usize) -> String {
     let caret_col = callout
         .caret
-        .map_or(PATH_INDENT, |span| PATH_INDENT + span.char_start);
+        .map_or(path_col, |span| path_col + span.char_start);
 
-    let mut lines = vec![style::bullet(format!("`{}`", callout.path))];
-
+    let mut lines = Vec::new();
     if let Some(span) = callout.caret {
         lines.push(format!(
             "{spaces}{carets}",

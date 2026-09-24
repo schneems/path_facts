@@ -88,6 +88,34 @@ impl Report {
         )
     }
 
+    /// Renders the report with a prefix
+    ///
+    /// This rendering method allows us to underline the path in the first line with a caret (`^^^^`).
+    pub(crate) fn render_with_prefix(&self, prefix: &str) -> String {
+        let (trace, callouts) = match self.trace.as_ref() {
+            Ok(walked) => walked,
+            Err(cannot) => return format!("{prefix}{}", self.render_cannot_trace(cannot)),
+        };
+
+        let summary = self.summary(trace);
+        let path_col = last_line_width(prefix)
+            + summary
+                .chars()
+                .position(|char| char == '`')
+                .map_or(0, |index| index + 1);
+
+        let (first, rest) = callouts.split_first().expect("callouts is never empty");
+        let mut out = format!(
+            "{prefix}{summary}\n{}",
+            callout::render_caret_and_facts(first, path_col)
+        );
+        if !rest.is_empty() {
+            out.push('\n');
+            out.push_str(&callout::render_callouts(rest));
+        }
+        out
+    }
+
     /// The standalone verdict line. No arrow, so a caller may prepend arbitrary text.
     fn summary(&self, trace: &Trace) -> String {
         let input = self.path.display();
@@ -143,6 +171,12 @@ impl Report {
             }
         }
     }
+}
+
+/// Character width of the prefix's last line — everything after its final newline — which is what
+/// a folded caret is shifted right by. Empty, or a prefix ending in a newline, measures zero.
+fn last_line_width(input: &str) -> usize {
+    input.rsplit('\n').next().unwrap_or("").chars().count()
 }
 
 /// Pairs a walk with the callouts built from it.
@@ -549,28 +583,83 @@ mod tests {
         ");
     }
 
-    /// Recorded to a file, unlike every other snapshot here, because two other tests read this one
-    /// back: the module docs of `lib.rs` and the README generated from them both paste this
-    /// rendering, and each proves its paste against
-    /// `src/snapshots/prior_dir_problem_is_file.snap`. An inline snapshot lives in the source of
-    /// this function, where `include_str!` cannot reach it.
     #[test]
-    fn test_prior_dir_problem_is_file() {
+    fn render_with_prefix_empty_folds_onto_summary() {
         let fixture = Fixture::new();
         std::fs::write(fixture.join("a.txt"), "").unwrap();
-
         let path = fixture
             .join("a.txt")
             .join("b")
             .join("c")
             .join("does_not_exist.txt");
 
-        insta::with_settings!({prepend_module_to_snapshot => false}, {
-            insta::assert_snapshot!(
-                "prior_dir_problem_is_file",
-                report(&fixture.scrub(), path)
-            );
-        });
+        insta::assert_snapshot!(
+            fixture.scrub().carets(&Report::new(&path).render_with_prefix("")),
+            @r"
+        does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+                                           ^^^^^
+                                           ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+         - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+                     ^^^^^^^^^
+                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                     ↳ Contains (1)
+                       └── `a.txt` (exists)
+        🛑
+        "
+        );
+    }
+
+    #[test]
+    fn render_with_prefix_label_accounts_for_its_width() {
+        let fixture = Fixture::new();
+        std::fs::write(fixture.join("a.txt"), "").unwrap();
+        let path = fixture
+            .join("a.txt")
+            .join("b")
+            .join("c")
+            .join("does_not_exist.txt");
+
+        insta::assert_snapshot!(
+            fixture.scrub().carets(&Report::new(&path).render_with_prefix("Path ")),
+            @r"
+        Path does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+                                                ^^^^^
+                                                ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+         - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+                     ^^^^^^^^^
+                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                     ↳ Contains (1)
+                       └── `a.txt` (exists)
+        🛑
+        "
+        );
+    }
+
+    #[test]
+    fn render_with_prefix_measures_only_the_last_line() {
+        let fixture = Fixture::new();
+        std::fs::write(fixture.join("a.txt"), "").unwrap();
+        let path = fixture
+            .join("a.txt")
+            .join("b")
+            .join("c")
+            .join("does_not_exist.txt");
+
+        insta::assert_snapshot!(
+            fixture.scrub().carets(&Report::new(&path).render_with_prefix("lead\n")),
+            @r"
+        lead
+        does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+                                           ^^^^^
+                                           ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+         - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
+                     ^^^^^^^^^
+                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                     ↳ Contains (1)
+                       └── `a.txt` (exists)
+        🛑
+        "
+        );
     }
 
     #[test]

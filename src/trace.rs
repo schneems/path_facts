@@ -998,7 +998,7 @@ fn up(position: Reached, name: ParentDirComponent) -> (Step, Reached) {
 }
 
 fn join(dir: &AbsPath, name: &NormalComponent) -> AbsPath {
-    dir.join_relative(&RelativePath::new(name.as_ref()).expect("a file name is a relative path"))
+    dir.join_normal(name)
 }
 
 #[cfg(test)]

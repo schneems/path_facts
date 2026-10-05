@@ -64,12 +64,15 @@
 //!   names a machine that can be off, and nothing can be said about a path hanging off a
 //!   root that does not answer.
 
-use crate::abs_path::{readlink, AbsPath, AbsPathError, RelativePath};
+use crate::abs_path::{readlink, AbsPath, AbsPathError};
 use crate::canonical_path::{CannotCanonicalizeAnything, CanonicalPath, Entry};
 use crate::component::{self, NormalComponent, OwnedComponent, ParentDirComponent};
+use crate::non_empty::NonEmpty;
 use faccess::{AccessMode, PathExt};
 use std::borrow::Cow;
+use std::convert::TryFrom;
 use std::io::ErrorKind;
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
 /// What a single `lstat` reported at one component
@@ -333,7 +336,7 @@ pub(crate) struct Trace {
     /// can name a share on a machine that is off, and there is nothing to say about
     /// `\\server\share\a\b\c` when `\\server\share` itself does not answer.
     root: CanonicalPath,
-    steps: Vec<Step>,
+    steps: NonEmpty<Step>,
 }
 
 /// The walk could not begin
@@ -407,9 +410,7 @@ impl Trace {
             position = next;
         }
 
-        if steps.is_empty() {
-            return Err(CannotTrace::IsRoot(root));
-        }
+        let mut steps = NonEmpty::try_from(steps).map_err(|_| CannotTrace::IsRoot(root.clone()))?;
 
         attribute(&mut steps, input);
 
@@ -474,7 +475,7 @@ impl Trace {
     /// the final component.
     #[cfg(test)]
     pub(crate) fn append_race(&mut self, why: &'static str, error: std::io::Error) {
-        let index = StepCursor::last_reached(&self.steps).index;
+        let index = StepCursor::trace_stopped_at(&self).index;
         self.steps[index].contents = PhysicalNode::Raced { why, error };
     }
 
@@ -484,7 +485,7 @@ impl Trace {
     /// answers. Every step after this one is [`PhysicalNode::NotReached`], so this single
     /// observation explains all of them.
     pub(crate) fn stopped_early_at(&self) -> Option<&Step> {
-        let cursor = StepCursor::last_reached(&self.steps);
+        let cursor = StepCursor::trace_stopped_at(&self);
         let step = cursor.current();
 
         // Arriving at a file, a link, or an absence is an answer when the path ends there,
@@ -506,7 +507,7 @@ impl Trace {
     ///
     /// `None` only when the path resolves to a root, which sits in nothing.
     pub(crate) fn listing(&self) -> Option<Listing> {
-        let cursor = StepCursor::last_reached(&self.steps);
+        let cursor = StepCursor::trace_stopped_at(&self);
         let step = cursor.current();
 
         // `..` is not an entry in any directory listing, so name the location it moved to
@@ -614,7 +615,7 @@ impl Trace {
     }
 
     pub(crate) fn stop_status(&self) -> StopStatus<'_> {
-        let cursor = StepCursor::last_reached(&self.steps);
+        let cursor = StepCursor::trace_stopped_at(&self);
         let step = cursor.current();
 
         if cursor.after().is_none() {
@@ -641,7 +642,7 @@ impl Trace {
     /// the caller, or it names a different place than `dir`. A report has to fall back to an
     /// absolute path in each case.
     pub(crate) fn parent_input_index(&self, dir: &CanonicalPath) -> Option<usize> {
-        let before = StepCursor::last_reached(&self.steps).before()?;
+        let before = StepCursor::trace_stopped_at(&self).before()?;
         let index = before.input?;
 
         (before.contents.resolved_to()?.as_ref() == dir).then_some(index)
@@ -652,24 +653,32 @@ impl Trace {
     /// Lexical, and so available even when the directory does not exist. `None` only when the
     /// stopping component sits directly in the root.
     pub(crate) fn stop_parent(&self) -> Option<AbsPath> {
-        let cursor = StepCursor::last_reached(&self.steps);
+        let cursor = StepCursor::trace_stopped_at(&self);
         cursor.current().at.as_ref()?.lex_parent()
     }
 }
 
 /// A pointer to a specific step, allows us to inspect up or down
 struct StepCursor<'a> {
-    steps: &'a [Step],
+    steps: &'a NonEmpty<Step>,
     index: usize,
 }
 
 impl<'a> StepCursor<'a> {
     /// Builds a cursor pointing at the last component we walked on the file system
-    fn last_reached(steps: &'a [Step]) -> Self {
+    fn trace_stopped_at(trace: &'a Trace) -> Self {
+        let steps = &trace.steps;
         let index = steps
             .iter()
             .rposition(|step| !matches!(step.contents, PhysicalNode::NotReached))
-            .expect("at least one node was visited");
+            .unwrap_or_else(|| {
+                // Trace should always visit at least one Physical Note so this shouldn't happen.
+                // But if it does: encourage an error report via a warning. Avoid panic-ing since
+                // this library is for supplementary information.
+                let mut io = std::io::stderr().lock();
+                let _ = writeln!(io, "internal path_facts warning: expected trace of `{}` to reach one physical node on disk but it did not.", trace.input.display());
+                0
+            });
 
         StepCursor { steps, index }
     }
@@ -1723,7 +1732,7 @@ mod tests {
         let trace = walk(&path);
         let input = path.components().collect::<Vec<_>>();
 
-        for step in trace.steps {
+        for step in &trace.steps {
             let index = step.input.expect("the caller wrote every component");
             assert_eq!(input[index].as_os_str(), step.name.as_ref());
         }
@@ -1774,7 +1783,7 @@ mod tests {
         let trace = walk(&path);
         let input = path.components().collect::<Vec<_>>();
 
-        for step in trace.steps {
+        for step in &trace.steps {
             let index = step.input.expect("only a `.` went unattributed");
             assert_eq!(input[index].as_os_str(), step.name.as_ref());
         }

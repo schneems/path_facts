@@ -126,12 +126,14 @@ impl CanonicalPath {
         // A path of nothing but dot parts is folded away entirely, and appending the empty
         // remainder would leave a trailing separator on the directory it landed on.
         if rest.as_os_str().is_empty() {
-            return base;
+            base
+        } else {
+            base.join_relative(
+                &RelativePath::new(rest).expect(
+                    "what follows the dot parts of a relative path will always be relative",
+                ),
+            )
         }
-
-        base.join_relative(
-            &RelativePath::new(rest).expect("what follows the dot parts of a relative path"),
-        )
     }
 
     /// Returns the filename of the path

@@ -105,12 +105,14 @@ impl AbsPath {
     /// ```
     ///
     /// In this example, the lex_parent does not contain the child. The path `a/b/c/..` maps to the physical
-    /// location of `a/b` therefore the physical parent would be `a`.
+    /// location of `a/b` which IS equivalent to `a/b/c/..` (after folding) and does NOT hold `a/b/c/..`.
     ///
     /// The `..` ([`std::path::Component::ParentDir`]) can also interact with
-    /// symlinks. If `a/b` is a symlink to `/x/y/z`, the kernel follows `a/b`
-    /// to `/x/y/z`, so `a/b/c/..` is resolved as `/x/y/z/c/..`, which expands
-    /// to `/x/y/z`. The physical parent would be `/x/y` and not `a`.
+    /// symlinks. If `/a/b` is a symlink to `/x/y/z`, the kernel follows `/a/b`
+    /// to `/x/y/z`. The parent of `/a/b/` is represented as `/a/b/..` and would
+    /// be derived by expanding before folding `/x/y/z/..` which produces `/x/y`.
+    /// If you try to fold before expanding, you get `/a/b/..` folded into `/a`
+    /// which is different than the correct, physical parent.
     ///
     /// ## ParentDir part (`..`) in the middle of a path
     ///

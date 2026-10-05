@@ -475,7 +475,7 @@ impl Trace {
     /// the final component.
     #[cfg(test)]
     pub(crate) fn append_race(&mut self, why: &'static str, error: std::io::Error) {
-        let index = StepCursor::trace_stopped_at(&self).index;
+        let index = StepCursor::trace_stopped_at(self).index;
         self.steps[index].contents = PhysicalNode::Raced { why, error };
     }
 
@@ -485,7 +485,7 @@ impl Trace {
     /// answers. Every step after this one is [`PhysicalNode::NotReached`], so this single
     /// observation explains all of them.
     pub(crate) fn stopped_early_at(&self) -> Option<&Step> {
-        let cursor = StepCursor::trace_stopped_at(&self);
+        let cursor = StepCursor::trace_stopped_at(self);
         let step = cursor.current();
 
         // Arriving at a file, a link, or an absence is an answer when the path ends there,
@@ -507,7 +507,7 @@ impl Trace {
     ///
     /// `None` only when the path resolves to a root, which sits in nothing.
     pub(crate) fn listing(&self) -> Option<Listing> {
-        let cursor = StepCursor::trace_stopped_at(&self);
+        let cursor = StepCursor::trace_stopped_at(self);
         let step = cursor.current();
 
         // `..` is not an entry in any directory listing, so name the location it moved to
@@ -615,7 +615,7 @@ impl Trace {
     }
 
     pub(crate) fn stop_status(&self) -> StopStatus<'_> {
-        let cursor = StepCursor::trace_stopped_at(&self);
+        let cursor = StepCursor::trace_stopped_at(self);
         let step = cursor.current();
 
         if cursor.after().is_none() {
@@ -642,7 +642,7 @@ impl Trace {
     /// the caller, or it names a different place than `dir`. A report has to fall back to an
     /// absolute path in each case.
     pub(crate) fn parent_input_index(&self, dir: &CanonicalPath) -> Option<usize> {
-        let before = StepCursor::trace_stopped_at(&self).before()?;
+        let before = StepCursor::trace_stopped_at(self).before()?;
         let index = before.input?;
 
         (before.contents.resolved_to()?.as_ref() == dir).then_some(index)
@@ -653,7 +653,7 @@ impl Trace {
     /// Lexical, and so available even when the directory does not exist. `None` only when the
     /// stopping component sits directly in the root.
     pub(crate) fn stop_parent(&self) -> Option<AbsPath> {
-        let cursor = StepCursor::trace_stopped_at(&self);
+        let cursor = StepCursor::trace_stopped_at(self);
         cursor.current().at.as_ref()?.lex_parent()
     }
 }

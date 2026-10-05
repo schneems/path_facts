@@ -440,7 +440,7 @@ impl Trace {
     // The step of the last part of the input path
     #[cfg(test)]
     pub(crate) fn last_step(&self) -> &Step {
-        self.steps.last().expect("Steps is never empty")
+        self.steps.last().unwrap()
     }
 
     /// The step where the walk caught a contradiction, if it caught one
@@ -1069,7 +1069,7 @@ mod tests {
 
     /// The step the walk stopped at, which has to exist for the test to be about anything
     fn stopped(trace: &Trace) -> &Step {
-        trace.stopped_early_at().expect("steps is never empty")
+        trace.stopped_early_at().unwrap()
     }
 
     #[test]
@@ -1350,7 +1350,7 @@ mod tests {
                 } => Some(abs.as_ref()),
                 _ => None,
             })
-            .expect("the walk records the link as a symlink step");
+            .unwrap();
 
         assert_eq!(
             recorded.canonicalize().unwrap(),
@@ -1664,7 +1664,7 @@ mod tests {
         let first = dir
             .components()
             .find(|component| matches!(component, Component::Normal(_)))
-            .expect("a tempdir lives below at least one top level directory");
+            .unwrap();
         let top = root_of(&dir).join(first.as_os_str());
 
         let trace = walk(join_unfolded(&top, &[".."]));
@@ -1733,7 +1733,7 @@ mod tests {
         let input = path.components().collect::<Vec<_>>();
 
         for step in &trace.steps {
-            let index = step.input.expect("the caller wrote every component");
+            let index = step.input.unwrap();
             assert_eq!(input[index].as_os_str(), step.name.as_ref());
         }
     }
@@ -1784,7 +1784,7 @@ mod tests {
         let input = path.components().collect::<Vec<_>>();
 
         for step in &trace.steps {
-            let index = step.input.expect("only a `.` went unattributed");
+            let index = step.input.unwrap();
             assert_eq!(input[index].as_os_str(), step.name.as_ref());
         }
     }
@@ -1843,7 +1843,7 @@ mod tests {
 
         trace.append_race("two calls disagreed", std::io::Error::other("boom"));
 
-        let raced = trace.raced().expect("the injected race is detected");
+        let raced = trace.raced().unwrap();
         match &raced.contents {
             PhysicalNode::Raced { why, error } => {
                 assert_eq!(*why, "two calls disagreed");
@@ -1877,7 +1877,7 @@ mod tests {
             trace.last_step().contents,
             PhysicalNode::NotReached
         ));
-        let raced = trace.raced().expect("the mid-path race is detected");
+        let raced = trace.raced().unwrap();
         assert!(matches!(raced.contents, PhysicalNode::Raced { .. }));
         assert_eq!(raced.at.as_ref().unwrap().as_ref(), dir.join("f"));
     }

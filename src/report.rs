@@ -781,7 +781,7 @@ mod tests {
         let table = cases
             .iter()
             .map(|(what, path)| {
-                let trace = Trace::new(path).expect("a path the walk can start on");
+                let trace = Trace::new(path).unwrap();
                 let (StopStatus::Early(step) | StopStatus::Final(step)) = trace.stop_status();
                 let answer = match resolved_elsewhere(step) {
                     Some(canonical) => canonical.to_string(),

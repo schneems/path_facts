@@ -1690,13 +1690,10 @@ mod tests {
         }
     }
 
-    /// `std::fs::canonicalize` hands back a verbatim (`\\?\`) path, and `components()` does
-    /// not normalize `.` behind a verbatim prefix, so `\\?\C:\.` keeps a `CurDir`. The walk
-    /// skips `CurDir` the same as `RootDir`, but the `IsRoot` guard only rejects
-    /// `Prefix | RootDir`, so this path slips through and produces zero steps. Every accessor
-    /// then panics on `steps.last().expect("Steps is never empty")` (and the `last_reached`
-    /// expect behind `status_on_disk`/`listing`/`stop_status`), which `PathFacts::new` reaches
-    /// straight from caller input.
+    /// Regression test for `\\?\C:\.`
+    ///
+    /// This path `\\?\C:\.` is a "verbatim" absolute path with only a `CurDir` (`.`) in it. This
+    /// caused us to produce a `Trace` with zero steps.
     #[cfg(windows)]
     #[test]
     fn test_verbatim_root_with_a_dot_does_not_produce_a_zero_step_trace() {

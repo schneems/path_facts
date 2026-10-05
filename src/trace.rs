@@ -525,11 +525,14 @@ impl Trace {
         // `Lost`, from which the next step is `NotReached` and so not the one examined here.
         let dir = match cursor.before() {
             None => self.root.clone(),
-            Some(previous) => previous
-                .contents
-                .resolved_to()
-                .expect("the step before a reached step left the walk in a resolved directory")
-                .into_owned(),
+            Some(previous) => match previous.contents.resolved_to() {
+                Some(physical) => physical.into_owned(),
+                None => {
+                    // Shouldn't happen, warn if it does
+                    warn(format!("trace for `{}` stopped at `{}`. Expected prior component `{}` to be resolvable, but it was not", self.input.display(), step.name.as_ref().to_string_lossy() , previous.name.as_ref().to_string_lossy()));
+                    return None;
+                }
+            },
         };
 
         Some(Listing {

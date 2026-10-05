@@ -5,6 +5,7 @@
 use crate::abs_path::AbsPathError;
 use crate::callout::{self, Callout, Caret, Entry, Fact};
 use crate::canonical_path::{CannotCanonicalizeAnything, CanonicalPath};
+use crate::non_empty::NonEmpty;
 use crate::style;
 use crate::trace::{CannotTrace, PhysicalNode, Resolved, StatusOnDisk, Step, StopStatus, Trace};
 use faccess::{AccessMode, PathExt};
@@ -20,7 +21,7 @@ pub(crate) struct Report {
     /// Original input path, exactly as the caller spelled it
     path: PathBuf,
     /// Detected state of the path, paired with the callouts built from it
-    trace: Result<(Trace, Vec<Callout>), CannotTrace>,
+    trace: Result<(Trace, NonEmpty<Callout>), CannotTrace>,
 }
 
 impl Report {
@@ -53,17 +54,9 @@ impl Report {
     }
 
     /// Adds a cross-path note beneath the facts of the component the walk stopped at.
-    ///
-    /// The leaf callout (`callouts[0]`) is the one whose caret sits on that component, and it never
-    /// carries a directory tree, so the note lands as a trailing `↳` line rather than wedged
-    /// between a fact and the listing under it. A report that could not be traced has no callouts
-    /// and is left as is; it also has no [`Report::resolved_location`], so no caller reaches here
-    /// for one.
-    pub(crate) fn annotate_leaf(&mut self, note: String) {
+    pub(crate) fn annotate_stopped(&mut self, note: String) {
         if let Ok((_, callouts)) = &mut self.trace {
-            if let Some(leaf) = callouts.first_mut() {
-                leaf.facts.push(Fact::Text(note));
-            }
+            callouts.first_mut().facts.push(Fact::Text(note))
         }
     }
 }
@@ -104,7 +97,7 @@ impl Report {
                 .position(|char| char == '`')
                 .map_or(0, |index| index + 1);
 
-        let (first, rest) = callouts.split_first().expect("callouts is never empty");
+        let (first, rest) = callouts.split_first();
         let mut out = format!(
             "{prefix}{summary}\n{}",
             callout::render_caret_and_facts(first, path_col)
@@ -184,7 +177,7 @@ fn last_line_width(input: &str) -> usize {
 /// Every filesystem call this type makes happens here: building the callouts reads permissions
 /// and lists a directory. Leaving that in `Display` would hide syscalls behind a `{}` and let two
 /// renderings of the same value disagree, each having asked disk at a different moment.
-fn traced(path: &Path, trace: Trace) -> (Trace, Vec<Callout>) {
+fn traced(path: &Path, trace: Trace) -> (Trace, NonEmpty<Callout>) {
     let callouts = callouts(path, &trace);
     (trace, callouts)
 }
@@ -194,13 +187,13 @@ fn traced(path: &Path, trace: Trace) -> (Trace, Vec<Callout>) {
 /// Always at least one: the walk always stopped somewhere, and that somewhere is what the first
 /// callout describes. The second appears whenever the stopping step sits in a directory the walk
 /// managed to look inside.
-fn callouts(path: &Path, trace: &Trace) -> Vec<Callout> {
+fn callouts(path: &Path, trace: &Trace) -> NonEmpty<Callout> {
     let (step, early) = match trace.stop_status() {
         StopStatus::Early(step) => (step, true),
         StopStatus::Final(step) => (step, false),
     };
 
-    let mut callouts = vec![stopped_step_callout(path, trace, step, early)];
+    let mut callouts = NonEmpty::new(stopped_step_callout(path, trace, step, early));
     if let Some(parent) = parent_of_stopped_callout(path, trace) {
         callouts.push(parent);
     }

@@ -4,7 +4,10 @@
 //!
 //! A property of absolute paths is that recursively retrieving their parent paths will eventually
 //! lead to the root path. The parent of an absolute path is also an absolute path [`AbsPath::lex_parent`].
-use crate::{canonical_path::CanonicalPath, component::NormalComponent};
+use crate::{
+    canonical_path::CanonicalPath,
+    component::{self, NormalComponent, OwnedComponent, ParentDirComponent},
+};
 use std::{
     fmt::{Display, Formatter},
     path::{Component, Path, PathBuf, Prefix},
@@ -22,6 +25,32 @@ impl RelativePath {
         } else {
             None
         }
+    }
+
+    /// Removes the leading `.` and `..` parts of a path
+    ///
+    /// For every ParentDir (`..`) calls the `on_parent` closure. Which can be used in the caller
+    /// logic to implement path folding.
+    ///
+    /// `a` -> Some(`a`)
+    /// `../../a` -> Some(`a`)
+    /// `../../..` -> None
+    /// `` -> None
+    pub(crate) fn trim_leading_dots(
+        &self,
+        mut on_parent: impl FnMut(ParentDirComponent),
+    ) -> Option<RelativePath> {
+        let mut components = self.0.components().peekable();
+        while let Some(dot) =
+            components.next_if(|c| matches!(c, Component::CurDir | Component::ParentDir))
+        {
+            if let OwnedComponent::ParentDir(parent) = component::owned(dot) {
+                on_parent(parent);
+            }
+        }
+
+        let rest = components.map(Component::as_os_str).collect::<PathBuf>();
+        (!rest.as_os_str().is_empty()).then_some(RelativePath(rest))
     }
 }
 
@@ -222,8 +251,36 @@ pub(crate) fn readlink(
     let target = std::fs::read_link(absolute.as_ref())?;
 
     match RelativePath::new(&target) {
-        Some(relative) => Ok((target, dir.join_fold_leading_parent_dirs(&relative))),
+        Some(relative) => Ok((target, expand_leading_dots(dir.clone(), relative))),
         None => Ok((target.clone(), AbsPath(target))),
+    }
+}
+
+// Fold leading dots into the directory that we know exists and we're in.
+//
+// You cannot lexically fold a ParentDir `..` unless you know that it's immediate lexical parent.
+// Otherwise you can get wrong or misleading information when:
+//
+// - The parent does not exist or is not a directory. e.g. if `/a/b` does not exist, `stat` on
+//   `/a/b/..` fails with `ENOENT`, but folding it gives `/a`. The same goes for `/a/b.txt/..`
+//   when `/a/b.txt` is a file, which fails with `ENOTDIR`.
+// - The parent is a symlink. e.g. if `/a/b` is a symlink to `/x/y/z`, then `/a/b/..` resolves
+//   to `/x/y/z/..`, which is `/x/y`. Folding it lexically gives `/a`.
+//
+// Unsafe to call UNLESS you guarantee base exists, is a directory, and is resolved to that location.
+//
+// Explicitly NOT pub(crate).
+fn expand_leading_dots(base: CanonicalPath, rest: RelativePath) -> AbsPath {
+    let mut base = base;
+    let rest = rest.trim_leading_dots(|_: ParentDirComponent| {
+        if let Some(parent) = base.parent() {
+            base = parent;
+        }
+    });
+
+    match rest {
+        Some(rest) => AbsPath::from(base).join_relative(&rest),
+        None => AbsPath::from(base),
     }
 }
 
@@ -236,6 +293,7 @@ pub(crate) enum AbsPathError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Component;
 
     fn abs(path: impl AsRef<Path>) -> AbsPath {
         AbsPath::new(path).unwrap()
@@ -374,5 +432,66 @@ mod tests {
 
         assert!(readlink(&can(&dir), &abs(dir.join("f"))).is_err());
         assert!(readlink(&can(&dir), &abs(dir.join("missing"))).is_err());
+    }
+
+    fn canonical(path: &Path) -> CanonicalPath {
+        CanonicalPath::new(&AbsPath::new(path).unwrap()).unwrap()
+    }
+
+    /// Relative paths are spelled with `/`, which Windows accepts, so both platforms see the same
+    /// components. Expected values are built with `join` so the separators are the platform's.
+    fn folded(dir: &CanonicalPath, rest: &str) -> PathBuf {
+        expand_leading_dots(dir.to_owned(), RelativePath::new(rest).unwrap())
+            .as_ref()
+            .to_path_buf()
+    }
+
+    /// Every leading dot part folds, not only the first, and a `.` is stepped over on the way.
+    #[test]
+    fn test_join_folded_consumes_the_whole_leading_run() {
+        let temp = tempfile::tempdir().unwrap();
+        let anchor = temp.path().canonicalize().unwrap();
+        let b = anchor.join("a").join("b");
+        std::fs::create_dir_all(&b).unwrap();
+        let dir = canonical(&b);
+
+        assert_eq!(folded(&dir, "x"), b.join("x"));
+        assert_eq!(folded(&dir, "../x"), anchor.join("a").join("x"));
+        assert_eq!(folded(&dir, "../../x"), anchor.join("x"));
+        assert_eq!(folded(&dir, "./../x"), anchor.join("a").join("x"));
+
+        // Consumed entirely, so the directory the fold landed on is the whole answer
+        assert_eq!(folded(&dir, ".."), anchor.join("a"));
+    }
+
+    /// Root is its own parent, so a `..` run cannot walk off the top of the filesystem.
+    #[test]
+    fn test_join_folded_clamps_at_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp
+            .path()
+            .canonicalize()
+            .unwrap()
+            .components()
+            .take_while(|component| matches!(component, Component::Prefix(_) | Component::RootDir))
+            .map(|component| component.as_os_str())
+            .collect::<PathBuf>();
+        let dir = canonical(&root);
+
+        assert_eq!(folded(&dir, "../../x"), dir.as_ref().join("x"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_join_folded_leaves_a_dot_dot_after_a_name_alone() {
+        use crate::join_unfolded;
+
+        let temp = tempfile::tempdir().unwrap();
+        let dir = canonical(&temp.path().canonicalize().unwrap());
+
+        assert_eq!(
+            folded(&dir, "a/../x"),
+            join_unfolded(dir.as_ref(), &["a", "..", "x"])
+        );
     }
 }

@@ -71,8 +71,8 @@ use crate::non_empty::NonEmpty;
 use faccess::{AccessMode, PathExt};
 use std::borrow::Cow;
 use std::convert::TryFrom;
-use std::io::ErrorKind;
 use std::io::Write;
+use std::io::{stderr, ErrorKind};
 use std::path::{Component, Path, PathBuf};
 
 /// What a single `lstat` reported at one component
@@ -672,11 +672,10 @@ impl<'a> StepCursor<'a> {
             .iter()
             .rposition(|step| !matches!(step.contents, PhysicalNode::NotReached))
             .unwrap_or_else(|| {
-                // Trace should always visit at least one Physical Note so this shouldn't happen.
-                // But if it does: encourage an error report via a warning. Avoid panic-ing since
-                // this library is for supplementary information.
-                let mut io = std::io::stderr().lock();
-                let _ = writeln!(io, "internal path_facts warning: expected trace of `{}` to reach one physical node on disk but it did not.", trace.input.display());
+                warn(format!(
+                    "expected trace of `{}` to reach one physical node on disk but it did not.",
+                    trace.input.display()
+                ));
                 0
             });
 
@@ -754,6 +753,19 @@ enum Reached {
     Ghost(AbsPath),
     /// Nothing below here can even be named
     Lost,
+}
+
+/// Warn instead of panic-ing if we can help it
+///
+/// Panic strategy:
+/// - Prefer to fully handle or hold errors.
+/// - Sometimes we must `except()` for internals of types. Only do this if there's no viable alternative.
+///   or if the local logic can **prove** it's safe if the type system cannot.
+/// - For cases where "this should never happen" but a sound, default value can be returned: warn (to)
+///   and use the default value.
+fn warn(input: impl AsRef<str>) {
+    // Avoid panic-ing since this library is for supplementary information.
+    let _ = writeln!(stderr(), "path_facts internal warning: {}", input.as_ref());
 }
 
 /// Moves into `name`, which sits inside whatever the walk has reached

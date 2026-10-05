@@ -57,13 +57,14 @@ pub(crate) fn module_doc_example(source: &str, index: usize) -> String {
 /// `splitn` rather than `split` so a `---` inside the recorded output keeps the rest of it: the
 /// frontmatter is the first two fences and everything after them is the body.
 pub(crate) fn snapshot_body(snapshot: &str) -> String {
-    let body = snapshot
-        .splitn(3, "---")
-        .nth(2)
-        .expect("snapshot should have YAML frontmatter")
-        .replace(STOP, "");
+    let body = &if let Some(body) = snapshot.splitn(3, "---").nth(2) {
+        body
+    } else {
+        snapshot
+    }
+    .replace(STOP, "");
 
-    unix_newlines(&body).trim().to_string()
+    unix_newlines(body).trim().to_string()
 }
 
 /// The text with its line endings rewritten to `\n`.

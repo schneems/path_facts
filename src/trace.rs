@@ -336,6 +336,8 @@ pub(crate) struct Trace {
     /// can name a share on a machine that is off, and there is nothing to say about
     /// `\\server\share\a\b\c` when `\\server\share` itself does not answer.
     root: CanonicalPath,
+
+    /// Components of the path, and what was found in each
     steps: NonEmpty<Step>,
 }
 
@@ -391,9 +393,7 @@ impl Trace {
                 // the front of an absolute path.
                 OwnedComponent::Prefix(_) | OwnedComponent::RootDir(_) => continue,
                 // `components` normally drops `.`, but it keeps them behind a verbatim
-                // prefix (`\\?\`), which is what Windows canonicalization hands back. So
-                // this arm does real work there rather than only guarding against a stray
-                // dot in an absolute path.
+                // prefix (`\\?\`), which is what Windows canonicalization hands back.
                 //
                 // Treating `.` as a no-op is more permissive than Windows itself: a
                 // verbatim path skips OS normalization, so `\\?\C:\a\.\b` does not name

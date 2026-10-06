@@ -63,10 +63,7 @@ impl<'a, T> IntoIterator for &'a NonEmpty<T> {
 pub(crate) struct NonEmptyError;
 impl Display for NonEmptyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(
-            f,
-            "Attempted to construct a NonEmpty iterator from an empty one"
-        )
+        write!(f, "cannot construct a NonEmpty iterator from an empty one")
     }
 }
 

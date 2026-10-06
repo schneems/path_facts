@@ -369,16 +369,9 @@ mod tests {
                 literal
             );
 
-            // A `..` in the middle of a join is NOT folded in.
+            // A `..` in the middle of a join is folded in.
             let join_lit_middle = Path::new(r"\\?\C:\base").join(r"a\b\..\c");
-            assert_ne!(literal, join_lit_middle);
-            assert!(
-                !join_lit_middle
-                    .components()
-                    .any(|component| matches!(component, Component::ParentDir)),
-                "literal `..` on a verbatim base, got {:?}",
-                join_lit_middle
-            );
+            assert_eq!(join_lit_middle, Path::new(r"\\?\C:\base\a\c"));
         }
     }
 

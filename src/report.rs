@@ -346,7 +346,13 @@ fn stopped_step_type_line(step: &Step, early: bool) -> String {
              ⚠️ Error: {error}"
         ),
         PhysicalNode::NotReached => {
-            unreachable!("the stopping step is by definition one the walk reached")
+            let message = "⚠️ Unexpected stopped_step_type_line: PhysicalNode::NotReached";
+
+            if cfg!(test) {
+                unreachable!("{}", message);
+            } else {
+                String::from(message)
+            }
         }
     }
 }

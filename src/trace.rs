@@ -585,9 +585,16 @@ impl Trace {
                 | PhysicalNode::Symlink {
                     resolved: Err(_), ..
                 } => StatusOnDisk::Unknown,
-                PhysicalNode::ParentDir { .. } => unreachable!("cannot stop on `..` mid-path"),
-                PhysicalNode::Directory(_) => unreachable!("cannot stop on a directory"),
-                PhysicalNode::NotReached => unreachable!("stopped node must be reached"),
+                // Should be unreachable, but types aren't strong enough to prove
+                PhysicalNode::ParentDir { .. }
+                | PhysicalNode::Directory(_)
+                | PhysicalNode::NotReached => {
+                    warn(format!(
+                        "unexpected early status_on_disk: {:?})",
+                        step.contents
+                    ));
+                    StatusOnDisk::Unknown
+                }
                 PhysicalNode::ParentNoExec { entry, .. } => {
                     if entry.is_some() {
                         StatusOnDisk::Unknown
@@ -612,7 +619,10 @@ impl Trace {
                 PhysicalNode::UnknownLookup(_) | PhysicalNode::Raced { .. } => {
                     StatusOnDisk::Unknown
                 }
-                PhysicalNode::NotReached => unreachable!("stopped node must be reached"),
+                PhysicalNode::NotReached => {
+                    warn("unexpected final status_on_disk: PhysicalNode::NotReached");
+                    StatusOnDisk::Unknown
+                }
             },
         }
     }

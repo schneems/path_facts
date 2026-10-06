@@ -767,8 +767,11 @@ enum Reached {
 /// - For cases where "this should never happen" but a sound, default value can be returned: warn (to)
 ///   and use the default value.
 fn warn(input: impl AsRef<str>) {
-    // Avoid panic-ing since this library is for supplementary information.
+    // Avoid panic-ing outside of tests since this library is for supplementary information.
     let _ = writeln!(stderr(), "path_facts internal warning: {}", input.as_ref());
+
+    #[cfg(test)]
+    panic!("{}", input.as_ref());
 }
 
 /// Moves into `name`, which sits inside whatever the walk has reached

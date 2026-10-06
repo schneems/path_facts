@@ -239,8 +239,7 @@ impl AsRef<Path> for AbsPath {
 /// symlink itself. A link at `/a/sub/rel` pointing at `gone` names `/a/sub/gone`.
 ///
 /// A target that opens with `..` is folded against that directory rather than left spelled with
-/// the two dots in it, so `../gone` beside `/a/sub/rel` reports `/a/gone` — the place it lands.
-/// See [`CanonicalPath::join_fold_leading_parent_dirs`].
+/// the two dots in it, so `../gone` beside `/a/sub/rel` reports `/a/gone`.
 ///
 /// Both spellings come back because they are different facts. The written target is what the
 /// link holds, and it is what survives the link being moved; the absolute one is only where that

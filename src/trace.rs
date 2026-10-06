@@ -762,7 +762,7 @@ enum Reached {
 ///
 /// Panic strategy:
 /// - Prefer to fully handle or hold errors.
-/// - Sometimes we must `except()` for internals of types. Only do this if there's no viable alternative.
+/// - Sometimes we must `expect()` for internals of types. Only do this if there's no viable alternative,
 ///   or if the local logic can **prove** it's safe if the type system cannot.
 /// - For cases where "this should never happen" but a sound, default value can be returned: warn (to)
 ///   and use the default value.

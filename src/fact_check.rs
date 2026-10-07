@@ -388,13 +388,10 @@ mod tests {
     /// In practice, every verbatim path with a `..` in it errors on every Rust std lib call (that I
     /// have tried/tested).
     ///
-    ///  Rust `canonicalize()` on windows returns verbatim paths. So it is unsafe to do this:
-    ///
-    /// ```text
-    /// canonicalize(canonicalize(&path).unwrap().join(&other)).unwrap()
-    /// ```
-    ///
-    /// Since, if `other` contains a `..` then the resulting path is basically unusable.
+    /// Rust `canonicalize()` on windows returns verbatim paths. Joining a relative path onto one
+    /// folds `..` (see [`test_path_join_folds_parent_dir_only_on_a_verbatim_receiver`]), so
+    /// `canonicalize(canonicalize(&path)?.join(&other))` does not hit this. A literal `..` has to
+    /// come from building the path as a string.
     #[cfg(windows)]
     #[test]
     fn test_canonicalize_fails_on_trailing_dot_dot_in_a_verbatim_path() {
@@ -435,8 +432,7 @@ mod tests {
             "expected ERROR_INVALID_NAME for a `..` in a verbatim path, got {:?}",
             error
         );
-        let error = std::fs::create_dir_all(&trailing)
-            .expect_err("rust's parser does not expect a `..` in a verbatim path");
+        let error = std::fs::create_dir_all(&trailing).expect_err("`..` in a verbatim path");
         assert_eq!(
             error.kind(),
             std::io::ErrorKind::InvalidFilename,

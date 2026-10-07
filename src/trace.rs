@@ -64,12 +64,15 @@
 //!   names a machine that can be off, and nothing can be said about a path hanging off a
 //!   root that does not answer.
 
-use crate::abs_path::{readlink, AbsPath, AbsPathError, RelativePath};
+use crate::abs_path::{readlink, AbsPath, AbsPathError};
 use crate::canonical_path::{CannotCanonicalizeAnything, CanonicalPath, Entry};
 use crate::component::{self, NormalComponent, OwnedComponent, ParentDirComponent};
+use crate::non_empty::NonEmpty;
 use faccess::{AccessMode, PathExt};
 use std::borrow::Cow;
-use std::io::ErrorKind;
+use std::convert::TryFrom;
+use std::io::Write;
+use std::io::{stderr, ErrorKind};
 use std::path::{Component, Path, PathBuf};
 
 /// What a single `lstat` reported at one component
@@ -333,7 +336,9 @@ pub(crate) struct Trace {
     /// can name a share on a machine that is off, and there is nothing to say about
     /// `\\server\share\a\b\c` when `\\server\share` itself does not answer.
     root: CanonicalPath,
-    steps: Vec<Step>,
+
+    /// Components of the path, and what was found in each
+    steps: NonEmpty<Step>,
 }
 
 /// The walk could not begin
@@ -388,9 +393,7 @@ impl Trace {
                 // the front of an absolute path.
                 OwnedComponent::Prefix(_) | OwnedComponent::RootDir(_) => continue,
                 // `components` normally drops `.`, but it keeps them behind a verbatim
-                // prefix (`\\?\`), which is what Windows canonicalization hands back. So
-                // this arm does real work there rather than only guarding against a stray
-                // dot in an absolute path.
+                // prefix (`\\?\`), which is what Windows canonicalization hands back.
                 //
                 // Treating `.` as a no-op is more permissive than Windows itself: a
                 // verbatim path skips OS normalization, so `\\?\C:\a\.\b` does not name
@@ -407,9 +410,7 @@ impl Trace {
             position = next;
         }
 
-        if steps.is_empty() {
-            return Err(CannotTrace::IsRoot(root));
-        }
+        let mut steps = NonEmpty::try_from(steps).map_err(|_| CannotTrace::IsRoot(root.clone()))?;
 
         attribute(&mut steps, input);
 
@@ -426,20 +427,20 @@ impl Trace {
     /// `Some` exactly when `Trace::stopped_early_at` is `None`.
     pub(crate) fn physical_location(&self) -> Option<CanonicalPath> {
         if self.stopped_early_at().is_some() {
-            return None;
-        }
-
-        match self.steps.last() {
-            // Nothing but a root, which the walk proved before it started
-            None => Some(self.root.clone()),
-            Some(last) => last.contents.resolved_to().map(Cow::into_owned),
+            None
+        } else {
+            self.steps
+                .last()
+                .contents
+                .resolved_to()
+                .map(Cow::into_owned)
         }
     }
 
     // The step of the last part of the input path
     #[cfg(test)]
     pub(crate) fn last_step(&self) -> &Step {
-        self.steps.last().expect("Steps is never empty")
+        self.steps.last()
     }
 
     /// The step where the walk caught a contradiction, if it caught one
@@ -474,7 +475,7 @@ impl Trace {
     /// the final component.
     #[cfg(test)]
     pub(crate) fn append_race(&mut self, why: &'static str, error: std::io::Error) {
-        let index = StepCursor::last_reached(&self.steps).index;
+        let index = StepCursor::trace_stopped_at(self).index;
         self.steps[index].contents = PhysicalNode::Raced { why, error };
     }
 
@@ -484,7 +485,7 @@ impl Trace {
     /// answers. Every step after this one is [`PhysicalNode::NotReached`], so this single
     /// observation explains all of them.
     pub(crate) fn stopped_early_at(&self) -> Option<&Step> {
-        let cursor = StepCursor::last_reached(&self.steps);
+        let cursor = StepCursor::trace_stopped_at(self);
         let step = cursor.current();
 
         // Arriving at a file, a link, or an absence is an answer when the path ends there,
@@ -506,7 +507,7 @@ impl Trace {
     ///
     /// `None` only when the path resolves to a root, which sits in nothing.
     pub(crate) fn listing(&self) -> Option<Listing> {
-        let cursor = StepCursor::last_reached(&self.steps);
+        let cursor = StepCursor::trace_stopped_at(self);
         let step = cursor.current();
 
         // `..` is not an entry in any directory listing, so name the location it moved to
@@ -524,11 +525,19 @@ impl Trace {
         // `Lost`, from which the next step is `NotReached` and so not the one examined here.
         let dir = match cursor.before() {
             None => self.root.clone(),
-            Some(previous) => previous
-                .contents
-                .resolved_to()
-                .expect("the step before a reached step left the walk in a resolved directory")
-                .into_owned(),
+            Some(previous) => match previous.contents.resolved_to() {
+                Some(physical) => physical.into_owned(),
+                None => {
+                    // Shouldn't happen, warn if it does
+                    warn(format!(
+                        "trace for `{}` stopped at `{}`. Prior component `{}` was not resolvable",
+                        self.input.display(),
+                        step.name.as_ref().to_string_lossy(),
+                        previous.name.as_ref().to_string_lossy()
+                    ));
+                    return None;
+                }
+            },
         };
 
         Some(Listing {
@@ -546,7 +555,7 @@ impl Trace {
     /// `None` when naming stopped, and when the path is a root.
     #[cfg(test)]
     pub(crate) fn parent_name(&self) -> Option<AbsPath> {
-        self.steps.last()?.at.as_ref()?.lex_parent()
+        self.steps.last().at.as_ref()?.lex_parent()
     }
 
     /// The path the caller passed in, before it was anchored
@@ -581,9 +590,16 @@ impl Trace {
                 | PhysicalNode::Symlink {
                     resolved: Err(_), ..
                 } => StatusOnDisk::Unknown,
-                PhysicalNode::ParentDir { .. } => unreachable!("cannot stop on `..` mid-path"),
-                PhysicalNode::Directory(_) => unreachable!("cannot stop on a directory"),
-                PhysicalNode::NotReached => unreachable!("stopped node must be reached"),
+                // Should be unreachable, but types aren't strong enough to prove
+                PhysicalNode::ParentDir { .. }
+                | PhysicalNode::Directory(_)
+                | PhysicalNode::NotReached => {
+                    warn(format!(
+                        "unexpected early status_on_disk: {:?})",
+                        step.contents
+                    ));
+                    StatusOnDisk::Unknown
+                }
                 PhysicalNode::ParentNoExec { entry, .. } => {
                     if entry.is_some() {
                         StatusOnDisk::Unknown
@@ -608,13 +624,16 @@ impl Trace {
                 PhysicalNode::UnknownLookup(_) | PhysicalNode::Raced { .. } => {
                     StatusOnDisk::Unknown
                 }
-                PhysicalNode::NotReached => unreachable!("stopped node must be reached"),
+                PhysicalNode::NotReached => {
+                    warn("unexpected final status_on_disk: PhysicalNode::NotReached");
+                    StatusOnDisk::Unknown
+                }
             },
         }
     }
 
     pub(crate) fn stop_status(&self) -> StopStatus<'_> {
-        let cursor = StepCursor::last_reached(&self.steps);
+        let cursor = StepCursor::trace_stopped_at(self);
         let step = cursor.current();
 
         if cursor.after().is_none() {
@@ -641,7 +660,7 @@ impl Trace {
     /// the caller, or it names a different place than `dir`. A report has to fall back to an
     /// absolute path in each case.
     pub(crate) fn parent_input_index(&self, dir: &CanonicalPath) -> Option<usize> {
-        let before = StepCursor::last_reached(&self.steps).before()?;
+        let before = StepCursor::trace_stopped_at(self).before()?;
         let index = before.input?;
 
         (before.contents.resolved_to()?.as_ref() == dir).then_some(index)
@@ -652,24 +671,31 @@ impl Trace {
     /// Lexical, and so available even when the directory does not exist. `None` only when the
     /// stopping component sits directly in the root.
     pub(crate) fn stop_parent(&self) -> Option<AbsPath> {
-        let cursor = StepCursor::last_reached(&self.steps);
+        let cursor = StepCursor::trace_stopped_at(self);
         cursor.current().at.as_ref()?.lex_parent()
     }
 }
 
 /// A pointer to a specific step, allows us to inspect up or down
 struct StepCursor<'a> {
-    steps: &'a [Step],
+    steps: &'a NonEmpty<Step>,
     index: usize,
 }
 
 impl<'a> StepCursor<'a> {
     /// Builds a cursor pointing at the last component we walked on the file system
-    fn last_reached(steps: &'a [Step]) -> Self {
+    fn trace_stopped_at(trace: &'a Trace) -> Self {
+        let steps = &trace.steps;
         let index = steps
             .iter()
             .rposition(|step| !matches!(step.contents, PhysicalNode::NotReached))
-            .expect("at least one node was visited");
+            .unwrap_or_else(|| {
+                warn(format!(
+                    "expected trace of `{}` to reach one physical node on disk but it did not.",
+                    trace.input.display()
+                ));
+                0
+            });
 
         StepCursor { steps, index }
     }
@@ -745,6 +771,22 @@ enum Reached {
     Ghost(AbsPath),
     /// Nothing below here can even be named
     Lost,
+}
+
+/// Warn instead of panic-ing if we can help it
+///
+/// Panic strategy:
+/// - Prefer to fully handle or hold errors.
+/// - Sometimes we must `expect()` for internals of types. Only do this if there's no viable alternative,
+///   or if the local logic can **prove** it's safe if the type system cannot.
+/// - For cases where "this should never happen" but a sound, default value can be returned: warn (to)
+///   and use the default value.
+fn warn(input: impl AsRef<str>) {
+    // Avoid panic-ing outside of tests since this library is for supplementary information.
+    let _ = writeln!(stderr(), "path_facts internal warning: {}", input.as_ref());
+
+    #[cfg(test)]
+    panic!("{}", input.as_ref());
 }
 
 /// Moves into `name`, which sits inside whatever the walk has reached
@@ -998,7 +1040,7 @@ fn up(position: Reached, name: ParentDirComponent) -> (Step, Reached) {
 }
 
 fn join(dir: &AbsPath, name: &NormalComponent) -> AbsPath {
-    dir.join_relative(&RelativePath::new(name.as_ref()).expect("a file name is a relative path"))
+    dir.join_normal(name)
 }
 
 #[cfg(test)]
@@ -1060,7 +1102,7 @@ mod tests {
 
     /// The step the walk stopped at, which has to exist for the test to be about anything
     fn stopped(trace: &Trace) -> &Step {
-        trace.stopped_early_at().expect("steps is never empty")
+        trace.stopped_early_at().unwrap()
     }
 
     #[test]
@@ -1341,7 +1383,7 @@ mod tests {
                 } => Some(abs.as_ref()),
                 _ => None,
             })
-            .expect("the walk records the link as a symlink step");
+            .unwrap();
 
         assert_eq!(
             recorded.canonicalize().unwrap(),
@@ -1655,7 +1697,7 @@ mod tests {
         let first = dir
             .components()
             .find(|component| matches!(component, Component::Normal(_)))
-            .expect("a tempdir lives below at least one top level directory");
+            .unwrap();
         let top = root_of(&dir).join(first.as_os_str());
 
         let trace = walk(join_unfolded(&top, &[".."]));
@@ -1681,13 +1723,10 @@ mod tests {
         }
     }
 
-    /// `std::fs::canonicalize` hands back a verbatim (`\\?\`) path, and `components()` does
-    /// not normalize `.` behind a verbatim prefix, so `\\?\C:\.` keeps a `CurDir`. The walk
-    /// skips `CurDir` the same as `RootDir`, but the `IsRoot` guard only rejects
-    /// `Prefix | RootDir`, so this path slips through and produces zero steps. Every accessor
-    /// then panics on `steps.last().expect("Steps is never empty")` (and the `last_reached`
-    /// expect behind `status_on_disk`/`listing`/`stop_status`), which `PathFacts::new` reaches
-    /// straight from caller input.
+    /// Regression test for `\\?\C:\.`
+    ///
+    /// This path `\\?\C:\.` is a "verbatim" absolute path with only a `CurDir` (`.`) in it. This
+    /// caused us to produce a `Trace` with zero steps.
     #[cfg(windows)]
     #[test]
     fn test_verbatim_root_with_a_dot_does_not_produce_a_zero_step_trace() {
@@ -1723,8 +1762,8 @@ mod tests {
         let trace = walk(&path);
         let input = path.components().collect::<Vec<_>>();
 
-        for step in trace.steps {
-            let index = step.input.expect("the caller wrote every component");
+        for step in &trace.steps {
+            let index = step.input.unwrap();
             assert_eq!(input[index].as_os_str(), step.name.as_ref());
         }
     }
@@ -1774,8 +1813,8 @@ mod tests {
         let trace = walk(&path);
         let input = path.components().collect::<Vec<_>>();
 
-        for step in trace.steps {
-            let index = step.input.expect("only a `.` went unattributed");
+        for step in &trace.steps {
+            let index = step.input.unwrap();
             assert_eq!(input[index].as_os_str(), step.name.as_ref());
         }
     }
@@ -1834,7 +1873,7 @@ mod tests {
 
         trace.append_race("two calls disagreed", std::io::Error::other("boom"));
 
-        let raced = trace.raced().expect("the injected race is detected");
+        let raced = trace.raced().unwrap();
         match &raced.contents {
             PhysicalNode::Raced { why, error } => {
                 assert_eq!(*why, "two calls disagreed");
@@ -1868,7 +1907,7 @@ mod tests {
             trace.last_step().contents,
             PhysicalNode::NotReached
         ));
-        let raced = trace.raced().expect("the mid-path race is detected");
+        let raced = trace.raced().unwrap();
         assert!(matches!(raced.contents, PhysicalNode::Raced { .. }));
         assert_eq!(raced.at.as_ref().unwrap().as_ref(), dir.join("f"));
     }

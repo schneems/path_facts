@@ -195,13 +195,14 @@ mod canonical_path;
 mod component;
 mod fact_check;
 mod from_to;
+mod non_empty;
 mod path_facts;
 mod report;
 mod style;
+mod trace;
 
 #[cfg(test)]
 mod test_support;
-mod trace;
 
 #[cfg(test)]
 use std::path::{Path, PathBuf};

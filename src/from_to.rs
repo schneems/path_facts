@@ -23,7 +23,7 @@ impl FromTo {
         let to = Report::new(to.as_ref());
 
         if same_location(&from, &to) {
-            from.annotate_leaf("Same location as to path (below)".to_string());
+            from.annotate_stopped("Same location as to path (below)".to_string());
         }
 
         FromTo { from, to }

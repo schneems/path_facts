@@ -368,22 +368,30 @@ mod tests {
                 "literal `..` on a verbatim base, got {:?}",
                 literal
             );
+
+            // A `..` in the middle of a join is folded in.
+            let join_lit_middle = Path::new(r"\\?\C:\base").join(r"a\b\..\c");
+            assert_eq!(join_lit_middle, Path::new(r"\\?\C:\base\a\c"));
         }
     }
 
-    /// Windows: `canonicalize` fails on a trailing `..` inside a verbatim (`\\?\`) path.
+    /// Windows: `canonicalize` fails on a `..` inside a verbatim (`\\?\`) path.
     ///
-    /// A verbatim path skips OS normalization, so a literal `..` component survives into
-    /// the syscall. A verbatim path also forbids `..` as a component, so the Win32 path
-    /// parser rejects the name up front with `ERROR_INVALID_NAME` (123, surfaced as
-    /// `ErrorKind::InvalidFilename`) rather than a `NotFound` — it never looks on disk,
-    /// even though the path plainly resolves to `<dir>/a`. On Windows `canonicalize` returns a `\\?\` verbatim
-    /// path, which is the shape the fold depends on; a plain `join("..")` on that base
-    /// would fold the `..` away at construction (see
-    /// [`test_path_join_folds_parent_dir_only_on_a_verbatim_receiver`]), so `join_unfolded`
-    /// builds the literal `..` component by hand. This is why resolution folds a trailing
-    /// `..` left to right through the walk (`PhysicalNode::ParentDir`) rather than deferring to
-    /// `canonicalize`.
+    /// A verbatim path such as `\\?\C:\hello\world` triggers different behavior on windows. From the
+    /// microsoft docs https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file#win32-file-namespaces
+    ///
+    /// > Because it turns off automatic expansion of the path string, the "\\?\" prefix also allows
+    /// the use of ".." and "." in the path names, which can be useful if you are attempting to
+    /// perform operations on a file with these otherwise reserved relative path specifiers as part
+    /// of the fully qualified path.
+    ///
+    /// In practice, every verbatim path with a `..` in it errors on every Rust std lib call (that I
+    /// have tried/tested).
+    ///
+    /// Rust `canonicalize()` on windows returns verbatim paths. Joining a relative path onto one
+    /// folds `..` (see [`test_path_join_folds_parent_dir_only_on_a_verbatim_receiver`]), so
+    /// `canonicalize(canonicalize(&path)?.join(&other))` does not hit this. A literal `..` has to
+    /// come from building the path as a string.
     #[cfg(windows)]
     #[test]
     fn test_canonicalize_fails_on_trailing_dot_dot_in_a_verbatim_path() {
@@ -405,11 +413,9 @@ mod tests {
         let b = dir.join("a").join("b");
         std::fs::create_dir_all(&b).unwrap();
 
-        // `<dir>/a/b/..` lexically resolves to `<dir>/a`, but canonicalize errors on the
-        // literal `..`. A verbatim path forbids `..` as a component outright, so the Win32
-        // path parser rejects the name before it ever looks on disk: `ERROR_INVALID_NAME`
-        // (123), surfaced by Rust as `ErrorKind::InvalidFilename` — not a `NotFound`.
-        // `join_unfolded` keeps the `..` from being folded before the syscall sees it.
+        // [`test_path_join_folds_parent_dir_only_on_a_verbatim_receiver`] shows different rust behavior
+        // in [`Path::join`] with verbatim paths so we must use this to force/guarantee a ParentDir
+        // in the path
         let trailing = join_unfolded(&b, &[".."]);
         assert!(
             trailing
@@ -426,9 +432,14 @@ mod tests {
             "expected ERROR_INVALID_NAME for a `..` in a verbatim path, got {:?}",
             error
         );
+        let error = std::fs::create_dir_all(&trailing).expect_err("`..` in a verbatim path");
+        assert_eq!(
+            error.kind(),
+            std::io::ErrorKind::InvalidFilename,
+            "expected ERROR_INVALID_NAME for a `..` in a verbatim path, got {:?}",
+            error
+        );
 
-        // The location a left-to-right fold lands on, `<dir>/a`, canonicalizes fine: the
-        // directory exists and holds no `..` for `canonicalize` to choke on.
         assert!(CanonicalPath::new(&AbsPath::new(dir.join("a")).unwrap()).is_ok());
     }
 

@@ -529,7 +529,12 @@ impl Trace {
                 Some(physical) => physical.into_owned(),
                 None => {
                     // Shouldn't happen, warn if it does
-                    warn(format!("trace for `{}` stopped at `{}`. Expected prior component `{}` to be resolvable, but it was not", self.input.display(), step.name.as_ref().to_string_lossy() , previous.name.as_ref().to_string_lossy()));
+                    warn(format!(
+                        "trace for `{}` stopped at `{}`. Prior component `{}` was not resolvable",
+                        self.input.display(),
+                        step.name.as_ref().to_string_lossy(),
+                        previous.name.as_ref().to_string_lossy()
+                    ));
                     return None;
                 }
             },

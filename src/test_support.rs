@@ -10,6 +10,7 @@
 //! the renderer produces. That comparison needs the doc read back out of the source and the
 //! recorded output read back out of a snapshot file, which is the same two readers every time.
 
+use std::convert::TryFrom;
 use std::path::{Component, Path, PathBuf};
 
 #[cfg(unix)]
@@ -181,14 +182,14 @@ impl Scrubber {
             .as_ref()
             .components()
             .take_while(|component| matches!(component, Component::Prefix(_) | Component::RootDir))
-            .map(|component| component.as_os_str())
+            .map(std::path::Component::as_os_str)
             .collect::<PathBuf>();
 
         self.path(root, "/")
     }
 
     /// Replaces an OS error message with `{error}`, whose wording varies by platform and libc.
-    pub(crate) fn error(mut self, error: std::io::Error) -> Self {
+    pub(crate) fn error(mut self, error: &std::io::Error) -> Self {
         self.rules.push((error.to_string(), "{error}".to_string()));
         self
     }
@@ -213,7 +214,7 @@ impl Scrubber {
             error
         );
 
-        self.error(error)
+        self.error(&error)
     }
 
     /// Scrubs output that carries carets, realigning them, and marks the end with [`STOP`].
@@ -259,7 +260,7 @@ impl Scrubber {
 }
 
 fn width(line: &str) -> isize {
-    line.chars().count() as isize
+    isize::try_from(line.chars().count()).unwrap()
 }
 
 /// Moves a line left or right by `shift` columns of leading space.
@@ -268,7 +269,7 @@ fn reindent(line: &str, shift: isize) -> String {
         return " ".repeat(shift.unsigned_abs()) + line;
     }
 
-    let shift = shift as usize;
+    let shift = shift.unsigned_abs();
     let indent = line.chars().take_while(|char| *char == ' ').count();
     // Only reachable if a caret points inside the text being scrubbed away, which leaves nothing
     // for it to name. Build the fixture under `Fixture::root` so every caret lands to the right

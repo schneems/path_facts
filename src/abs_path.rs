@@ -29,13 +29,13 @@ impl RelativePath {
 
     /// Removes the leading `.` and `..` parts of a path
     ///
-    /// For every ParentDir (`..`) calls the `on_parent` closure. Which can be used in the caller
+    /// For every `ParentDir` (`..`) calls the `on_parent` closure. Which can be used in the caller
     /// logic to implement path folding.
     ///
     /// `a` -> Some(`a`)
     /// `../../a` -> Some(`a`)
     /// `../../..` -> None
-    /// `` -> None
+    /// (empty) -> None
     pub(crate) fn trim_leading_dots(
         &self,
         mut on_parent: impl FnMut(ParentDirComponent),
@@ -94,7 +94,7 @@ impl AbsPath {
     ///
     /// An `AbsPath` is not normalized so it may contain `..` and/or symlinks. This is a lexical operation.
     ///
-    /// ## Trailing ParentDir part (`..`)
+    /// ## Trailing `ParentDir` part (`..`)
     ///
     /// Not true for windows!
     ///
@@ -104,7 +104,7 @@ impl AbsPath {
     /// AbsPath::new("a/b/c/..").unwrap().lex_parent() -> Some("a/b/c")
     /// ```
     ///
-    /// In this example, the lex_parent does not contain the child. The path `a/b/c/..` maps to the physical
+    /// In this example, the `lex_parent` does not contain the child. The path `a/b/c/..` maps to the physical
     /// location of `a/b` which IS equivalent to `a/b/c/..` (after folding) and does NOT hold `a/b/c/..`.
     ///
     /// The `..` ([`std::path::Component::ParentDir`]) can also interact with
@@ -114,7 +114,7 @@ impl AbsPath {
     /// If you try to fold before expanding, you get `/a/b/..` folded into `/a`
     /// which is different than the correct, physical parent.
     ///
-    /// ## ParentDir part (`..`) in the middle of a path
+    /// ## `ParentDir` part (`..`) in the middle of a path
     ///
     /// Unlike a trailing `..`, one in the middle is not a hazard. When the last component is
     /// `Normal`, [`Path::parent`] hands back the prefix verbatim, `..` and all:
@@ -130,7 +130,7 @@ impl AbsPath {
     /// there too. Folding the `..` away first would give `/a/c`, a different directory that
     /// may not exist at all.
     ///
-    /// ## CurrentDir in path
+    /// ## `CurDir` part (`.`) in the middle of a path
     ///
     /// A `.` in the middle is harmless. It survives in the prefix the same way
     /// (`/a/b/./c/d` -> `/a/b/./c`) and denotes the directory it appears to.
@@ -252,7 +252,7 @@ pub(crate) fn readlink(
     let target = std::fs::read_link(absolute.as_ref())?;
 
     match RelativePath::new(&target) {
-        Some(relative) => Ok((target, expand_leading_dots(dir.clone(), relative))),
+        Some(relative) => Ok((target, expand_leading_dots(dir.clone(), &relative))),
         None => Ok((target.clone(), AbsPath(target))),
     }
 }
@@ -271,7 +271,7 @@ pub(crate) fn readlink(
 // Unsafe to call UNLESS you guarantee base exists, is a directory, and is resolved to that location.
 //
 // Explicitly NOT pub(crate).
-fn expand_leading_dots(base: CanonicalPath, rest: RelativePath) -> AbsPath {
+fn expand_leading_dots(base: CanonicalPath, rest: &RelativePath) -> AbsPath {
     let mut base = base;
     let rest = rest.trim_leading_dots(|_: ParentDirComponent| {
         if let Some(parent) = base.parent() {
@@ -442,7 +442,7 @@ mod tests {
     /// Relative paths are spelled with `/`, which Windows accepts, so both platforms see the same
     /// components. Expected values are built with `join` so the separators are the platform's.
     fn folded(dir: &CanonicalPath, rest: &str) -> PathBuf {
-        expand_leading_dots(dir.to_owned(), RelativePath::new(rest).unwrap())
+        expand_leading_dots(dir.to_owned(), &RelativePath::new(rest).unwrap())
             .as_ref()
             .to_path_buf()
     }
@@ -475,7 +475,7 @@ mod tests {
             .unwrap()
             .components()
             .take_while(|component| matches!(component, Component::Prefix(_) | Component::RootDir))
-            .map(|component| component.as_os_str())
+            .map(std::path::Component::as_os_str)
             .collect::<PathBuf>();
         let dir = canonical(&root);
 

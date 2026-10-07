@@ -7,7 +7,7 @@ use std::{fmt::Display, path::Path};
 /// See [`PathFacts::with_prefix`] for an example.
 #[derive(Debug)]
 pub struct PathFacts {
-    _inner: Report,
+    inner: Report,
     prefix: Option<String>,
 }
 
@@ -47,7 +47,7 @@ impl PathFacts {
             format!("{prefix} ")
         };
         PathFacts {
-            _inner: Report::new(path),
+            inner: Report::new(path),
             prefix: Some(prefix),
         }
     }
@@ -78,7 +78,7 @@ impl PathFacts {
     ///```
     pub fn new(path: impl AsRef<Path>) -> Self {
         PathFacts {
-            _inner: Report::new(path),
+            inner: Report::new(path),
             prefix: None,
         }
     }
@@ -87,14 +87,12 @@ impl PathFacts {
 impl Display for PathFacts {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.prefix {
-            None => self._inner.fmt(f),
+            None => self.inner.fmt(f),
             Some(prefix) => {
                 writeln!(
                     f,
                     "{}",
-                    self._inner
-                        .render_with_prefix(prefix)
-                        .trim_end_matches('\n')
+                    self.inner.render_with_prefix(prefix).trim_end_matches('\n')
                 )
             }
         }
@@ -134,7 +132,7 @@ mod tests {
         assert_eq!(
             rendered,
             PathFacts {
-                _inner: report,
+                inner: report,
                 prefix: None
             }
             .to_string()

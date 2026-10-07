@@ -153,7 +153,7 @@ pub(crate) fn render_callout(callout: &Callout) -> String {
     out
 }
 
-/// Render a callout's caret (`^^^^^`) and facts indented by path_col
+/// Render a callout's caret (`^^^^^`) and facts indented by `path_col`
 pub(crate) fn render_caret_and_facts(callout: &Callout, path_col: usize) -> String {
     let caret_col = callout
         .caret

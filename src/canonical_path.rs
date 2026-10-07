@@ -37,7 +37,7 @@ pub(crate) enum Entry {
 /// - All symlinks resolve and are visible
 ///
 /// Does not preserve behavior on all calls. Getting metadata from
-/// `/a/b/file.txt/..` fails with NotADirectory on every unix, POSIX requires
+/// `/a/b/file.txt/..` fails with `NotADirectory` on every unix, POSIX requires
 /// ENOTDIR when a path prefix component is not a directory.
 ///
 /// Canonicalizing it produces different results. Glibc enforces the same rule and errors, but a mac
@@ -74,7 +74,7 @@ impl CanonicalPath {
 
     /// Joins input with the given Canonical path without checking disk contents
     ///
-    /// Unsafe because the output is a CanonicalPath, so the caller must make sure that:
+    /// Unsafe because the output is a `CanonicalPath`, so the caller must make sure that:
     ///
     /// - The path points to a resolved location on disk
     ///
@@ -159,7 +159,7 @@ impl CanonicalPath {
     }
 
     /// Similar semantics to [`AbsPath::lex_parent`], but we guarantee return value
-    /// exists and is normalized i.e. any CanonicalPath that is lexically equal is guaranteed
+    /// exists and is normalized i.e. any `CanonicalPath` that is lexically equal is guaranteed
     /// to represent the same path on disk (TOCTOU caveat).
     ///
     /// A None here would guarantee self is the root path

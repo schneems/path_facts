@@ -1,5 +1,5 @@
 //! A place to validate intuitions about paths. Tests
-//! check std::fs behavior in addition to asserting interfaces
+//! check `std::fs` behavior in addition to asserting interfaces
 //! in this library.
 #[cfg(test)]
 mod tests {
@@ -51,7 +51,7 @@ mod tests {
     /// `fchmodat` refuses the no-follow flag outright with `EOPNOTSUPP`. The error is
     /// returned rather than unwrapped so the caller can branch on which platform it is on.
     #[cfg(unix)]
-    fn lchmod<P: AsRef<Path>>(path: P, mode: u32) -> std::io::Result<()> {
+    fn lchmod<P: AsRef<Path>>(path: P, mode: libc::mode_t) -> std::io::Result<()> {
         use std::os::unix::ffi::OsStrExt;
 
         let c_path = std::ffi::CString::new(path.as_ref().as_os_str().as_bytes()).unwrap();
@@ -59,7 +59,7 @@ mod tests {
             libc::fchmodat(
                 libc::AT_FDCWD,
                 c_path.as_ptr(),
-                mode as libc::mode_t,
+                mode,
                 libc::AT_SYMLINK_NOFOLLOW,
             )
         };
@@ -234,7 +234,7 @@ mod tests {
     /// Posix: A trailing `..` reports as a dir (not a symlink) even when it points at a symlink
     /// Windows: A trailing `..` reports as a symlink because it is folded in
     ///          first before the check.
-    ///          It's Path#is_dir() and symlink_metadat::is_dir() disagree
+    ///          `Path::is_dir()` and `symlink_metadata().is_dir()` disagree
     #[test]
     fn test_symlink_metadata_for_a_path_ending_in_dot_dot() {
         let temp = tempfile::tempdir().unwrap();
@@ -378,12 +378,12 @@ mod tests {
     /// Windows: `canonicalize` fails on a `..` inside a verbatim (`\\?\`) path.
     ///
     /// A verbatim path such as `\\?\C:\hello\world` triggers different behavior on windows. From the
-    /// microsoft docs https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file#win32-file-namespaces
+    /// microsoft docs <https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file#win32-file-namespaces>
     ///
     /// > Because it turns off automatic expansion of the path string, the "\\?\" prefix also allows
-    /// the use of ".." and "." in the path names, which can be useful if you are attempting to
-    /// perform operations on a file with these otherwise reserved relative path specifiers as part
-    /// of the fully qualified path.
+    /// > the use of ".." and "." in the path names, which can be useful if you are attempting to
+    /// > perform operations on a file with these otherwise reserved relative path specifiers as part
+    /// > of the fully qualified path.
     ///
     /// In practice, every verbatim path with a `..` in it errors on every Rust std lib call (that I
     /// have tried/tested).
@@ -429,15 +429,13 @@ mod tests {
         assert_eq!(
             error.kind(),
             std::io::ErrorKind::InvalidFilename,
-            "expected ERROR_INVALID_NAME for a `..` in a verbatim path, got {:?}",
-            error
+            "expected ERROR_INVALID_NAME for a `..` in a verbatim path, got {error:?}"
         );
         let error = std::fs::create_dir_all(&trailing).expect_err("`..` in a verbatim path");
         assert_eq!(
             error.kind(),
             std::io::ErrorKind::InvalidFilename,
-            "expected ERROR_INVALID_NAME for a `..` in a verbatim path, got {:?}",
-            error
+            "expected ERROR_INVALID_NAME for a `..` in a verbatim path, got {error:?}"
         );
 
         assert!(CanonicalPath::new(&AbsPath::new(dir.join("a")).unwrap()).is_ok());

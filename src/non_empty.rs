@@ -26,6 +26,15 @@ impl<T> NonEmpty<T> {
     pub(crate) fn split_first(&self) -> (&T, &[T]) {
         self.0.split_first().expect("non-empty")
     }
+
+    #[allow(dead_code)]
+    pub(crate) fn first(&self) -> &T {
+        self.0.first().expect("non-empty")
+    }
+
+    pub(crate) fn last(&self) -> &T {
+        self.0.last().expect("non-empty")
+    }
 }
 
 impl<T> Deref for NonEmpty<T> {

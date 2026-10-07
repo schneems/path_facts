@@ -427,20 +427,20 @@ impl Trace {
     /// `Some` exactly when `Trace::stopped_early_at` is `None`.
     pub(crate) fn physical_location(&self) -> Option<CanonicalPath> {
         if self.stopped_early_at().is_some() {
-            return None;
-        }
-
-        match self.steps.last() {
-            // Nothing but a root, which the walk proved before it started
-            None => Some(self.root.clone()),
-            Some(last) => last.contents.resolved_to().map(Cow::into_owned),
+            None
+        } else {
+            self.steps
+                .last()
+                .contents
+                .resolved_to()
+                .map(Cow::into_owned)
         }
     }
 
     // The step of the last part of the input path
     #[cfg(test)]
     pub(crate) fn last_step(&self) -> &Step {
-        self.steps.last().unwrap()
+        self.steps.last()
     }
 
     /// The step where the walk caught a contradiction, if it caught one
@@ -550,7 +550,7 @@ impl Trace {
     /// `None` when naming stopped, and when the path is a root.
     #[cfg(test)]
     pub(crate) fn parent_name(&self) -> Option<AbsPath> {
-        self.steps.last()?.at.as_ref()?.lex_parent()
+        self.steps.last().at.as_ref()?.lex_parent()
     }
 
     /// The path the caller passed in, before it was anchored

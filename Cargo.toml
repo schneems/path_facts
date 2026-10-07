@@ -32,3 +32,6 @@ similar.opt-level = 3
 # (use `llvm-cov nextest` so tests get nextest's process-per-test isolation)
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }

@@ -309,9 +309,10 @@ mod tests {
 
     #[test]
     fn enforce_nextest() {
-        assert!(
+        assert_eq!(
             // `env NEXTEST=1` set via `cargo nextest run`
-            std::env::var_os("NEXTEST").as_deref() == Some(std::ffi::OsStr::new("1")),
+            std::env::var_os("NEXTEST").as_deref(),
+            Some(std::ffi::OsStr::new("1")),
             indoc::indoc! {"
                 Cannot run tests
 

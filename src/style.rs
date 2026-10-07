@@ -12,7 +12,7 @@ pub(crate) fn permissions(read: bool, write: bool, execute: bool) -> String {
     } else {
         "❌ execute"
     });
-    ["[", &perms.join(", "), "]"].join("").to_string()
+    format!("[{}]", perms.join(", "))
 }
 
 /// Applies a prefix to the first line and a different prefix to the rest of the lines.

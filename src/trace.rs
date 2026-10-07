@@ -389,17 +389,14 @@ impl Trace {
 
         for component in absolute.as_ref().components() {
             let (step, next) = match component::owned(component) {
-                // Already where the walk starts, and `components` only ever yields these at
-                // the front of an absolute path.
-                OwnedComponent::Prefix(_) | OwnedComponent::RootDir(_) => continue,
-                // `components` normally drops `.`, but it keeps them behind a verbatim
-                // prefix (`\\?\`), which is what Windows canonicalization hands back.
+                // `Prefix` and `RootDir` are where the walk already starts, and `components`
+                // only ever yields them at the front of an absolute path.
                 //
-                // Treating `.` as a no-op is more permissive than Windows itself: a
-                // verbatim path skips OS normalization, so `\\?\C:\a\.\b` does not name
-                // `\\?\C:\a\b` to the kernel. Posix semantics win here, matching the rest
-                // of this library.
-                OwnedComponent::CurDir(_) => continue,
+                // `CurDir` (`.`) is normally dropped by `join` at the end of a path but it survives
+                // in the middle.
+                OwnedComponent::Prefix(_)
+                | OwnedComponent::RootDir(_)
+                | OwnedComponent::CurDir(_) => continue,
                 OwnedComponent::Normal(normal_component) => enter(position, normal_component),
                 OwnedComponent::ParentDir(parent_dir_component) => {
                     up(position, parent_dir_component)
@@ -525,9 +522,8 @@ impl Trace {
         // `Lost`, from which the next step is `NotReached` and so not the one examined here.
         let dir = match cursor.before() {
             None => self.root.clone(),
-            Some(previous) => match previous.contents.resolved_to() {
-                Some(physical) => physical.into_owned(),
-                None => {
+            Some(previous) => {
+                let Some(physical) = previous.contents.resolved_to() else {
                     // Shouldn't happen, warn if it does
                     warn(format!(
                         "trace for `{}` stopped at `{}`. Prior component `{}` was not resolvable",
@@ -536,8 +532,9 @@ impl Trace {
                         previous.name.as_ref().to_string_lossy()
                     ));
                     return None;
-                }
-            },
+                };
+                physical.into_owned()
+            }
         };
 
         Some(Listing {
@@ -575,7 +572,7 @@ impl Trace {
     /// Reports on the physical status of the input path
     ///
     /// - Exists: Input maps to a file at that location, but there may be other problems
-    /// - DoesNotExist: Input definitively does NOT exist due to an observation made on a prior path
+    /// - `DoesNotExist`: Input definitively does NOT exist due to an observation made on a prior path
     /// - Unknown: Problems prevent us from conclusively saying if the path is exists or not
     pub(crate) fn status_on_disk(&self) -> StatusOnDisk {
         match self.stop_status() {
@@ -859,7 +856,7 @@ fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalN
                             Ok(entry) => {
                                 // TODO track case insensitive OS-s and compare here
                                 if entry.file_name() == name.as_ref() {
-                                    found = true
+                                    found = true;
                                 }
                             }
                             Err(_) => any_errors = true,
@@ -904,7 +901,7 @@ fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalN
 
 /// Looks again at a directory the walk already stepped into, once a lookup inside it failed
 ///
-/// Returns Some() with a reason for why a data race occured, or None when the path is
+/// Returns `Some()` with a reason for why a data race occured, or None when the path is
 /// still a directory.
 ///
 /// Answers the sentence for [`PhysicalNode::Raced`] when the directory is not one any more,
@@ -1096,7 +1093,7 @@ mod tests {
     fn root_of(path: &Path) -> PathBuf {
         path.components()
             .take_while(|component| matches!(component, Component::Prefix(_) | Component::RootDir))
-            .map(|component| component.as_os_str())
+            .map(std::path::Component::as_os_str)
             .collect()
     }
 
@@ -1346,7 +1343,7 @@ mod tests {
         match &stopped(&trace).contents {
             PhysicalNode::Symlink { target, .. } => {
                 let (_, abs) = target.as_ref().unwrap();
-                assert_eq!(abs.as_ref(), dir.join("missing"))
+                assert_eq!(abs.as_ref(), dir.join("missing"));
             }
             other => panic!("expected Symlink got {:?}", other),
         }
@@ -1635,7 +1632,7 @@ mod tests {
         let trace = walk(dir.join("flink").join("c"));
         match &stopped(&trace).contents {
             PhysicalNode::Symlink { resolved, .. } => {
-                assert_eq!(resolved.as_ref().unwrap().path().as_ref(), dir.join("f"))
+                assert_eq!(resolved.as_ref().unwrap().path().as_ref(), dir.join("f"));
             }
             other => panic!("expected Symlink got {:?}", other),
         }
@@ -1670,7 +1667,7 @@ mod tests {
         let result = Trace::new(&root);
         match result {
             Err(CannotTrace::IsRoot(path)) => {
-                assert_eq!(path.as_ref(), root.canonicalize().unwrap())
+                assert_eq!(path.as_ref(), root.canonicalize().unwrap());
             }
             _ => panic!("expected is root err got {:?}", result),
         }

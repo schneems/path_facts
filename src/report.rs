@@ -56,7 +56,7 @@ impl Report {
     /// Adds a cross-path note beneath the facts of the component the walk stopped at.
     pub(crate) fn annotate_stopped(&mut self, note: String) {
         if let Ok((_, callouts)) = &mut self.trace {
-            callouts.first_mut().facts.push(Fact::Text(note))
+            callouts.first_mut().facts.push(Fact::Text(note));
         }
     }
 }
@@ -235,21 +235,20 @@ fn parent_of_stopped_callout(path: &Path, trace: &Trace) -> Option<Callout> {
     let sought = listing.entry;
     let spelled = trace.stop_parent();
 
-    let (shown, caret) = match trace
+    let (shown, caret) = if let Some(span) = trace
         .parent_input_index(&dir)
         .and_then(|index| caret_at(path, Some(index)))
     {
-        Some(span) => (path.display().to_string(), Some(span)),
+        (path.display().to_string(), Some(span))
+    } else {
         // The section we want to show is not present in the original input path for example `foo.txt` doesn't have
         // any parent dir shown. So instead show the full path
-        None => {
-            let fallback = spelled.clone().unwrap_or_else(|| dir.clone().into());
-            let span = callout::highlight(fallback.as_ref(), Caret::Last);
-            (
-                fallback.join_normal(&sought).as_ref().display().to_string(),
-                span,
-            )
-        }
+        let fallback = spelled.clone().unwrap_or_else(|| dir.clone().into());
+        let span = callout::highlight(fallback.as_ref(), Caret::Last);
+        (
+            fallback.join_normal(&sought).as_ref().display().to_string(),
+            span,
+        )
     };
 
     let mut facts = vec![Fact::Text(format!("Dir {}", triad(dir.as_ref())))];
@@ -350,9 +349,8 @@ fn stopped_step_type_line(step: &Step, early: bool) -> String {
 
             if cfg!(test) {
                 unreachable!("{}", message);
-            } else {
-                String::from(message)
             }
+            String::from(message)
         }
     }
 }
@@ -757,7 +755,7 @@ mod tests {
                 .take_while(|component| {
                     matches!(component, Component::Prefix(_) | Component::RootDir)
                 })
-                .map(|component| component.as_os_str())
+                .map(std::path::Component::as_os_str)
                 .collect::<PathBuf>();
             join_unfolded(&root, &[".."])
         };
@@ -1077,7 +1075,7 @@ mod tests {
         let root = fixture.root().to_path_buf();
         std::fs::remove_dir(&root).unwrap();
 
-        let scrubber = Scrubber::new().error(std::fs::read_to_string(&root).unwrap_err());
+        let scrubber = Scrubber::new().error(&std::fs::read_to_string(&root).unwrap_err());
         insta::assert_snapshot!(report(&scrubber, "relative_path.txt"), @r"
         `relative_path.txt`
          - `relative_path.txt`
@@ -1180,7 +1178,7 @@ mod tests {
 
         let scrubber = fixture
             .scrub()
-            .error(std::fs::canonicalize(&link1).unwrap_err());
+            .error(&std::fs::canonicalize(&link1).unwrap_err());
         insta::assert_snapshot!(report(&scrubber, &link1), @r"
         exists `/path/to/directory/link1`
          - `/path/to/directory/link1`
@@ -1207,7 +1205,7 @@ mod tests {
 
         let scrubber = fixture
             .scrub()
-            .error(std::fs::canonicalize("link1").unwrap_err());
+            .error(&std::fs::canonicalize("link1").unwrap_err());
         insta::assert_snapshot!(report(&scrubber, "link1"), @r"
         exists `link1`
          - `link1`
@@ -1234,7 +1232,7 @@ mod tests {
 
         let scrubber = fixture
             .scrub()
-            .error(std::fs::canonicalize(&broken_link).unwrap_err());
+            .error(&std::fs::canonicalize(&broken_link).unwrap_err());
         insta::assert_snapshot!(report(&scrubber, &broken_link), @r"
         exists `/path/to/directory/broken_link`
          - `/path/to/directory/broken_link`
@@ -1259,7 +1257,7 @@ mod tests {
 
         let scrubber = fixture
             .scrub()
-            .error(std::fs::canonicalize(&broken_link).unwrap_err());
+            .error(&std::fs::canonicalize(&broken_link).unwrap_err());
         insta::assert_snapshot!(
             report(&scrubber, broken_link.join("and").join("more.txt")),
             @r"
@@ -1288,7 +1286,7 @@ mod tests {
 
         let scrubber = fixture
             .scrub()
-            .error(std::fs::canonicalize(&broken_link).unwrap_err());
+            .error(&std::fs::canonicalize(&broken_link).unwrap_err());
         insta::assert_snapshot!(
             report(&scrubber, broken_link.join("and").join("more.txt")),
             @r"
@@ -1344,7 +1342,7 @@ mod tests {
 
         let scrubber = fixture
             .scrub()
-            .error(std::fs::canonicalize("broken_link").unwrap_err());
+            .error(&std::fs::canonicalize("broken_link").unwrap_err());
         insta::assert_snapshot!(report(&scrubber, "broken_link"), @r"
         exists `broken_link`
          - `broken_link`
@@ -1382,7 +1380,7 @@ mod tests {
 
         let scrubber = fixture
             .scrub()
-            .error(std::fs::symlink_metadata(&file).unwrap_err());
+            .error(&std::fs::symlink_metadata(&file).unwrap_err());
         let output = report(&scrubber, &file);
 
         set_mode(&no_exec_dir, 0o755).unwrap();
@@ -1421,7 +1419,7 @@ mod tests {
 
         let scrubber = fixture
             .scrub()
-            .error(std::fs::symlink_metadata(&file).unwrap_err());
+            .error(&std::fs::symlink_metadata(&file).unwrap_err());
         let output = report(&scrubber, &file);
 
         set_mode(&no_write_dir, 0o755).unwrap();

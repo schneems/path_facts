@@ -80,10 +80,10 @@ impl<T> TryFrom<Vec<T>> for NonEmpty<T> {
     type Error = NonEmptyError;
 
     fn try_from(value: Vec<T>) -> Result<Self, Self::Error> {
-        if !value.is_empty() {
-            Ok(NonEmpty(value))
-        } else {
+        if value.is_empty() {
             Err(NonEmptyError)
+        } else {
+            Ok(NonEmpty(value))
         }
     }
 }

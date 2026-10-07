@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.0
+
 - Add: `PathFacts::with_prefix(prefix, path)` renders a `prefix` such as `"Path"` or `"From path"` before rendering information about the path.
   This function folds the caret and facts onto the first line instead of repeating the path on a bullet below it. The `FromTo` output
   now uses this format as well.

@@ -87,6 +87,33 @@
 //! This library uses syncronous file system calls. If you're using this library in an async context,
 //! you'll want to use an async wrapper like [`tokio::task::spawn_blocking`](https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html).
 //!
+//! ## Configuring via ENV vars
+//!
+//! Users can configure some path facts output via [environment variables](https://12factor.net/config).
+//! This allows the person **running** the software to have the final say in how it's rendered. The
+//! following configuration is available:
+//!
+//! - `PATH_FACTS_LIMIT` (default is 20) - Maximum **additional** number of entries to show in a directory.
+//!   Valid values are `0` up to `usize::MAX` (accepts `PATH_FACTS_LIMIT=usize::MAX`).
+//!
+//! Example: In the input path `/path/to/dir/file.txt`, if `/path/to/dir` holds 100 entries:
+//!
+//! - When `PATH_FACTS_LIMIT=0`, if `file.txt` exists, it will show `1` entry, or `0` if it does not.
+//! - When `PATH_FACTS_LIMIT=10`, if `file.txt` exists, it will show `11` entries, or `10` if it does not.
+//! - If the limit is set to `100` or more, it will show all entries in the directory.
+//!
+//! You can set env vars in your Rust program using [set_var](https://doc.rust-lang.org/std/env/fn.set_var.html).
+//! Or when running your program `env PATH_FACTS_LIMIT=10 cargo run ...`. The configuration is cached on first
+//! call.
+//!
+//! ## Warnings
+//!
+//! Unlike most Rust programs, path facts does not natively expose any error state (such as a `Result`), and
+//! we may emit warnings to STDERR for: detected unexpected internal state or invalid ENV var configuration.
+//! Path facts is intended to add diagnostic information when the system is already in an error state. If
+//! it encounters unexpected state that would normally be handled by `unreachable!()` we prefer to warn
+//! and recover when possible (rather than panic). Please open a bug report for any such cases.
+//!
 //! ## Actual path facts
 //!
 //! Here are a few facts about paths that some people might find interesting. If you're staring at
@@ -193,6 +220,7 @@ mod abs_path;
 mod callout;
 mod canonical_path;
 mod component;
+mod env_config;
 mod fact_check;
 mod from_to;
 mod non_empty;

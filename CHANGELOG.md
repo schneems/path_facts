@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fix: Directories are now limited to 20 **additional** entries by default. Previously there was no limit.
+- Add: `PATH_FACTS_LIMIT` env var for configuring the maximum **additional** number of entries to show in a directory. See the README.md for details.
+
 ## 0.4.0
 
 - Add: `PathFacts::with_prefix(prefix, path)` renders a `prefix` such as `"Path"` or `"From path"` before rendering information about the path.

@@ -224,11 +224,9 @@ fn stopped_step_callout(path: &Path, trace: &Trace, step: &Step, early: bool) ->
     }
 }
 
-/// The caller's whole path again, caret slid back to the directory holding the stopped step.
+/// Show the directory holding the stopped step.
 ///
-/// Falls back to the absolute parent path when that directory has no component in the input
-/// — a relative path whose stopped step sits directly in the current directory has nothing
-/// to point at, and neither does one sitting in the root.
+/// If the input path is relative, the directory shown could be an absolute parent path.
 fn parent_of_stopped_callout(path: &Path, trace: &Trace) -> Option<Callout> {
     let listing = trace.listing()?;
     let dir = listing.dir;

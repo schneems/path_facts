@@ -302,7 +302,7 @@ fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Op
                 hidden = 0;
             }
             rows.push(Row::Entry(Entry {
-                name: Path::new(entry).display().to_string(),
+                name: entry.clone(),
                 annotation: is_sought.then(|| "(exists)".to_string()),
             }));
         }

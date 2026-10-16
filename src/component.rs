@@ -5,6 +5,7 @@
 use std::{
     convert::TryFrom,
     ffi::{OsStr, OsString},
+    fmt::Display,
     fs::DirEntry,
     path::Component,
 };
@@ -147,5 +148,11 @@ impl AsRef<OsStr> for RootDirComponent {
 impl AsRef<OsStr> for PrefixComponent {
     fn as_ref(&self) -> &OsStr {
         self.0.as_os_str()
+    }
+}
+
+impl Display for NormalComponent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "`{}`", self.0.to_string_lossy())
     }
 }

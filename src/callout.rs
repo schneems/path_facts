@@ -21,6 +21,7 @@
 //! path stays exact while a fact line containing such glyphs may look shifted in a terminal that
 //! renders them at a different cell width.
 
+use crate::component::NormalComponent;
 use crate::style;
 use std::ops::Range;
 use std::path::{Component, Path};
@@ -78,7 +79,7 @@ pub(crate) enum Row {
 #[derive(Debug, Clone)]
 pub(crate) struct Entry {
     /// The entry name, rendered between backticks.
-    pub(crate) name: String,
+    pub(crate) name: NormalComponent,
     /// Optional trailing annotation, e.g. `directory [✅ read, …]`.
     pub(crate) annotation: Option<String>,
 }
@@ -222,11 +223,11 @@ fn push_fact(lines: &mut Vec<String>, fact: &Fact, caret_col: usize) {
                     Row::Entry(Entry {
                         name,
                         annotation: Some(annotation),
-                    }) => lines.push(format!("{tree_indent}{glyph} `{name}` {annotation}")),
+                    }) => lines.push(format!("{tree_indent}{glyph} {name} {annotation}")),
                     Row::Entry(Entry {
                         name,
                         annotation: None,
-                    }) => lines.push(format!("{tree_indent}{glyph} `{name}`")),
+                    }) => lines.push(format!("{tree_indent}{glyph} {name}")),
                     Row::Hidden(_) => lines.push(format!("{tree_indent}{glyph} ...")),
                 }
             }
@@ -237,15 +238,34 @@ fn push_fact(lines: &mut Vec<String>, fact: &Fact, caret_col: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::module_doc_example;
+    use crate::{
+        component::{self, OwnedComponent},
+        test_support::module_doc_example,
+    };
 
     fn text(fact: &str) -> Fact {
         Fact::Text(fact.to_string())
     }
 
+    fn norm(name: &str) -> NormalComponent {
+        one(name).normal().unwrap().clone()
+    }
+
+    fn one(name: &str) -> OwnedComponent {
+        let mut components = Path::new(name).components();
+        let first = component::owned(components.next().unwrap());
+        if let Some(c) = components.next() {
+            panic!(
+                "expected name `{}` to be one component, got {:?}, {:?}, {:?}",
+                name, first, c, components
+            )
+        }
+        first
+    }
+
     fn entry(name: &str, annotation: Option<&str>) -> Row {
         Row::Entry(Entry {
-            name: name.to_string(),
+            name: norm(name),
             annotation: annotation.map(String::from),
         })
     }

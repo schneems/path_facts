@@ -3,8 +3,9 @@
 //! [`Report`] holds the [`Display`] information for [`PathFacts`](crate::PathFacts).
 
 use crate::abs_path::AbsPathError;
-use crate::callout::{self, Callout, Caret, Entry, Fact};
+use crate::callout::{self, Callout, Caret, Entry, Fact, Row};
 use crate::canonical_path::{CannotCanonicalizeAnything, CanonicalPath};
+use crate::env_config;
 use crate::non_empty::NonEmpty;
 use crate::style;
 use crate::trace::{CannotTrace, PhysicalNode, Resolved, StatusOnDisk, Step, StopStatus, Trace};
@@ -36,7 +37,15 @@ impl Report {
         path: impl AsRef<Path>,
         result: Result<Trace, CannotTrace>,
     ) -> Self {
-        let trace = result.map(|trace| traced(path.as_ref(), trace));
+        Self::with_dir_limit(path, result, env_config::get_config().dir_limit)
+    }
+
+    fn with_dir_limit(
+        path: impl AsRef<Path>,
+        result: Result<Trace, CannotTrace>,
+        dir_limit: usize,
+    ) -> Self {
+        let trace = result.map(|trace| traced(path.as_ref(), trace, dir_limit));
         Report {
             path: path.as_ref().to_path_buf(),
             trace,
@@ -177,8 +186,8 @@ fn last_line_width(input: &str) -> usize {
 /// Every filesystem call this type makes happens here: building the callouts reads permissions
 /// and lists a directory. Leaving that in `Display` would hide syscalls behind a `{}` and let two
 /// renderings of the same value disagree, each having asked disk at a different moment.
-fn traced(path: &Path, trace: Trace) -> (Trace, NonEmpty<Callout>) {
-    let callouts = callouts(path, &trace);
+fn traced(path: &Path, trace: Trace, dir_limit: usize) -> (Trace, NonEmpty<Callout>) {
+    let callouts = callouts(path, &trace, dir_limit);
     (trace, callouts)
 }
 
@@ -187,14 +196,14 @@ fn traced(path: &Path, trace: Trace) -> (Trace, NonEmpty<Callout>) {
 /// Always at least one: the walk always stopped somewhere, and that somewhere is what the first
 /// callout describes. The second appears whenever the stopping step sits in a directory the walk
 /// managed to look inside.
-fn callouts(path: &Path, trace: &Trace) -> NonEmpty<Callout> {
+fn callouts(path: &Path, trace: &Trace, dir_limit: usize) -> NonEmpty<Callout> {
     let (step, early) = match trace.stop_status() {
         StopStatus::Early(step) => (step, true),
         StopStatus::Final(step) => (step, false),
     };
 
     let mut callouts = NonEmpty::new(stopped_step_callout(path, trace, step, early));
-    if let Some(parent) = parent_of_stopped_callout(path, trace) {
+    if let Some(parent) = parent_of_stopped_callout(path, trace, dir_limit) {
         callouts.push(parent);
     }
     callouts
@@ -227,7 +236,9 @@ fn stopped_step_callout(path: &Path, trace: &Trace, step: &Step, early: bool) ->
 /// Show the directory holding the stopped step.
 ///
 /// If the input path is relative, the directory shown could be an absolute parent path.
-fn parent_of_stopped_callout(path: &Path, trace: &Trace) -> Option<Callout> {
+///
+/// The listing shows the sought entry when it exists, plus up to `dir_limit` others.
+fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Option<Callout> {
     let listing = trace.listing()?;
     let dir = listing.dir;
     let sought = listing.entry;
@@ -274,15 +285,31 @@ fn parent_of_stopped_callout(path: &Path, trace: &Trace) -> Option<Callout> {
 
     // Last, so the tree it nests never comes between two `↳` facts.
     if let Ok(entries) = &entries {
-        facts.push(Fact::Contains {
-            entries: entries
-                .iter()
-                .map(|entry| Entry {
-                    name: Path::new(entry).display().to_string(),
-                    annotation: (entry == &sought).then(|| "(exists)".to_string()),
-                })
-                .collect(),
-        });
+        let mut rows = Vec::new();
+        let mut others = 0;
+        let mut hidden = 0;
+        for entry in entries {
+            let is_sought = entry == &sought;
+            if !is_sought {
+                others += 1;
+                if others > dir_limit {
+                    hidden += 1;
+                    continue;
+                }
+            }
+            if hidden > 0 {
+                rows.push(Row::Hidden(hidden));
+                hidden = 0;
+            }
+            rows.push(Row::Entry(Entry {
+                name: Path::new(entry).display().to_string(),
+                annotation: is_sought.then(|| "(exists)".to_string()),
+            }));
+        }
+        if hidden > 0 {
+            rows.push(Row::Hidden(hidden));
+        }
+        facts.push(Fact::Contains { rows });
     }
 
     Some(Callout {
@@ -472,6 +499,137 @@ mod tests {
     /// Renders a report and scrubs it with `scrubber`.
     fn report(scrubber: &Scrubber, path: impl AsRef<Path>) -> String {
         scrubber.carets(&Report::new(path).to_string())
+    }
+
+    fn report_with_dir_limit(scrubber: &Scrubber, path: &Path, dir_limit: usize) -> String {
+        scrubber.carets(&Report::with_dir_limit(path, Trace::new(path), dir_limit).to_string())
+    }
+
+    #[test]
+    fn test_dir_limit_keeps_sought_entry_past_the_cutoff() {
+        let fixture = Fixture::new();
+        for name in ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt"] {
+            std::fs::write(fixture.join(name), "").unwrap();
+        }
+
+        let output = report_with_dir_limit(&fixture.scrub(), &fixture.join("e.txt"), 2);
+
+        insta::assert_snapshot!(output, @r"
+        exists `/path/to/directory/e.txt`
+         - `/path/to/directory/e.txt`
+                               ^^^^^
+                               ↳ File [✅ read, ✅ write, ❌ execute]
+         - `/path/to/directory/e.txt`
+                     ^^^^^^^^^
+                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                     ↳ Contains (5)
+                       ├── `a.txt`
+                       ├── `b.txt`
+                       ├── ...
+                       └── `e.txt` (exists)
+        🛑
+        ");
+    }
+
+    #[test]
+    fn test_dir_limit_zero_with_sought_entry_first() {
+        let fixture = Fixture::new();
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            std::fs::write(fixture.join(name), "").unwrap();
+        }
+
+        let output = report_with_dir_limit(&fixture.scrub(), &fixture.join("a.txt"), 0);
+
+        insta::assert_snapshot!(output, @r"
+        exists `/path/to/directory/a.txt`
+         - `/path/to/directory/a.txt`
+                               ^^^^^
+                               ↳ File [✅ read, ✅ write, ❌ execute]
+         - `/path/to/directory/a.txt`
+                     ^^^^^^^^^
+                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                     ↳ Contains (3)
+                       ├── `a.txt` (exists)
+                       └── ...
+        🛑
+        ");
+    }
+
+    #[test]
+    fn test_dir_limit_zero_with_sought_entry_last() {
+        let fixture = Fixture::new();
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            std::fs::write(fixture.join(name), "").unwrap();
+        }
+
+        let output = report_with_dir_limit(&fixture.scrub(), &fixture.join("c.txt"), 0);
+
+        insta::assert_snapshot!(output, @r"
+        exists `/path/to/directory/c.txt`
+         - `/path/to/directory/c.txt`
+                               ^^^^^
+                               ↳ File [✅ read, ✅ write, ❌ execute]
+         - `/path/to/directory/c.txt`
+                     ^^^^^^^^^
+                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                     ↳ Contains (3)
+                       ├── ...
+                       └── `c.txt` (exists)
+        🛑
+        ");
+    }
+
+    #[test]
+    fn test_dir_limit_cuts_both_sides_of_sought_entry() {
+        let fixture = Fixture::new();
+        for name in ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt", "f.txt"] {
+            std::fs::write(fixture.join(name), "").unwrap();
+        }
+
+        let output = report_with_dir_limit(&fixture.scrub(), &fixture.join("d.txt"), 2);
+
+        insta::assert_snapshot!(output, @r"
+        exists `/path/to/directory/d.txt`
+         - `/path/to/directory/d.txt`
+                               ^^^^^
+                               ↳ File [✅ read, ✅ write, ❌ execute]
+         - `/path/to/directory/d.txt`
+                     ^^^^^^^^^
+                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                     ↳ Contains (6)
+                       ├── `a.txt`
+                       ├── `b.txt`
+                       ├── ...
+                       ├── `d.txt` (exists)
+                       └── ...
+        🛑
+        ");
+    }
+
+    #[test]
+    fn test_dir_limit_zero_with_missing_entry() {
+        let fixture = Fixture::new();
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            std::fs::write(fixture.join(name), "").unwrap();
+        }
+
+        let missing = fixture.join("missing.txt");
+        let scrubber = fixture.scrub().not_found(&missing);
+        let output = report_with_dir_limit(&scrubber, &missing, 0);
+
+        insta::assert_snapshot!(output, @r"
+        does not exist `/path/to/directory/missing.txt`
+         - `/path/to/directory/missing.txt`
+                               ^^^^^^^^^^^
+                               ↳ Missing: {error}
+         - `/path/to/directory/missing.txt`
+                     ^^^^^^^^^
+                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                     ↳ ❌ Missing `missing.txt`
+                     ↳ Contains (3)
+                       └── ...
+        🛑
+        ");
     }
 
     /// Rendering asks disk nothing: every fact is gathered by `Report::new`.

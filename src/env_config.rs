@@ -1,7 +1,5 @@
 //! Pull configuration from ENV vars
 
-#![allow(dead_code)]
-
 use std::{
     ffi::{OsStr, OsString},
     io::Write,

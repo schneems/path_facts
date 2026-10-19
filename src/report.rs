@@ -11,6 +11,7 @@ use crate::style;
 use crate::trace::{CannotTrace, PhysicalNode, Resolved, StatusOnDisk, Step, StopStatus, Trace};
 use faccess::{AccessMode, PathExt};
 use std::fmt::Display;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
 /// Shows facts about a path as a series of caret-annotated callouts when `Display`ed.
@@ -296,8 +297,9 @@ fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Op
                     continue;
                 }
             }
-            if hidden > 0 {
-                rows.push(Row::Hidden(hidden));
+
+            if let Some(value) = NonZeroUsize::new(hidden) {
+                rows.push(Row::Hidden(value));
                 hidden = 0;
             }
             rows.push(Row::Entry(Entry {
@@ -305,8 +307,8 @@ fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Op
                 annotation: is_sought.then(|| "(exists)".to_string()),
             }));
         }
-        if hidden > 0 {
-            rows.push(Row::Hidden(hidden));
+        if let Some(value) = NonZeroUsize::new(hidden) {
+            rows.push(Row::Hidden(value));
         }
         facts.push(Fact::Contains { rows });
     }

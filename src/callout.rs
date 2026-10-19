@@ -23,6 +23,7 @@
 
 use crate::component::NormalComponent;
 use crate::style;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::path::{Component, Path};
 
@@ -72,7 +73,7 @@ pub(crate) enum Fact {
 pub(crate) enum Row {
     Entry(Entry),
     /// How many entries in a row were left out of the listing, rendered as `...` where they sort.
-    Hidden(usize),
+    Hidden(NonZeroUsize),
 }
 
 /// A directory entry shown in a [`Fact::Contains`] tree.
@@ -198,7 +199,7 @@ fn push_fact(lines: &mut Vec<String>, fact: &Fact, caret_col: usize) {
                 .iter()
                 .map(|row| match row {
                     Row::Entry(_) => 1,
-                    Row::Hidden(count) => *count,
+                    Row::Hidden(count) => (*count).into(),
                 })
                 .sum();
             lines.push(format!("{indent}↳ Contains ({total})"));
@@ -545,9 +546,9 @@ mod tests {
             facts: vec![Fact::Contains {
                 rows: vec![
                     entry("a", None),
-                    Row::Hidden(2),
+                    Row::Hidden(NonZeroUsize::new(2).unwrap()),
                     entry("d", None),
-                    Row::Hidden(1),
+                    Row::Hidden(NonZeroUsize::new(1).unwrap()),
                 ],
             }],
         };
@@ -569,7 +570,7 @@ mod tests {
             path: "/tmp/d".to_string(),
             caret: highlight(Path::new("/tmp/d"), Caret::Last),
             facts: vec![Fact::Contains {
-                rows: vec![Row::Hidden(5)],
+                rows: vec![Row::Hidden(NonZeroUsize::new(5).unwrap())],
             }],
         };
 

@@ -104,10 +104,7 @@ impl EnvKey {
     }
 
     fn from_name(name: &OsStr) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|key| name.eq_ignore_ascii_case(key.name()))
+        Self::ALL.iter().copied().find(|key| name == key.name())
     }
 }
 

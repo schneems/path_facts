@@ -104,7 +104,10 @@ impl EnvKey {
     }
 
     fn from_name(name: &OsStr) -> Option<Self> {
-        Self::ALL.iter().copied().find(|key| name == key.name())
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|key| name.eq_ignore_ascii_case(key.name()))
     }
 }
 
@@ -135,6 +138,19 @@ mod tests {
 
     fn os(value: &str) -> OsString {
         OsString::from(value)
+    }
+
+    #[test]
+    fn invalid_config() {
+        let mut io = Vec::<u8>::new();
+        let config = EnvConfig::from([(os("PATH_FACTS_LIMITS"), os("100"))], &mut io);
+        assert_eq!(config.dir_limit, EnvConfig::default().dir_limit);
+
+        let warnings = String::from_utf8_lossy(&io).into_owned();
+        assert_eq!(
+            warnings.trim(),
+            "Unknown PATH_FACTS env key `PATH_FACTS_LIMITS`. Must be one of: `PATH_FACTS_LIMIT`"
+        );
     }
 
     #[test]

@@ -359,7 +359,7 @@ fn stopped_step_type_line(step: &Step, early: bool) -> String {
             ..
         } => format!("Symlink, cannot follow: {error}"),
         PhysicalNode::Missing(error) => format!("Missing: {error}"),
-        PhysicalNode::UnknownLookup(error) => format!("Cannot lstat: {error}"),
+        PhysicalNode::UnknownLookup(error) => format!("Cannot read raw metadata: {error}"),
         PhysicalNode::ParentNoExec { .. } => {
             "Parent directory missing execute permission".to_string()
         }
@@ -725,7 +725,7 @@ mod tests {
         `/path/to/directory/denied/child.txt`
          - `/path/to/directory/denied/child.txt`
                                       ^^^^^^^^^
-                                      ↳ Cannot lstat: Permission denied (os error 13)
+                                      ↳ Cannot read raw metadata: Permission denied (os error 13)
          - `/path/to/directory/denied/child.txt`
                                ^^^^^^
                                ↳ Dir [❌ read, ❌ write, ❌ execute]

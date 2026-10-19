@@ -127,25 +127,12 @@ impl CanonicalPath {
         }
     }
 
-    /// The names this directory holds, sorted
+    /// The entries this directory holds (when it's a directory), sorted
     ///
-    /// Names rather than paths. "Is `x` in this directory" is the question every caller has, and a
-    /// name answers it directly, while comparing two absolute paths also compares two spellings of
-    /// the directory they hang off — a verbatim prefix on one side, or a symlink resolved on one
-    /// side and not the other, reads as a file that is not there. Every call site already holds the
-    /// directory, so nothing is lost by leaving it off.
+    /// Allows us to answer the question "Is `X` in this directory?" even if `<dir>/X` is not traversable.
     ///
-    /// Sorted because `read_dir` hands back whatever order the filesystem stores names in, which is
-    /// stable for nobody and comparable across nothing: APFS, ext4 and NTFS each answer
-    /// differently for the same directory. A listing is read by a human next to an error message
-    /// and diffed by a snapshot test, and both want the same list twice in a row.
-    ///
-    /// By name bytes, which is the order `cargo package --list` prints and the order `ls` prints
-    /// under `LC_ALL=C`. It is not what `ls` prints otherwise: `ls` sorts by the locale's collating
-    /// sequence, folding case and taking punctuation weights from a table that differs by platform
-    /// and by the reader's environment. Reproducing that would mean carrying a collation table to
-    /// produce a listing that changes with whoever reads it, so this library sorts the way the
-    /// other developer-facing tool in the room does and says so rather than claiming to match `ls`.
+    /// Sorted because we want stability for tests and consistency of the viewer. We use the same ordering
+    /// as `cargo package --list`. The order can otherwise vary by OS.
     pub(crate) fn normal_entries(&self) -> Result<Vec<NormalComponent>, std::io::Error> {
         let mut entries: Vec<NormalComponent> = std::fs::read_dir(&self.0)?
             .map(|entry| entry.map(Into::<NormalComponent>::into))

@@ -21,7 +21,9 @@
 //! path stays exact while a fact line containing such glyphs may look shifted in a terminal that
 //! renders them at a different cell width.
 
+use crate::component::NormalComponent;
 use crate::style;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::path::{Component, Path};
 
@@ -63,14 +65,22 @@ pub(crate) enum Fact {
     /// A one- or multi-line `↳ {text}` fact. Continuation lines hang at `caret_col + 2`.
     Text(String),
     /// A directory listing folded into `↳ Contains (N)` with a tree nested at `caret_col + 2`.
-    Contains { entries: Vec<Entry> },
+    Contains { rows: Vec<Row> },
 }
 
 /// One row of a [`Fact::Contains`] tree.
 #[derive(Debug, Clone)]
+pub(crate) enum Row {
+    Entry(Entry),
+    /// How many entries in a row were left out of the listing, rendered as `...` where they sort.
+    Hidden(NonZeroUsize),
+}
+
+/// A directory entry shown in a [`Fact::Contains`] tree.
+#[derive(Debug, Clone)]
 pub(crate) struct Entry {
     /// The entry name, rendered between backticks.
-    pub(crate) name: String,
+    pub(crate) name: NormalComponent,
     /// Optional trailing annotation, e.g. `directory [✅ read, …]`.
     pub(crate) annotation: Option<String>,
 }
@@ -184,33 +194,42 @@ fn push_fact(lines: &mut Vec<String>, fact: &Fact, caret_col: usize) {
             &format!("{indent}  "),
             text,
         )),
-        Fact::Contains { entries } => {
-            lines.push(format!("{indent}↳ Contains ({})", entries.len()));
+        Fact::Contains { rows } => {
+            let total: usize = rows
+                .iter()
+                .map(|row| match row {
+                    Row::Entry(_) => 1,
+                    Row::Hidden(count) => (*count).into(),
+                })
+                .sum();
+            lines.push(format!("{indent}↳ Contains ({total})"));
             let tree_indent = " ".repeat(caret_col + 2);
 
             // A count with no tree under it reads like the listing was cut off. Saying `(empty)`
             // in the shape of a tree row is what distinguishes "nothing is in here" from "nothing
             // was printed here".
-            if entries.is_empty() {
+            if rows.is_empty() {
                 lines.push(format!("{tree_indent}└── (empty)"));
                 return;
             }
 
-            let mut iter = entries.iter().peekable();
-            while let Some(entry) = iter.next() {
+            let mut iter = rows.iter().peekable();
+            while let Some(row) = iter.next() {
                 let glyph = if iter.peek().is_some() {
                     "├──"
                 } else {
                     "└──"
                 };
-                match &entry.annotation {
-                    Some(annotation) => {
-                        lines.push(format!(
-                            "{tree_indent}{glyph} `{}` {annotation}",
-                            entry.name
-                        ));
-                    }
-                    None => lines.push(format!("{tree_indent}{glyph} `{}`", entry.name)),
+                match row {
+                    Row::Entry(Entry {
+                        name,
+                        annotation: Some(annotation),
+                    }) => lines.push(format!("{tree_indent}{glyph} {name} {annotation}")),
+                    Row::Entry(Entry {
+                        name,
+                        annotation: None,
+                    }) => lines.push(format!("{tree_indent}{glyph} {name}")),
+                    Row::Hidden(_) => lines.push(format!("{tree_indent}{glyph} ...")),
                 }
             }
         }
@@ -220,17 +239,36 @@ fn push_fact(lines: &mut Vec<String>, fact: &Fact, caret_col: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::module_doc_example;
+    use crate::{
+        component::{self, OwnedComponent},
+        test_support::module_doc_example,
+    };
 
     fn text(fact: &str) -> Fact {
         Fact::Text(fact.to_string())
     }
 
-    fn entry(name: &str, annotation: Option<&str>) -> Entry {
-        Entry {
-            name: name.to_string(),
-            annotation: annotation.map(String::from),
+    fn norm(name: &str) -> NormalComponent {
+        one(name).normal().unwrap().clone()
+    }
+
+    fn one(name: &str) -> OwnedComponent {
+        let mut components = Path::new(name).components();
+        let first = component::owned(components.next().unwrap());
+        if let Some(c) = components.next() {
+            panic!(
+                "expected name `{}` to be one component, got {:?}, {:?}, {:?}",
+                name, first, c, components
+            )
         }
+        first
+    }
+
+    fn entry(name: &str, annotation: Option<&str>) -> Row {
+        Row::Entry(Entry {
+            name: norm(name),
+            annotation: annotation.map(String::from),
+        })
     }
 
     /// The callout the module doc draws by hand at the top of this file.
@@ -243,7 +281,7 @@ mod tests {
                 text("Canonical `/private/tmp/lnk/real`"),
                 text("❌ Missing `foo.txt`"),
                 Fact::Contains {
-                    entries: vec![entry("a", None), entry("b", None), entry("c", None)],
+                    rows: vec![entry("a", None), entry("b", None), entry("c", None)],
                 },
             ],
         }
@@ -437,7 +475,7 @@ mod tests {
         let callout = Callout {
             path: "/tmp/empty".to_string(),
             caret: highlight(Path::new("/tmp/empty"), Caret::Last),
-            facts: vec![Fact::Contains { entries: vec![] }],
+            facts: vec![Fact::Contains { rows: vec![] }],
         };
 
         insta::assert_snapshot!(render_callout(&callout), @r"
@@ -484,7 +522,7 @@ mod tests {
             path: "/tmp/d".to_string(),
             caret: highlight(Path::new("/tmp/d"), Caret::Last),
             facts: vec![Fact::Contains {
-                entries: vec![
+                rows: vec![
                     entry("a.txt", Some("file [✅ read, ✅ write, ❌ execute]")),
                     entry("b", None),
                 ],
@@ -497,6 +535,50 @@ mod tests {
                  ↳ Contains (2)
                    ├── `a.txt` file [✅ read, ✅ write, ❌ execute]
                    └── `b`
+        ");
+    }
+
+    #[test]
+    fn render_contains_counts_hidden_entries() {
+        let callout = Callout {
+            path: "/tmp/d".to_string(),
+            caret: highlight(Path::new("/tmp/d"), Caret::Last),
+            facts: vec![Fact::Contains {
+                rows: vec![
+                    entry("a", None),
+                    Row::Hidden(NonZeroUsize::new(2).unwrap()),
+                    entry("d", None),
+                    Row::Hidden(NonZeroUsize::new(1).unwrap()),
+                ],
+            }],
+        };
+
+        insta::assert_snapshot!(render_callout(&callout), @r"
+         - `/tmp/d`
+                 ^
+                 ↳ Contains (5)
+                   ├── `a`
+                   ├── ...
+                   ├── `d`
+                   └── ...
+        ");
+    }
+
+    #[test]
+    fn render_contains_with_every_entry_hidden() {
+        let callout = Callout {
+            path: "/tmp/d".to_string(),
+            caret: highlight(Path::new("/tmp/d"), Caret::Last),
+            facts: vec![Fact::Contains {
+                rows: vec![Row::Hidden(NonZeroUsize::new(5).unwrap())],
+            }],
+        };
+
+        insta::assert_snapshot!(render_callout(&callout), @r"
+         - `/tmp/d`
+                 ^
+                 ↳ Contains (5)
+                   └── ...
         ");
     }
 }

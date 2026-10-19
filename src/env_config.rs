@@ -97,7 +97,9 @@ impl EnvKey {
 
     fn hint(self) -> &'static str {
         match self {
-            EnvKey::Limit => "Must be an integer between `0` and `usize::MAX`",
+            EnvKey::Limit => {
+                "Must be an integer `0` or larger. Use `MAX` for the largest possible value"
+            }
         }
     }
 
@@ -120,7 +122,7 @@ fn parse_limit(value: &OsStr) -> Result<usize, String> {
             "Value is not valid UTF-8: `{}`",
             value.to_string_lossy()
         )),
-        Some("usize::MAX") => Ok(usize::MAX),
+        Some("MAX" | "max") => Ok(usize::MAX),
         Some(value) => value
             .parse()
             .map_err(|error: ParseIntError| error.to_string()),
@@ -195,11 +197,18 @@ mod tests {
 
     #[test]
     fn usize_max() {
-        let mut io = Vec::<u8>::new();
-        let config = EnvConfig::from([(os("PATH_FACTS_LIMIT"), os("usize::MAX"))], &mut io);
-        assert_eq!(config.dir_limit, usize::MAX);
+        for max in ["max", "MAX"] {
+            let mut io = Vec::<u8>::new();
+            let config = EnvConfig::from([(os("PATH_FACTS_LIMIT"), os(max))], &mut io);
+            assert_eq!(config.dir_limit, usize::MAX);
 
-        let warnings = String::from_utf8_lossy(&io).into_owned();
-        assert!(warnings.is_empty(), "{}", warnings);
+            let warnings = String::from_utf8_lossy(&io).into_owned();
+            assert!(
+                warnings.is_empty(),
+                "Warnings: {}. From value: {}",
+                warnings,
+                max
+            );
+        }
     }
 }

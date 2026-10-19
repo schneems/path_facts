@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Fix: Directories are now limited to 20 **additional** entries by default. Previously there was no limit.
-- Add: `PATH_FACTS_LIMIT` env var for configuring the maximum **additional** number of entries to show in a directory. See the README.md for details.
+- Add: `PATH_FACTS_LIMIT` env var for configuring the maximum **additional** number of entries to show in a directory. See the README.md for details. Supported values are integers `0` and larger. Use `MAX` for the maximum value.
 
 ## 0.4.0
 

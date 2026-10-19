@@ -98,7 +98,7 @@ This allows the person **running** the software to have the final say in how it'
 following configuration is available:
 
 - `PATH_FACTS_LIMIT` (default is 20) - Maximum **additional** number of entries to show in a directory.
-  Valid values are `0` up to `usize::MAX` (accepts `PATH_FACTS_LIMIT=usize::MAX`).
+  Supported values are integers `0` and larger. Use `MAX` for the maximum value.
 
 Example: In the input path `/path/to/dir/file.txt`, if `/path/to/dir` holds 100 entries:
 

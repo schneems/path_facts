@@ -122,7 +122,7 @@ fn parse_limit(value: &OsStr) -> Result<usize, String> {
             "Value is not valid UTF-8: `{}`",
             value.to_string_lossy()
         )),
-        Some("MAX" | "max") => Ok(usize::MAX),
+        Some(value) if value.trim().eq_ignore_ascii_case("max") => Ok(usize::MAX),
         Some(value) => value
             .parse()
             .map_err(|error: ParseIntError| error.to_string()),

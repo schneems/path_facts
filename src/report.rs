@@ -276,10 +276,9 @@ fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Op
         Err(error) => facts.push(Fact::Text(format!("Cannot list directory: {error}"))),
         // Promoted to its own fact rather than left as a gap in the tree, because a name that
         // is not there cannot be pointed at inside a list of names that are.
-        Ok(entries) if !entries.contains(&sought) => facts.push(Fact::Text(format!(
-            "❌ Missing `{}`",
-            Path::new(&sought).display()
-        ))),
+        Ok(entries) if !entries.contains(&sought) => {
+            facts.push(Fact::Text(format!("❌ Missing {sought}")));
+        }
         Ok(_) => {}
     }
 

@@ -78,6 +78,7 @@ mod tests {
     /// The two tests below disagree on the kind for the same operation, so
     /// `is_err()` would let either of them pass the other's expectations.
     #[cfg(unix)]
+    #[track_caller]
     fn assert_err_kind<T: std::fmt::Debug>(
         result: std::io::Result<T>,
         expected: std::io::ErrorKind,
@@ -234,6 +235,7 @@ mod tests {
         std::fs::metadata(canonical.as_ref()).unwrap();
     }
 
+    #[track_caller]
     fn assert_resolved_raw_metadata(
         path: &Path,
         resolved_sym_dir_file: (bool, bool, bool),
@@ -596,6 +598,7 @@ mod tests {
     }
 
     #[cfg(windows)]
+    #[track_caller]
     fn assert_is_verbatim(path: &Path) {
         assert!(
             matches!(
@@ -608,6 +611,7 @@ mod tests {
     }
 
     #[cfg(windows)]
+    #[track_caller]
     fn assert_normalized(path: &Path) {
         assert!(
             !path
@@ -618,6 +622,7 @@ mod tests {
         );
     }
 
+    #[track_caller]
     fn assert_has_parent_dir(path: &Path) {
         assert!(
             path.components()

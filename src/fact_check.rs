@@ -628,7 +628,18 @@ mod tests {
         let resolved = std::fs::metadata(path).map(f).unwrap();
         let raw = std::fs::symlink_metadata(path).map(f).unwrap();
 
-        assert_eq!(resolved, resolved_sym_dir_file);
-        assert_eq!(raw, raw_sym_dir_file);
+        let path = path.display();
+        assert!(
+            resolved == resolved_sym_dir_file,
+            "resolved metadata for `{path}` (symlink, dir, file) did not match\n  expected: {:?}\n    actual: {:?}",
+            resolved_sym_dir_file,
+            resolved
+        );
+        assert!(
+            raw == raw_sym_dir_file,
+            "raw metadata for `{path}` (symlink, dir, file) did not match\n  expected: {:?}\n    actual: {:?}",
+            raw_sym_dir_file,
+            raw
+        );
     }
 }

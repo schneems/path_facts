@@ -77,7 +77,6 @@ mod tests {
     ///
     /// The two tests below disagree on the kind for the same operation, so
     /// `is_err()` would let either of them pass the other's expectations.
-    #[cfg(unix)]
     #[track_caller]
     fn assert_err_kind<T: std::fmt::Debug>(
         result: std::io::Result<T>,
@@ -294,6 +293,15 @@ mod tests {
                 (true, false, false),
             );
         }
+        std::fs::remove_dir_all(&original).unwrap();
+
+        // Dangling symlink
+        assert_err_kind(std::fs::metadata(&link), std::io::ErrorKind::NotFound);
+        let raw = std::fs::symlink_metadata(&link).unwrap();
+        assert_eq!(
+            (raw.is_symlink(), raw.is_dir(), raw.is_file()), //
+            (true, false, false)
+        );
     }
 
     /// `Components` erases `.` and keeps `..`, which is why only one of them is safe

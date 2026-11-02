@@ -245,14 +245,14 @@ mod tests {
     fn test_raw_resolved_metadata() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
-        let target = dir.join("x").join("y").join("z");
-        std::fs::create_dir_all(&target).unwrap();
+        let original = dir.join("x").join("y").join("z");
+        std::fs::create_dir_all(&original).unwrap();
         let link = dir.join("link");
 
         #[cfg(unix)]
-        std::os::unix::fs::symlink(&target, &link).unwrap();
+        std::os::unix::fs::symlink(&original, &link).unwrap();
         #[cfg(windows)]
-        std::os::windows::fs::symlink_dir(&target, &link).unwrap();
+        std::os::windows::fs::symlink_dir(&original, &link).unwrap();
 
         assert!(link.is_symlink());
         assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());

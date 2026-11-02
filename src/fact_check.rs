@@ -4,7 +4,7 @@
 #[cfg(test)]
 mod tests {
     use crate::{abs_path::AbsPath, canonical_path::CanonicalPath};
-    use std::path::{Component, Path};
+    use std::path::{Component, Path, PathBuf};
 
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
@@ -87,7 +87,7 @@ mod tests {
 
     /// The full path of every entry in a directory
     #[cfg(unix)]
-    fn entry_paths(dir: &Path) -> std::io::Result<Vec<std::path::PathBuf>> {
+    fn entry_paths(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
         std::fs::read_dir(dir)?
             .map(|entry| entry.map(|entry| entry.path()))
             .collect()
@@ -322,56 +322,81 @@ mod tests {
         assert_eq!(Path::new("/a/b/..").parent(), Some(Path::new("/a/b")));
     }
 
-    /// `Path::join` folds a `..` away when the receiver has a verbatim (`\\?\`)
-    /// prefix, but appends it literally on any non-verbatim receiver.
+    /// [`Path::join`] and [`PathBuf::push`] with `..`
+    ///
+    /// [`Path::join`] folds a `..` away when the receiver has a verbatim (`\\?\`)
+    /// prefix. From the docs:
     ///
     /// > if `self` has a verbatim prefix (e.g. `\\?\C:\windows`) and `path` is not
     /// > empty, the new path is normalized: all references to `.` and `..` are
     /// > removed.
     ///
-    /// <https://doc.rust-lang.org/std/path/struct.PathBuf.html#method.push>
-    ///
-    /// `\\?\` prefixes only exist on Windows, so the verbatim half is
-    /// `#[cfg(windows)]`; the non-verbatim half holds on every platform.
+    /// These tests cover edge cases where `..` can still end up with a verbatim path
+    /// as well as asserting the non-verbatim behavior.
     #[test]
-    fn test_path_join_folds_parent_dir_only_on_a_verbatim_receiver() {
+    fn test_parent_dir_with_join_push() {
         // Non-verbatim receiver: the `..` survives as a real component. Uses a
         // relative base so the assertion is identical on every platform.
         let plain = Path::new("base").join("a").join("b").join("..").join("c");
-        assert!(
-            plain
-                .components()
-                .any(|component| matches!(component, Component::ParentDir)),
-            "join kept `..` on a non-verbatim base, got {:?}",
-            plain
-        );
+        assert_has_parent_dir(&plain);
 
-        // Verbatim receiver: the `..` is folded at construction, so it never
-        // reaches `components()`.
+        let mut plain = PathBuf::from("base").join("a").join("b");
+        plain.push("..");
+        plain.push("c");
+        assert_has_parent_dir(&plain);
+
+        // Verbatim receiver folds the `..` in the `join` and `push` functions.
         #[cfg(windows)]
         {
             let verbatim = Path::new(r"\\?\C:\base\a\b").join("..").join("c");
-            assert!(
-                !verbatim
-                    .components()
-                    .any(|component| matches!(component, Component::ParentDir)),
-                "join folded `..` on a verbatim base, got {:?}",
-                verbatim
-            );
-            assert_eq!(verbatim, std::path::PathBuf::from(r"\\?\C:\base\a\c"));
+            assert_normalized(&verbatim);
+            assert_eq!(verbatim, PathBuf::from(r"\\?\C:\base\a\c"));
 
-            let literal = Path::new(r"\\?\C:\base\a\b\..\c");
-            assert!(
-                literal
-                    .components()
-                    .any(|component| matches!(component, Component::ParentDir)),
-                "literal `..` on a verbatim base, got {:?}",
-                literal
-            );
+            let mut verbatim = PathBuf::from(r"\\?\C:\base\a\b");
+            verbatim.push("..");
+            verbatim.push("c");
+            assert_normalized(&verbatim);
+            assert_eq!(verbatim, PathBuf::from(r"\\?\C:\base\a\c"));
 
             // A `..` in the middle of a join is folded in.
             let join_lit_middle = Path::new(r"\\?\C:\base").join(r"a\b\..\c");
             assert_eq!(join_lit_middle, Path::new(r"\\?\C:\base\a\c"));
+        }
+
+        // Even though Rust folds `..` in on join and push it is still possible to have a verbatim
+        // Path with a `..` in it.
+        #[cfg(windows)]
+        {
+            let literal = Path::new(r"\\?\C:\base\a\b\..\c");
+            assert_is_verbatim(literal);
+            assert_has_parent_dir(literal);
+
+            // join with absolute verbatim path
+            #[allow(clippy::join_absolute_paths)]
+            let verbatim_argument = Path::new(r"\\?\C:\base").join(r"\\?\C:\a\..\b");
+            assert_eq!(verbatim_argument, Path::new(r"\\?\C:\a\..\b"));
+            assert_is_verbatim(&verbatim_argument);
+            assert_has_parent_dir(&verbatim_argument);
+
+            // A receiver of `\\` or `\\?` is not parsed as verbatim so it doesn't
+            // fold in `..`
+            let becomes_verbatim_disk = Path::new(r"\\").join(r"?\C:\a\..\b");
+            assert_eq!(becomes_verbatim_disk, Path::new(r"\\?\C:\a\..\b"));
+            assert_is_verbatim(&becomes_verbatim_disk);
+            assert_has_parent_dir(&becomes_verbatim_disk);
+
+            let becomes_verbatim = Path::new(r"\\?").join(r"a\..\b");
+            assert_eq!(becomes_verbatim, Path::new(r"\\?\a\..\b"));
+            assert_is_verbatim(&becomes_verbatim);
+            assert_has_parent_dir(&becomes_verbatim);
+
+            let becomes_verbatim_unc = Path::new(r"\\?").join(r"UNC\server\share\a\..\b");
+            assert_eq!(
+                becomes_verbatim_unc,
+                Path::new(r"\\?\UNC\server\share\a\..\b")
+            );
+            assert_is_verbatim(&becomes_verbatim_unc);
+            assert_has_parent_dir(&becomes_verbatim_unc);
         }
     }
 
@@ -387,11 +412,6 @@ mod tests {
     ///
     /// In practice, every verbatim path with a `..` in it errors on every Rust std lib call (that I
     /// have tried/tested).
-    ///
-    /// Rust `canonicalize()` on windows returns verbatim paths. Joining a relative path onto one
-    /// folds `..` (see [`test_path_join_folds_parent_dir_only_on_a_verbatim_receiver`]), so
-    /// `canonicalize(canonicalize(&path)?.join(&other))` does not hit this. A literal `..` has to
-    /// come from building the path as a string.
     #[cfg(windows)]
     #[test]
     fn test_canonicalize_fails_on_trailing_dot_dot_in_a_verbatim_path() {
@@ -402,28 +422,13 @@ mod tests {
         // a `\\?\` path on Windows, which is the base the `..` fold below depends on.
         let dir = temp.path().canonicalize().unwrap();
 
-        assert!(
-            dir.components()
-                .next()
-                .is_some_and(|component| matches!(component, Component::Prefix(prefix) if prefix.kind().is_verbatim())),
-            "expected a verbatim prefix after canonicalize, got {:?}",
-            dir
-        );
+        assert_is_verbatim(&dir);
 
         let b = dir.join("a").join("b");
         std::fs::create_dir_all(&b).unwrap();
 
-        // [`test_path_join_folds_parent_dir_only_on_a_verbatim_receiver`] shows different rust behavior
-        // in [`Path::join`] with verbatim paths so we must use this to force/guarantee a ParentDir
-        // in the path
         let trailing = join_unfolded(&b, &[".."]);
-        assert!(
-            trailing
-                .components()
-                .any(|component| matches!(component, Component::ParentDir)),
-            "the `..` was folded before canonicalize could see it, got {:?}",
-            trailing
-        );
+        assert_has_parent_dir(&trailing);
         let error = std::fs::canonicalize(&trailing)
             .expect_err("canonicalize resolved a trailing `..` in a verbatim path");
         assert_eq!(
@@ -557,5 +562,37 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[cfg(windows)]
+    fn assert_is_verbatim(path: &Path) {
+        assert!(
+            matches!(
+                path.components().next(),
+                Some(Component::Prefix(prefix)) if prefix.kind().is_verbatim()
+            ),
+            "expected a verbatim prefix, got {:?}",
+            path
+        );
+    }
+
+    #[cfg(windows)]
+    fn assert_normalized(path: &Path) {
+        assert!(
+            !path
+                .components()
+                .any(|component| matches!(component, Component::CurDir | Component::ParentDir)),
+            "expected to include no `..` or `.`, got {:?}",
+            path
+        );
+    }
+
+    fn assert_has_parent_dir(path: &Path) {
+        assert!(
+            path.components()
+                .any(|component| matches!(component, Component::ParentDir)),
+            "expected a `..` component, got {:?}",
+            path
+        );
     }
 }

@@ -338,13 +338,7 @@ mod tests {
         // Non-verbatim receiver: the `..` survives as a real component. Uses a
         // relative base so the assertion is identical on every platform.
         let plain = Path::new("base").join("a").join("b").join("..").join("c");
-        assert!(
-            plain
-                .components()
-                .any(|component| matches!(component, Component::ParentDir)),
-            "join kept `..` on a non-verbatim base, got {:?}",
-            plain
-        );
+        assert_has_parent_dir(&plain);
 
         let mut plain = PathBuf::from("base").join("a").join("b");
         plain.push("..");
@@ -355,25 +349,13 @@ mod tests {
         #[cfg(windows)]
         {
             let verbatim = Path::new(r"\\?\C:\base\a\b").join("..").join("c");
-            assert!(
-                !verbatim
-                    .components()
-                    .any(|component| matches!(component, Component::ParentDir)),
-                "join folded `..` on a verbatim base, got {:?}",
-                verbatim
-            );
+            assert_normalized(&verbatim);
             assert_eq!(verbatim, PathBuf::from(r"\\?\C:\base\a\c"));
 
             let mut verbatim = PathBuf::from(r"\\?\C:\base\a\b");
             verbatim.push("..");
             verbatim.push("c");
-            assert!(
-                !verbatim
-                    .components()
-                    .any(|component| matches!(component, Component::ParentDir)),
-                "push folded `..` on a verbatim base, got {:?}",
-                verbatim
-            );
+            assert_normalized(&verbatim);
             assert_eq!(verbatim, PathBuf::from(r"\\?\C:\base\a\c"));
 
             // A `..` in the middle of a join is folded in.
@@ -440,25 +422,13 @@ mod tests {
         // a `\\?\` path on Windows, which is the base the `..` fold below depends on.
         let dir = temp.path().canonicalize().unwrap();
 
-        assert!(
-            dir.components()
-                .next()
-                .is_some_and(|component| matches!(component, Component::Prefix(prefix) if prefix.kind().is_verbatim())),
-            "expected a verbatim prefix after canonicalize, got {:?}",
-            dir
-        );
+        assert_is_verbatim(&dir);
 
         let b = dir.join("a").join("b");
         std::fs::create_dir_all(&b).unwrap();
 
         let trailing = join_unfolded(&b, &[".."]);
-        assert!(
-            trailing
-                .components()
-                .any(|component| matches!(component, Component::ParentDir)),
-            "the `..` was folded before canonicalize could see it, got {:?}",
-            trailing
-        );
+        assert_has_parent_dir(&trailing);
         let error = std::fs::canonicalize(&trailing)
             .expect_err("canonicalize resolved a trailing `..` in a verbatim path");
         assert_eq!(
@@ -602,6 +572,17 @@ mod tests {
                 Some(Component::Prefix(prefix)) if prefix.kind().is_verbatim()
             ),
             "expected a verbatim prefix, got {:?}",
+            path
+        );
+    }
+
+    #[cfg(windows)]
+    fn assert_normalized(path: &Path) {
+        assert!(
+            !path
+                .components()
+                .any(|component| matches!(component, Component::CurDir | Component::ParentDir)),
+            "expected to include no `..` or `.`, got {:?}",
             path
         );
     }

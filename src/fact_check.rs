@@ -4,7 +4,10 @@
 #[cfg(test)]
 mod tests {
     use crate::{abs_path::AbsPath, canonical_path::CanonicalPath};
-    use std::path::{Component, Path, PathBuf};
+    use std::{
+        fs::Metadata,
+        path::{Component, Path, PathBuf},
+    };
 
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
@@ -231,14 +234,29 @@ mod tests {
         std::fs::metadata(canonical.as_ref()).unwrap();
     }
 
-    /// Posix: A trailing `..` reports as a dir (not a symlink) even when it points at a symlink
-    /// Windows: A trailing `..` reports as a symlink because it is folded in
-    ///          first before the check.
-    ///          `Path::is_dir()` and `symlink_metadata().is_dir()` disagree
+    fn assert_resolved_raw_metadata(
+        path: &Path,
+        resolved_sym_dir_file: (bool, bool, bool),
+        raw_sym_dir_file: (bool, bool, bool),
+    ) {
+        let f = |m: Metadata| (m.is_symlink(), m.is_dir(), m.is_file());
+        let resolved = std::fs::metadata(path).map(f).unwrap();
+        let raw = std::fs::symlink_metadata(path).map(f).unwrap();
+
+        assert_eq!(resolved, resolved_sym_dir_file);
+        assert_eq!(raw, raw_sym_dir_file);
+    }
+
+    /// Raw versus resolved metadata
+    ///
+    /// - [`std::fs::metadata`] resolves the path (if a symlink) and returns the metadata
+    ///   of that path.
+    /// - [`std::fs::symlink_metadata`] returns the raw metadata of the exact path (if a symlink).
+    ///
     #[test]
-    fn test_symlink_metadata_for_a_path_ending_in_dot_dot() {
+    fn test_raw_resolved_metadata() {
         let temp = tempfile::tempdir().unwrap();
-        let dir = temp.path().canonicalize().unwrap();
+        let dir = temp.path();
         let target = dir.join("x").join("y").join("z");
         std::fs::create_dir_all(&target).unwrap();
         let link = dir.join("link");
@@ -251,29 +269,43 @@ mod tests {
         assert!(link.is_symlink());
         assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
 
-        let trailing = link.join("eaten").join("..");
-        std::fs::create_dir_all(trailing.parent().unwrap()).unwrap();
-        let meta = std::fs::symlink_metadata(&trailing).unwrap();
-
-        let trailing_tuple = (trailing.is_symlink(), trailing.is_dir(), trailing.is_file());
-        let meta_tuple = (meta.is_symlink(), meta.is_dir(), meta.is_file());
         #[cfg(unix)]
         {
-            assert_eq!(trailing_tuple, (false, true, false));
-            assert_eq!(meta_tuple, (false, true, false));
+            assert_resolved_raw_metadata(
+                &link, // different
+                (false, true, false),
+                (true, false, false),
+            );
         }
         #[cfg(windows)]
         {
-            assert_eq!(trailing_tuple, (true, true, false));
-            // Diverges from Path::is_dir()
-            assert_eq!(meta_tuple, (true, false, false));
+            assert_resolved_raw_metadata(
+                &link, // different
+                (false, true, false),
+                (true, false, false),
+            );
         }
+        // Path with a `..` that folds to a symlink
+        let trailing = link.join("eaten").join("..");
+        assert_has_parent_dir(&trailing);
+        std::fs::create_dir_all(trailing.parent().unwrap()).unwrap();
 
-        // Check it would have reported as a symlink otherwiwse
-        assert_eq!(
-            trailing.canonicalize().unwrap(),
-            target.canonicalize().unwrap()
-        );
+        #[cfg(unix)]
+        {
+            assert_resolved_raw_metadata(
+                &trailing, // same
+                (false, true, false),
+                (false, true, false),
+            );
+        }
+        #[cfg(windows)]
+        {
+            assert_resolved_raw_metadata(
+                &trailing, // different
+                (false, true, false),
+                (true, false, false),
+            );
+        }
     }
 
     /// `Components` erases `.` and keeps `..`, which is why only one of them is safe
@@ -419,9 +451,8 @@ mod tests {
 
         let temp = tempfile::tempdir().unwrap();
         // `tempdir()` itself is not reliably verbatim, but `canonicalize` always hands back
-        // a `\\?\` path on Windows, which is the base the `..` fold below depends on.
+        // a `\\?\` path on Windows
         let dir = temp.path().canonicalize().unwrap();
-
         assert_is_verbatim(&dir);
 
         let b = dir.join("a").join("b");

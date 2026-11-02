@@ -256,22 +256,12 @@ mod tests {
         assert!(link.is_symlink());
         assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
 
-        #[cfg(unix)]
-        {
-            assert_resolved_raw_metadata(
-                &link, // different
-                (false, true, false),
-                (true, false, false),
-            );
-        }
-        #[cfg(windows)]
-        {
-            assert_resolved_raw_metadata(
-                &link, // different
-                (false, true, false),
-                (true, false, false),
-            );
-        }
+        assert_resolved_raw_metadata(
+            &link, // different on all platforms
+            (false, true, false),
+            (true, false, false),
+        );
+
         // Path with a `..` that folds to a symlink
         let trailing = link.join("eaten").join("..");
         assert_has_parent_dir(&trailing);
@@ -280,7 +270,7 @@ mod tests {
         #[cfg(unix)]
         {
             assert_resolved_raw_metadata(
-                &trailing, // same
+                &trailing, // same on unix
                 (false, true, false),
                 (false, true, false),
             );
@@ -288,7 +278,7 @@ mod tests {
         #[cfg(windows)]
         {
             assert_resolved_raw_metadata(
-                &trailing, // different
+                &trailing, // different on windows
                 (false, true, false),
                 (true, false, false),
             );

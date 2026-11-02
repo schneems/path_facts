@@ -4,103 +4,13 @@
 #[cfg(test)]
 mod tests {
     use crate::{abs_path::AbsPath, canonical_path::CanonicalPath};
-    use std::path::{Component, Path, PathBuf};
+    use std::{
+        fs::Metadata,
+        path::{Component, Path, PathBuf},
+    };
 
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
-
-    #[cfg(unix)]
-    fn set_read_write_no_execute<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
-        let path = path.as_ref();
-        let metadata = std::fs::metadata(path)?;
-        let mut permissions = metadata.permissions();
-        permissions.set_mode(0o600); // Read and write for owner, no execute
-        std::fs::set_permissions(path, permissions)?;
-        Ok(())
-    }
-
-    #[cfg(unix)]
-    fn set_write_execute_no_read<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
-        let path = path.as_ref();
-        let metadata = std::fs::metadata(path)?;
-        let mut permissions = metadata.permissions();
-        permissions.set_mode(0o311); // Write and execute for owner, no read
-        std::fs::set_permissions(path, permissions)?;
-        Ok(())
-    }
-
-    #[cfg(unix)]
-    fn set_read_write_execute<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
-        let path = path.as_ref();
-        let metadata = std::fs::metadata(path)?;
-        let mut permissions = metadata.permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(path, permissions)?;
-        Ok(())
-    }
-
-    /// Sets a symlink's own mode bits, without following it
-    ///
-    /// `std::fs::set_permissions` follows symlinks, so it can only change the target's
-    /// mode, never the link's. `fchmodat` with `AT_SYMLINK_NOFOLLOW` is the no-follow form,
-    /// and std does not expose it, hence the `libc` call.
-    ///
-    /// Whether this does anything is itself the platform fact under test. The BSD family
-    /// (macOS included) honors a symlink's permissions, so this succeeds and those bits then
-    /// gate `readlink`. Linux does not use symlink modes at all (`man 7 symlink`), and its
-    /// `fchmodat` refuses the no-follow flag outright with `EOPNOTSUPP`. The error is
-    /// returned rather than unwrapped so the caller can branch on which platform it is on.
-    #[cfg(unix)]
-    fn lchmod<P: AsRef<Path>>(path: P, mode: libc::mode_t) -> std::io::Result<()> {
-        use std::os::unix::ffi::OsStrExt;
-
-        let c_path = std::ffi::CString::new(path.as_ref().as_os_str().as_bytes()).unwrap();
-        let rc = unsafe {
-            libc::fchmodat(
-                libc::AT_FDCWD,
-                c_path.as_ptr(),
-                mode,
-                libc::AT_SYMLINK_NOFOLLOW,
-            )
-        };
-        if rc == 0 {
-            Ok(())
-        } else {
-            Err(std::io::Error::last_os_error())
-        }
-    }
-
-    /// Asserts which error came back, not merely that one did
-    ///
-    /// The two tests below disagree on the kind for the same operation, so
-    /// `is_err()` would let either of them pass the other's expectations.
-    #[cfg(unix)]
-    fn assert_err_kind<T: std::fmt::Debug>(
-        result: std::io::Result<T>,
-        expected: std::io::ErrorKind,
-    ) {
-        match result {
-            Ok(value) => panic!("Expected `{:?}` error, got `Ok({:?})`", expected, value),
-            Err(error) => assert_eq!(error.kind(), expected),
-        }
-    }
-
-    /// The full path of every entry in a directory
-    #[cfg(unix)]
-    fn entry_paths(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
-        std::fs::read_dir(dir)?
-            .map(|entry| entry.map(|entry| entry.path()))
-            .collect()
-    }
-
-    /// Two spellings reach one directory. Comparing the paths cannot answer this, since a
-    /// `..` or a symlink leaves them sharing no common prefix.
-    #[cfg(unix)]
-    fn is_same_dir(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
-        use std::os::unix::fs::MetadataExt;
-
-        left.dev() == right.dev() && left.ino() == right.ino()
-    }
 
     /// Directory missing execute means "cannot read metadata"
     ///
@@ -231,48 +141,63 @@ mod tests {
         std::fs::metadata(canonical.as_ref()).unwrap();
     }
 
-    /// Posix: A trailing `..` reports as a dir (not a symlink) even when it points at a symlink
-    /// Windows: A trailing `..` reports as a symlink because it is folded in
-    ///          first before the check.
-    ///          `Path::is_dir()` and `symlink_metadata().is_dir()` disagree
+    /// Raw versus resolved metadata
+    ///
+    /// - [`std::fs::metadata`] resolves the path (if a symlink) and returns the metadata
+    ///   of that path.
+    /// - [`std::fs::symlink_metadata`] returns the raw metadata of the exact path (if a symlink).
+    ///
     #[test]
-    fn test_symlink_metadata_for_a_path_ending_in_dot_dot() {
+    fn test_raw_resolved_metadata() {
         let temp = tempfile::tempdir().unwrap();
-        let dir = temp.path().canonicalize().unwrap();
-        let target = dir.join("x").join("y").join("z");
-        std::fs::create_dir_all(&target).unwrap();
+        let dir = temp.path();
+        let original = dir.join("x").join("y").join("z");
+        std::fs::create_dir_all(&original).unwrap();
         let link = dir.join("link");
 
         #[cfg(unix)]
-        std::os::unix::fs::symlink(&target, &link).unwrap();
+        std::os::unix::fs::symlink(&original, &link).unwrap();
         #[cfg(windows)]
-        std::os::windows::fs::symlink_dir(&target, &link).unwrap();
+        std::os::windows::fs::symlink_dir(&original, &link).unwrap();
 
         assert!(link.is_symlink());
         assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
 
-        let trailing = link.join("eaten").join("..");
-        std::fs::create_dir_all(trailing.parent().unwrap()).unwrap();
-        let meta = std::fs::symlink_metadata(&trailing).unwrap();
+        assert_resolved_raw_metadata(
+            &link, // different on all platforms
+            (false, true, false),
+            (true, false, false),
+        );
 
-        let trailing_tuple = (trailing.is_symlink(), trailing.is_dir(), trailing.is_file());
-        let meta_tuple = (meta.is_symlink(), meta.is_dir(), meta.is_file());
+        // Path with a `..` that folds to a symlink
+        let trailing = link.join("eaten").join("..");
+        assert_has_parent_dir(&trailing);
+        std::fs::create_dir_all(trailing.parent().unwrap()).unwrap();
+
         #[cfg(unix)]
         {
-            assert_eq!(trailing_tuple, (false, true, false));
-            assert_eq!(meta_tuple, (false, true, false));
+            assert_resolved_raw_metadata(
+                &trailing, // same on unix
+                (false, true, false),
+                (false, true, false),
+            );
         }
         #[cfg(windows)]
         {
-            assert_eq!(trailing_tuple, (true, true, false));
-            // Diverges from Path::is_dir()
-            assert_eq!(meta_tuple, (true, false, false));
+            assert_resolved_raw_metadata(
+                &trailing, // different on windows
+                (false, true, false),
+                (true, false, false),
+            );
         }
+        std::fs::remove_dir_all(&original).unwrap();
 
-        // Check it would have reported as a symlink otherwiwse
+        // Dangling symlink
+        assert_err_kind(std::fs::metadata(&link), std::io::ErrorKind::NotFound);
+        let raw = std::fs::symlink_metadata(&link).unwrap();
         assert_eq!(
-            trailing.canonicalize().unwrap(),
-            target.canonicalize().unwrap()
+            (raw.is_symlink(), raw.is_dir(), raw.is_file()), //
+            (true, false, false)
         );
     }
 
@@ -419,9 +344,8 @@ mod tests {
 
         let temp = tempfile::tempdir().unwrap();
         // `tempdir()` itself is not reliably verbatim, but `canonicalize` always hands back
-        // a `\\?\` path on Windows, which is the base the `..` fold below depends on.
+        // a `\\?\` path on Windows
         let dir = temp.path().canonicalize().unwrap();
-
         assert_is_verbatim(&dir);
 
         let b = dir.join("a").join("b");
@@ -565,6 +489,7 @@ mod tests {
     }
 
     #[cfg(windows)]
+    #[track_caller]
     fn assert_is_verbatim(path: &Path) {
         assert!(
             matches!(
@@ -577,6 +502,7 @@ mod tests {
     }
 
     #[cfg(windows)]
+    #[track_caller]
     fn assert_normalized(path: &Path) {
         assert!(
             !path
@@ -587,6 +513,7 @@ mod tests {
         );
     }
 
+    #[track_caller]
     fn assert_has_parent_dir(path: &Path) {
         assert!(
             path.components()
@@ -594,5 +521,114 @@ mod tests {
             "expected a `..` component, got {:?}",
             path
         );
+    }
+
+    #[track_caller]
+    fn assert_resolved_raw_metadata(
+        path: &Path,
+        resolved_sym_dir_file: (bool, bool, bool),
+        raw_sym_dir_file: (bool, bool, bool),
+    ) {
+        let f = |m: Metadata| (m.is_symlink(), m.is_dir(), m.is_file());
+        let resolved = std::fs::metadata(path).map(f).unwrap();
+        let raw = std::fs::symlink_metadata(path).map(f).unwrap();
+
+        let path = path.display();
+        assert!(
+            resolved == resolved_sym_dir_file,
+            "resolved metadata for `{path}` (symlink, dir, file) did not match\n  expected: {:?}\n    actual: {:?}",
+            resolved_sym_dir_file,
+            resolved
+        );
+        assert!(
+            raw == raw_sym_dir_file,
+            "raw metadata for `{path}` (symlink, dir, file) did not match\n  expected: {:?}\n    actual: {:?}",
+            raw_sym_dir_file,
+            raw
+        );
+    }
+
+    #[cfg(unix)]
+    fn set_read_write_no_execute<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
+        let path = path.as_ref();
+        let metadata = std::fs::metadata(path)?;
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o600); // Read and write for owner, no execute
+        std::fs::set_permissions(path, permissions)?;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn set_write_execute_no_read<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
+        let path = path.as_ref();
+        let metadata = std::fs::metadata(path)?;
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o311); // Write and execute for owner, no read
+        std::fs::set_permissions(path, permissions)?;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn set_read_write_execute<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
+        let path = path.as_ref();
+        let metadata = std::fs::metadata(path)?;
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions)?;
+        Ok(())
+    }
+
+    /// Sets a symlink's own mode bits, without following it
+    ///
+    /// `std::fs::set_permissions` follows symlinks, so it can only change the target's
+    /// mode, never the link's. `fchmodat` with `AT_SYMLINK_NOFOLLOW` is the no-follow form,
+    /// and std does not expose it, hence the `libc` call.
+    #[cfg(unix)]
+    fn lchmod<P: AsRef<Path>>(path: P, mode: libc::mode_t) -> std::io::Result<()> {
+        use std::os::unix::ffi::OsStrExt;
+
+        let c_path = std::ffi::CString::new(path.as_ref().as_os_str().as_bytes()).unwrap();
+        let rc = unsafe {
+            libc::fchmodat(
+                libc::AT_FDCWD,
+                c_path.as_ptr(),
+                mode,
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+
+    /// Asserts which error came back, not merely that one did
+    #[track_caller]
+    fn assert_err_kind<T: std::fmt::Debug>(
+        result: std::io::Result<T>,
+        expected: std::io::ErrorKind,
+    ) {
+        match result {
+            Ok(value) => panic!("Expected `{:?}` error, got `Ok({:?})`", expected, value),
+            Err(error) => assert_eq!(error.kind(), expected),
+        }
+    }
+
+    /// The full path of every entry in a directory
+    #[cfg(unix)]
+    fn entry_paths(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
+        std::fs::read_dir(dir)?
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect()
+    }
+
+    /// Two spellings reach one directory. Comparing the paths cannot answer this, since a
+    /// `..` or a symlink leaves them sharing no common prefix.
+    #[cfg(unix)]
+    fn is_same_dir(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
+        use std::os::unix::fs::MetadataExt;
+
+        left.dev() == right.dev() && left.ino() == right.ino()
     }
 }

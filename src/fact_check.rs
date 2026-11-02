@@ -583,12 +583,6 @@ mod tests {
     /// `std::fs::set_permissions` follows symlinks, so it can only change the target's
     /// mode, never the link's. `fchmodat` with `AT_SYMLINK_NOFOLLOW` is the no-follow form,
     /// and std does not expose it, hence the `libc` call.
-    ///
-    /// Whether this does anything is itself the platform fact under test. The BSD family
-    /// (macOS included) honors a symlink's permissions, so this succeeds and those bits then
-    /// gate `readlink`. Linux does not use symlink modes at all (`man 7 symlink`), and its
-    /// `fchmodat` refuses the no-follow flag outright with `EOPNOTSUPP`. The error is
-    /// returned rather than unwrapped so the caller can branch on which platform it is on.
     #[cfg(unix)]
     fn lchmod<P: AsRef<Path>>(path: P, mode: libc::mode_t) -> std::io::Result<()> {
         use std::os::unix::ffi::OsStrExt;
@@ -610,9 +604,6 @@ mod tests {
     }
 
     /// Asserts which error came back, not merely that one did
-    ///
-    /// The two tests below disagree on the kind for the same operation, so
-    /// `is_err()` would let either of them pass the other's expectations.
     #[track_caller]
     fn assert_err_kind<T: std::fmt::Debug>(
         result: std::io::Result<T>,

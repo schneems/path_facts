@@ -235,20 +235,6 @@ mod tests {
         std::fs::metadata(canonical.as_ref()).unwrap();
     }
 
-    #[track_caller]
-    fn assert_resolved_raw_metadata(
-        path: &Path,
-        resolved_sym_dir_file: (bool, bool, bool),
-        raw_sym_dir_file: (bool, bool, bool),
-    ) {
-        let f = |m: Metadata| (m.is_symlink(), m.is_dir(), m.is_file());
-        let resolved = std::fs::metadata(path).map(f).unwrap();
-        let raw = std::fs::symlink_metadata(path).map(f).unwrap();
-
-        assert_eq!(resolved, resolved_sym_dir_file);
-        assert_eq!(raw, raw_sym_dir_file);
-    }
-
     /// Raw versus resolved metadata
     ///
     /// - [`std::fs::metadata`] resolves the path (if a symlink) and returns the metadata
@@ -630,5 +616,19 @@ mod tests {
             "expected a `..` component, got {:?}",
             path
         );
+    }
+
+    #[track_caller]
+    fn assert_resolved_raw_metadata(
+        path: &Path,
+        resolved_sym_dir_file: (bool, bool, bool),
+        raw_sym_dir_file: (bool, bool, bool),
+    ) {
+        let f = |m: Metadata| (m.is_symlink(), m.is_dir(), m.is_file());
+        let resolved = std::fs::metadata(path).map(f).unwrap();
+        let raw = std::fs::symlink_metadata(path).map(f).unwrap();
+
+        assert_eq!(resolved, resolved_sym_dir_file);
+        assert_eq!(raw, raw_sym_dir_file);
     }
 }

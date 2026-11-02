@@ -12,99 +12,6 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
-    #[cfg(unix)]
-    fn set_read_write_no_execute<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
-        let path = path.as_ref();
-        let metadata = std::fs::metadata(path)?;
-        let mut permissions = metadata.permissions();
-        permissions.set_mode(0o600); // Read and write for owner, no execute
-        std::fs::set_permissions(path, permissions)?;
-        Ok(())
-    }
-
-    #[cfg(unix)]
-    fn set_write_execute_no_read<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
-        let path = path.as_ref();
-        let metadata = std::fs::metadata(path)?;
-        let mut permissions = metadata.permissions();
-        permissions.set_mode(0o311); // Write and execute for owner, no read
-        std::fs::set_permissions(path, permissions)?;
-        Ok(())
-    }
-
-    #[cfg(unix)]
-    fn set_read_write_execute<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
-        let path = path.as_ref();
-        let metadata = std::fs::metadata(path)?;
-        let mut permissions = metadata.permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(path, permissions)?;
-        Ok(())
-    }
-
-    /// Sets a symlink's own mode bits, without following it
-    ///
-    /// `std::fs::set_permissions` follows symlinks, so it can only change the target's
-    /// mode, never the link's. `fchmodat` with `AT_SYMLINK_NOFOLLOW` is the no-follow form,
-    /// and std does not expose it, hence the `libc` call.
-    ///
-    /// Whether this does anything is itself the platform fact under test. The BSD family
-    /// (macOS included) honors a symlink's permissions, so this succeeds and those bits then
-    /// gate `readlink`. Linux does not use symlink modes at all (`man 7 symlink`), and its
-    /// `fchmodat` refuses the no-follow flag outright with `EOPNOTSUPP`. The error is
-    /// returned rather than unwrapped so the caller can branch on which platform it is on.
-    #[cfg(unix)]
-    fn lchmod<P: AsRef<Path>>(path: P, mode: libc::mode_t) -> std::io::Result<()> {
-        use std::os::unix::ffi::OsStrExt;
-
-        let c_path = std::ffi::CString::new(path.as_ref().as_os_str().as_bytes()).unwrap();
-        let rc = unsafe {
-            libc::fchmodat(
-                libc::AT_FDCWD,
-                c_path.as_ptr(),
-                mode,
-                libc::AT_SYMLINK_NOFOLLOW,
-            )
-        };
-        if rc == 0 {
-            Ok(())
-        } else {
-            Err(std::io::Error::last_os_error())
-        }
-    }
-
-    /// Asserts which error came back, not merely that one did
-    ///
-    /// The two tests below disagree on the kind for the same operation, so
-    /// `is_err()` would let either of them pass the other's expectations.
-    #[track_caller]
-    fn assert_err_kind<T: std::fmt::Debug>(
-        result: std::io::Result<T>,
-        expected: std::io::ErrorKind,
-    ) {
-        match result {
-            Ok(value) => panic!("Expected `{:?}` error, got `Ok({:?})`", expected, value),
-            Err(error) => assert_eq!(error.kind(), expected),
-        }
-    }
-
-    /// The full path of every entry in a directory
-    #[cfg(unix)]
-    fn entry_paths(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
-        std::fs::read_dir(dir)?
-            .map(|entry| entry.map(|entry| entry.path()))
-            .collect()
-    }
-
-    /// Two spellings reach one directory. Comparing the paths cannot answer this, since a
-    /// `..` or a symlink leaves them sharing no common prefix.
-    #[cfg(unix)]
-    fn is_same_dir(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
-        use std::os::unix::fs::MetadataExt;
-
-        left.dev() == right.dev() && left.ino() == right.ino()
-    }
-
     /// Directory missing execute means "cannot read metadata"
     ///
     /// The names of files in the directory can be listed but not traversed.
@@ -639,5 +546,98 @@ mod tests {
             raw_sym_dir_file,
             raw
         );
+    }
+
+    #[cfg(unix)]
+    fn set_read_write_no_execute<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
+        let path = path.as_ref();
+        let metadata = std::fs::metadata(path)?;
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o600); // Read and write for owner, no execute
+        std::fs::set_permissions(path, permissions)?;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn set_write_execute_no_read<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
+        let path = path.as_ref();
+        let metadata = std::fs::metadata(path)?;
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o311); // Write and execute for owner, no read
+        std::fs::set_permissions(path, permissions)?;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn set_read_write_execute<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
+        let path = path.as_ref();
+        let metadata = std::fs::metadata(path)?;
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions)?;
+        Ok(())
+    }
+
+    /// Sets a symlink's own mode bits, without following it
+    ///
+    /// `std::fs::set_permissions` follows symlinks, so it can only change the target's
+    /// mode, never the link's. `fchmodat` with `AT_SYMLINK_NOFOLLOW` is the no-follow form,
+    /// and std does not expose it, hence the `libc` call.
+    ///
+    /// Whether this does anything is itself the platform fact under test. The BSD family
+    /// (macOS included) honors a symlink's permissions, so this succeeds and those bits then
+    /// gate `readlink`. Linux does not use symlink modes at all (`man 7 symlink`), and its
+    /// `fchmodat` refuses the no-follow flag outright with `EOPNOTSUPP`. The error is
+    /// returned rather than unwrapped so the caller can branch on which platform it is on.
+    #[cfg(unix)]
+    fn lchmod<P: AsRef<Path>>(path: P, mode: libc::mode_t) -> std::io::Result<()> {
+        use std::os::unix::ffi::OsStrExt;
+
+        let c_path = std::ffi::CString::new(path.as_ref().as_os_str().as_bytes()).unwrap();
+        let rc = unsafe {
+            libc::fchmodat(
+                libc::AT_FDCWD,
+                c_path.as_ptr(),
+                mode,
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+
+    /// Asserts which error came back, not merely that one did
+    ///
+    /// The two tests below disagree on the kind for the same operation, so
+    /// `is_err()` would let either of them pass the other's expectations.
+    #[track_caller]
+    fn assert_err_kind<T: std::fmt::Debug>(
+        result: std::io::Result<T>,
+        expected: std::io::ErrorKind,
+    ) {
+        match result {
+            Ok(value) => panic!("Expected `{:?}` error, got `Ok({:?})`", expected, value),
+            Err(error) => assert_eq!(error.kind(), expected),
+        }
+    }
+
+    /// The full path of every entry in a directory
+    #[cfg(unix)]
+    fn entry_paths(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
+        std::fs::read_dir(dir)?
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect()
+    }
+
+    /// Two spellings reach one directory. Comparing the paths cannot answer this, since a
+    /// `..` or a symlink leaves them sharing no common prefix.
+    #[cfg(unix)]
+    fn is_same_dir(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
+        use std::os::unix::fs::MetadataExt;
+
+        left.dev() == right.dev() && left.ino() == right.ino()
     }
 }

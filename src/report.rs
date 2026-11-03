@@ -400,7 +400,7 @@ fn stopped_step_detail_facts(step: &Step) -> Vec<Fact> {
         // again at render time would put a filesystem read inside `Display`, and an answer from a
         // different moment than the rest of the callout.
         PhysicalNode::ParentNoExec { error, .. } => {
-            vec![Fact::Text(format!("Cannot lstat: {error}"))]
+            vec![Fact::Text(format!("Cannot read raw metadata: {error}"))]
         }
         _ => Vec::new(),
     }
@@ -1637,7 +1637,7 @@ mod tests {
          - `/path/to/directory/no_exec_dir/file.txt`
                                            ^^^^^^^^
                                            ↳ Parent directory missing execute permission
-                                           ↳ Cannot lstat: {error}
+                                           ↳ Cannot read raw metadata: {error}
          - `/path/to/directory/no_exec_dir/file.txt`
                                ^^^^^^^^^^^
                                ↳ Dir [✅ read, ✅ write, ❌ execute]
@@ -1676,7 +1676,7 @@ mod tests {
          - `/path/to/directory/no_write_dir/file.txt`
                                             ^^^^^^^^
                                             ↳ Parent directory missing execute permission
-                                            ↳ Cannot lstat: {error}
+                                            ↳ Cannot read raw metadata: {error}
          - `/path/to/directory/no_write_dir/file.txt`
                                ^^^^^^^^^^^^
                                ↳ Dir [✅ read, ❌ write, ❌ execute]

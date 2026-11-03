@@ -227,7 +227,6 @@ mod tests {
             Path::new("./.").components().next_back(),
             Some(Component::CurDir)
         );
-
         // Windows verbatim (`\\?\`) paths keep every `.`. The `..` logic is in another test
         #[cfg(windows)]
         {
@@ -432,26 +431,10 @@ mod tests {
         ));
     }
 
-    /// Whether `lstat` and `readlink` can disagree about one symlink is platform-specific
+    /// [`symlink_metadata`] and [`std::fs::read_link`] platform-specific disagreement
     ///
-    /// The intuition worth pinning: a name `symlink_metadata` reports as a symlink is not a
-    /// name `read_link` is guaranteed to read — but only on some systems. This asserts both
-    /// realities and lets the platform decide which arm it takes, so the same test documents
-    /// the split and each side is proven where it runs (`bin/test` runs it on Linux under
-    /// Docker, see the README).
-    ///
-    /// A symlink carries its own permission bits on the BSD family (macOS included), and
-    /// `readlink` checks them while `lstat` needs only search on the parent. So stripping
-    /// read off the link with `lchmod` (`set_permissions` would follow it and touch the
-    /// target) leaves `symlink_metadata` still calling it a symlink while `read_link` is
-    /// refused with `EACCES`. [`PhysicalNode::Symlink`] holds this on its `target`: a link
-    /// whose target cannot be read is a fact about the link, not a contradiction in the
-    /// walk, so the refusal rides along as `target: Err` rather than collapsing the step.
-    ///
-    /// Linux does not honor symlink modes at all (`man 7 symlink`), and its `fchmodat`
-    /// refuses the no-follow flag with `EOPNOTSUPP`. So the disagreement cannot be
-    /// manufactured, `read_link` still answers, and the walk sees an ordinary (here
-    /// dangling) symlink.
+    /// When [`symlink_metadata`] reports a file as a symlink is not guaranteed that `read_link` should
+    /// return a valid read on one known platform (apple/mac).
     #[cfg(unix)]
     #[test]
     fn test_symlink_lstat_can_read_but_readlink_cannot_records_the_refusal() {

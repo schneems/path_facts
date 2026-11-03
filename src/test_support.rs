@@ -144,7 +144,7 @@ impl Fixture {
 
 /// Rewrites machine-specific text out of rendered output and keeps every caret aligned.
 ///
-/// Replacing a path with a shorter placeholder slides a bullet line left while the `^^^^` and `↳`
+/// Replacing a path with a shorter placeholder slides a bullet line left while the `^^^^` and `>`
 /// lines beneath it stay where they were, so a correct caret reads as broken. Padding the
 /// placeholder back out to the original width fixes the columns but then hides whatever the caret
 /// was pointing at behind the padding. Neither is a snapshot worth reading.

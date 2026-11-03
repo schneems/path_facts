@@ -22,11 +22,11 @@
 //! ```text
 //! Path does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
 //!                                         ^^^^^
-//!                                         ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+//!                                         > File, not a dir [✅ read, ✅ write, ❌ execute]
 //!  - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
 //!              ^^^^^^^^^
-//!              ↳ Dir [✅ read, ✅ write, ✅ execute]
-//!              ↳ Contains (1)
+//!              > Dir [✅ read, ✅ write, ✅ execute]
+//!              > Contains (1)
 //!                └── `a.txt` (exists)
 //! ```
 //!

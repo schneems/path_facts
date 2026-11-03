@@ -5,6 +5,7 @@
 mod tests {
     use crate::{abs_path::AbsPath, canonical_path::CanonicalPath};
     use std::{
+        ffi::OsStr,
         fs::Metadata,
         path::{Component, Path, PathBuf},
     };
@@ -103,10 +104,6 @@ mod tests {
     /// not always the case. A real world example is that some OS's will enforce that `.` or `..` is
     /// a directory so if you have `a/dir/..` the `..` would "eat" `dir` but if you have `a/file.txt/..`
     /// the `..` will fail because `file.txt` is a file and not a dir.
-    ///
-    /// Canonicalize uses `realpath` while metadata uses `stat` (unix). Realpath is userspace,
-    /// stat is kernel space and checks that a path part with something after it is a dir or will
-    /// ENOTDIR. This is a exposed in Rust 1.83 as `ErrorKind::NotADirectory`
     #[cfg(target_vendor = "apple")]
     #[test]
     fn test_canonicalize_disagrees_with_metadata_on_a_trailing_dot_dot() {
@@ -201,19 +198,47 @@ mod tests {
         );
     }
 
-    /// `Components` erases `.` and keeps `..`, which is why only one of them is safe
+    /// [`std::path::Components`] erases `.` and keeps `..`
     ///
-    /// A `.` needs no filesystem to interpret, so `Path` folds it away and is right to:
-    /// `/a/b/.` reports a final `Normal("b")` and has the same parent as `/a/b`. A `..` is
-    /// kept, and `parent` returns `/a/b` for `/a/b/..` — the entry the `..` cancels rather
-    /// than any ancestor of the location.
+    /// Parsing a [`Path`] to return [`Components`] often folds away a trailing `.` (current
+    /// directory) so that `/a/b/.` becomes `/a/b` (without the trailing `.`), but it preserves a
+    /// trailing `..` (parent directory).
     ///
-    /// Every claim here is about `Path` alone, so nothing touches the disk and nothing is
-    /// platform specific.
+    /// The lexical parent of a path ending in `..` differs from its physical parent.
+    ///
+    /// For example `/a/b/c/..` (assuming no symlinks) resolves to a physical path of `/a/b`
+    /// where `..` folds/eats the `c` directory and would have a physical parent of `/a`.
+    /// However [`Path::parent`] is a lexical operation and for `/a/b/c/..` returns `/a/b/c` which
+    /// differs from the physical parent path (`/a`).
+    ///
+    /// Windows has some special behavior when verbatim paths are used.
     #[test]
     fn test_components_erases_current_dir_but_keeps_parent_dir() {
-        use std::ffi::OsStr;
-        use std::path::Component;
+        // On unix, `components` only ends in `CurDir` when the whole path is `.`
+        assert_eq!(
+            Path::new(".").components().next_back(),
+            Some(Component::CurDir)
+        );
+        assert_eq!(
+            Path::new("./").components().next_back(),
+            Some(Component::CurDir)
+        );
+        assert_eq!(
+            Path::new("./.").components().next_back(),
+            Some(Component::CurDir)
+        );
+
+        // Windows verbatim (`\\?\`) paths keep every `.`. The `..` logic is in another test
+        #[cfg(windows)]
+        {
+            assert_eq!(
+                Path::new(r"\\?\C:\a\.").components().next_back(),
+                Some(Component::CurDir)
+            );
+            assert!(Path::new(r"\\?\C:\a\.\b")
+                .components()
+                .any(|c| c == Component::CurDir));
+        }
 
         // `.` is gone from the component stream, trailing or interior
         assert_eq!(

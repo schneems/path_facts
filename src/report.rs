@@ -392,7 +392,7 @@ fn stopped_step_detail_facts(step: &Step) -> Vec<Fact> {
                 "Target `{}` → {absolute}",
                 written.display()
             ))],
-            Err(error) => vec![Fact::Text(format!("Cannot readlink: {error}"))],
+            Err(error) => vec![Fact::Text(format!("Cannot read symlink target: {error}"))],
         },
         // The type line says the name was only ever seen in a listing. This says what the system
         // answered when the walk asked about it directly, which is the sentence a reader can
@@ -1730,7 +1730,7 @@ mod tests {
 
         let mut trace = Trace::new(&path).unwrap();
         trace.append_race(
-            "realpath resolved this link, stat failed to resolve",
+            "the link canonicalized, but reading its resolved metadata failed",
             std::fs::metadata(fixture.join("does_not_exist")).unwrap_err(),
         );
 
@@ -1744,7 +1744,7 @@ mod tests {
                                  ↳ ⚠️ Filesystem change detected while gathering facts.
                                    ⚠️ Facts displayed may be invalid, stale or disagree.
                                    ⚠️
-                                   ⚠️ Detected: realpath resolved this link, stat failed to resolve
+                                   ⚠️ Detected: the link canonicalized, but reading its resolved metadata failed
                                    ⚠️ Error: {error}
          - `/path/to/directory/a/b`
                                ^

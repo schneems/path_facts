@@ -787,7 +787,7 @@ fn follow(dir: &CanonicalPath, link: &AbsPath) -> (PhysicalNode, WalkPosition) {
         }
         Err(error) => (
             PhysicalNode::Raced {
-                why: "realpath resolved this link, stat failed to resolve",
+                why: "the link canonicalized, but reading its resolved metadata failed",
                 error,
             },
             WalkPosition::Lost,

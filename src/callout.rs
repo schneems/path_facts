@@ -2,22 +2,22 @@
 //!
 //! A callout renders one path as a ``  - `path` `` bullet, draws a `^^^^` caret under the exact
 //! component being discussed, and lists that component's facts beneath the caret. Each fact is
-//! prefixed with `↳`. A directory's contents fold into a `↳ Contains (N)` fact whose tree is nested under it:
+//! prefixed with `>`. A directory's contents fold into a `> Contains (N)` fact whose tree is nested under it:
 //!
 //! ```text
 //!  - `/tmp/lnk/../lnk/real/`
 //!                     ^^^^
-//!                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-//!                     ↳ Canonical `/private/tmp/lnk/real`
-//!                     ↳ ❌ Missing `foo.txt`
-//!                     ↳ Contains (3)
+//!                     > Dir [✅ read, ✅ write, ✅ execute]
+//!                     > Canonical `/private/tmp/lnk/real`
+//!                     > ❌ Missing `foo.txt`
+//!                     > Contains (3)
 //!                       ├── `a`
 //!                       ├── `b`
 //!                       └── `c`
 //! ```
 //!
 //! All column math is in **characters**, not bytes or terminal cells. Wide or zero-width glyphs
-//! (`↳`, `✅`, `❌`, box-drawing) count as one character each, so a caret aligned under an ASCII
+//! (`✅`, `❌`, box-drawing) count as one character each, so a caret aligned under an ASCII
 //! path stays exact while a fact line containing such glyphs may look shifted in a terminal that
 //! renders them at a different cell width.
 
@@ -55,16 +55,16 @@ pub(crate) struct Callout {
     /// Which characters of `path` the caret underlines. `None` draws no caret line and aligns
     /// facts under the path text.
     pub(crate) caret: Option<Span>,
-    /// Facts about the component under the caret, rendered as `↳ …` lines beneath it.
+    /// Facts about the component under the caret, rendered as `> …` lines beneath it.
     pub(crate) facts: Vec<Fact>,
 }
 
-/// A single `↳` line beneath a caret.
+/// A single `>` line beneath a caret.
 #[derive(Debug, Clone)]
 pub(crate) enum Fact {
-    /// A one- or multi-line `↳ {text}` fact. Continuation lines hang at `caret_col + 2`.
+    /// A one- or multi-line `> {text}` fact. Continuation lines hang at `caret_col + 2`.
     Text(String),
-    /// A directory listing folded into `↳ Contains (N)` with a tree nested at `caret_col + 2`.
+    /// A directory listing folded into `> Contains (N)` with a tree nested at `caret_col + 2`.
     Contains { rows: Vec<Row> },
 }
 
@@ -152,7 +152,7 @@ pub(crate) fn render_callouts(callouts: &[Callout]) -> String {
 }
 
 /// Render a single callout: the ``  - `path` `` bullet, the caret line (when there is one), then each
-/// fact as a `↳` line aligned to the caret column.
+/// fact as a `>` line aligned to the caret column.
 pub(crate) fn render_callout(callout: &Callout) -> String {
     let mut out = style::bullet(format!("`{}`", callout.path));
     let caret_and_facts = render_caret_and_facts(callout, PATH_INDENT);
@@ -190,7 +190,7 @@ fn push_fact(lines: &mut Vec<String>, fact: &Fact, caret_col: usize) {
     let indent = " ".repeat(caret_col);
     match fact {
         Fact::Text(text) => lines.push(style::prefix_first_rest_lines(
-            &format!("{indent}↳ "),
+            &format!("{indent}> "),
             &format!("{indent}  "),
             text,
         )),
@@ -202,7 +202,7 @@ fn push_fact(lines: &mut Vec<String>, fact: &Fact, caret_col: usize) {
                     Row::Hidden(count) => (*count).into(),
                 })
                 .sum();
-            lines.push(format!("{indent}↳ Contains ({total})"));
+            lines.push(format!("{indent}> Contains ({total})"));
             let tree_indent = " ".repeat(caret_col + 2);
 
             // A count with no tree under it reads like the listing was cut off. Saying `(empty)`
@@ -436,8 +436,8 @@ mod tests {
         insta::assert_snapshot!(render_callout(&callout), @r"
          - `/tmp/lnk/dangling`
                      ^^^^^^^^
-                     ↳ Symlink, cannot follow: No such file or directory (os error 2)
-                     ↳ Target `../lnk/real/nope.txt` → `/tmp/lnk/../lnk/real/nope.txt`
+                     > Symlink, cannot follow: No such file or directory (os error 2)
+                     > Target `../lnk/real/nope.txt` → `/tmp/lnk/../lnk/real/nope.txt`
         ");
     }
 
@@ -456,14 +456,14 @@ mod tests {
         insta::assert_snapshot!(render_callouts(&[leaf, dir]), @r"
          - `/tmp/lnk/dangling`
                      ^^^^^^^^
-                     ↳ Symlink, cannot follow: No such file or directory (os error 2)
-                     ↳ Target `../lnk/real/nope.txt` → `/tmp/lnk/../lnk/real/nope.txt`
+                     > Symlink, cannot follow: No such file or directory (os error 2)
+                     > Target `../lnk/real/nope.txt` → `/tmp/lnk/../lnk/real/nope.txt`
          - `/tmp/lnk/../lnk/real/`
                             ^^^^
-                            ↳ Dir [✅ read, ✅ write, ✅ execute]
-                            ↳ Canonical `/private/tmp/lnk/real`
-                            ↳ ❌ Missing `foo.txt`
-                            ↳ Contains (3)
+                            > Dir [✅ read, ✅ write, ✅ execute]
+                            > Canonical `/private/tmp/lnk/real`
+                            > ❌ Missing `foo.txt`
+                            > Contains (3)
                               ├── `a`
                               ├── `b`
                               └── `c`
@@ -481,7 +481,7 @@ mod tests {
         insta::assert_snapshot!(render_callout(&callout), @r"
          - `/tmp/empty`
                  ^^^^^
-                 ↳ Contains (0)
+                 > Contains (0)
                    └── (empty)
         ");
     }
@@ -497,7 +497,7 @@ mod tests {
         insta::assert_snapshot!(render_callout(&callout), @r"
          - `/tmp/x`
                  ^
-                 ↳ Missing `x` from parent directory:
+                 > Missing `x` from parent directory:
                    `/tmp`
         ");
     }
@@ -512,7 +512,7 @@ mod tests {
 
         insta::assert_snapshot!(render_callout(&callout), @r"
          - `/`
-            ↳ is root
+            > is root
         ");
     }
 
@@ -532,7 +532,7 @@ mod tests {
         insta::assert_snapshot!(render_callout(&callout), @r"
          - `/tmp/d`
                  ^
-                 ↳ Contains (2)
+                 > Contains (2)
                    ├── `a.txt` file [✅ read, ✅ write, ❌ execute]
                    └── `b`
         ");
@@ -556,7 +556,7 @@ mod tests {
         insta::assert_snapshot!(render_callout(&callout), @r"
          - `/tmp/d`
                  ^
-                 ↳ Contains (5)
+                 > Contains (5)
                    ├── `a`
                    ├── ...
                    ├── `d`
@@ -577,7 +577,7 @@ mod tests {
         insta::assert_snapshot!(render_callout(&callout), @r"
          - `/tmp/d`
                  ^
-                 ↳ Contains (5)
+                 > Contains (5)
                    └── ...
         ");
     }

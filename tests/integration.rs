@@ -63,11 +63,11 @@ fn walks_into_a_file_and_stops() {
     does not exist `/TMP/project/a.txt/b/nope.txt`
      - `/TMP/project/a.txt/b/nope.txt`
                      ^^^^^
-                     ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+                     > File, not a dir [✅ read, ✅ write, ❌ execute]
      - `/TMP/project/a.txt/b/nope.txt`
              ^^^^^^^
-             ↳ Dir [✅ read, ✅ write, ✅ execute]
-             ↳ Contains (2)
+             > Dir [✅ read, ✅ write, ✅ execute]
+             > Contains (2)
                ├── `a.txt` (exists)
                └── `sibling.txt`
     🛑

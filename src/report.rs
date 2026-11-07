@@ -8,7 +8,9 @@ use crate::canonical_path::{CannotCanonicalizeAnything, CanonicalPath};
 use crate::env_config;
 use crate::non_empty::NonEmpty;
 use crate::style;
-use crate::trace::{CannotTrace, PhysicalNode, Resolved, StatusOnDisk, Step, StopStatus, Trace};
+use crate::trace::{
+    CannotTrace, PhysicalNode, ResolvedSymlink, StatusOnDisk, Step, StopStatus, Trace,
+};
 use faccess::{AccessMode, PathExt};
 use std::fmt::Display;
 use std::num::NonZeroUsize;
@@ -344,11 +346,11 @@ fn stopped_step_type_line(step: &Step, early: bool) -> String {
         }
         PhysicalNode::ParentDir { resolved, .. } => format!("Dir {}", triad(resolved.as_ref())),
         PhysicalNode::Symlink {
-            resolved: Ok(Resolved::Dir(canonical)),
+            resolved: Ok(ResolvedSymlink::Dir(canonical)),
             ..
         } => format!("Symlink, resolves to dir {}", triad(canonical.as_ref())),
         PhysicalNode::Symlink {
-            resolved: Ok(Resolved::File(canonical)),
+            resolved: Ok(ResolvedSymlink::File(canonical)),
             ..
         } => format!(
             "Symlink, resolves to file{not_a_dir} {}",

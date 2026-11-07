@@ -37,7 +37,7 @@ pub(crate) enum PhysicalNode {
     ///   chain. Be careful trying to traverse the target of an unresolvable result.
     Symlink {
         target: Result<(PathBuf, AbsPath), std::io::Error>,
-        resolved: Result<Resolved, std::io::Error>,
+        resolved: Result<ResolvedSymlink, std::io::Error>,
     },
 
     /// Entry is a lexical `..` (parent dir)
@@ -110,18 +110,18 @@ pub(crate) enum PhysicalNode {
 
 /// Where following a symlink landed
 #[derive(Debug)]
-pub(crate) enum Resolved {
+pub(crate) enum ResolvedSymlink {
     /// The link lands on a directory. The walk can continue through it.
     Dir(CanonicalPath),
     /// The link lands on a file which stops the walk.
     File(CanonicalPath),
 }
 
-impl Resolved {
+impl ResolvedSymlink {
     /// Where the link landed, whatever is there
     pub(crate) fn path(&self) -> &CanonicalPath {
         match self {
-            Resolved::Dir(path) | Resolved::File(path) => path,
+            ResolvedSymlink::Dir(path) | ResolvedSymlink::File(path) => path,
         }
     }
 }
@@ -877,12 +877,12 @@ fn follow(dir: &CanonicalPath, link: &AbsPath) -> (PhysicalNode, Reached) {
         Ok(metadata) => {
             let (landed, next) = if metadata.is_dir() {
                 (
-                    Resolved::Dir(resolved.clone()),
+                    ResolvedSymlink::Dir(resolved.clone()),
                     Reached::Dir(resolved.clone()),
                 )
             } else {
                 (
-                    Resolved::File(resolved.clone()),
+                    ResolvedSymlink::File(resolved.clone()),
                     Reached::Ghost(AbsPath::from(resolved)),
                 )
             };

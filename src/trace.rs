@@ -186,7 +186,7 @@ pub(crate) struct Step {
     /// ```
     ///
     /// When a relative path is resolved, the directory it was anchored to is walked first.
-    /// Those steps have names too, they just have no [`Step::input`].
+    /// Those steps have names too, they just have no [`Step::input_index`].
     pub(crate) name: OwnedComponent,
 
     /// The path this component names

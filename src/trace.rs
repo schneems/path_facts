@@ -166,30 +166,9 @@ pub(crate) struct Step {
     ///   becomes `<cwd>\a`, and it strips a trailing `.`, so `a\b\c.` becomes `<cwd>\a\b\c`.
     pub(crate) input_index: Option<usize>,
 
-    /// One component of the walked path, never the whole path
+    /// One component of the absolute path, a name or `..`. Never a root or `.`
     ///
-    /// For `/home/you/hello.txt` this is `home`, then `you`, then `hello.txt`. The physical
-    /// location those name is [`Step::at`]; the spelling the caller typed is
-    /// [`Trace::input`].
-    ///
-    /// Taken from [`Path::components`] on the anchored path: a file or directory name, or
-    /// `..`. Root is skipped, and so is `.`. [`Path::components`] already drops `.` except
-    /// at the start of a relative path, so `/a/./b` and `/a/b` produce the same names, and
-    /// a trailing `/a/b/.` is just `/a/b`. A leading `./hello` still yields a
-    /// [`Component::CurDir`] that the walk skips, so this is never `"."`. A dot *inside* a
-    /// name is ordinary (`foo.txt`, `.bashrc`).
-    ///
-    /// ```text
-    /// /home/you/hello.txt  →  home, you, hello.txt
-    /// ./hello/lol/foo.txt  →  hello, lol, foo.txt   (plus unattributed CWD parts)
-    /// /a/./b               →  a, b
-    /// /a/b/.               →  a, b
-    /// /a/b/..              →  a, b, ..
-    /// .bashrc              →  .bashrc
-    /// ```
-    ///
-    /// When a relative path is resolved, the directory it was anchored to is walked first.
-    /// Those steps have names too, they just have no [`Step::input_index`].
+    /// Can differ from the input, see [`Step::input_index`].
     pub(crate) name: OwnedComponent,
 
     /// The path this component names
@@ -201,7 +180,6 @@ pub(crate) struct Step {
     /// leaves nothing to name, and so does any component below a failed lookup, a loop, or a
     /// link that goes nowhere. Naming survives a proven absence, because absence rules out a
     /// symlink.
-    #[allow(dead_code)]
     pub(crate) at: Option<AbsPath>,
 
     pub(crate) contents: PhysicalNode,

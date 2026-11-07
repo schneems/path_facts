@@ -8,7 +8,9 @@ use crate::canonical_path::{CannotCanonicalizeAnything, CanonicalPath};
 use crate::env_config;
 use crate::non_empty::NonEmpty;
 use crate::style;
-use crate::trace::{CannotTrace, PhysicalNode, Resolved, StatusOnDisk, Step, StopStatus, Trace};
+use crate::trace::{
+    CannotTrace, PhysicalNode, ResolvedSymlink, StatusOnDisk, Step, StopStatus, Trace,
+};
 use faccess::{AccessMode, PathExt};
 use std::fmt::Display;
 use std::num::NonZeroUsize;
@@ -229,7 +231,7 @@ fn stopped_step_callout(path: &Path, trace: &Trace, step: &Step, early: bool) ->
 
     Callout {
         path: path.display().to_string(),
-        caret: caret_at(path, step.input),
+        caret: caret_at(path, step.input_index),
         facts,
     }
 }
@@ -344,11 +346,11 @@ fn stopped_step_type_line(step: &Step, early: bool) -> String {
         }
         PhysicalNode::ParentDir { resolved, .. } => format!("Dir {}", triad(resolved.as_ref())),
         PhysicalNode::Symlink {
-            resolved: Ok(Resolved::Dir(canonical)),
+            resolved: Ok(ResolvedSymlink::Dir(canonical)),
             ..
         } => format!("Symlink, resolves to dir {}", triad(canonical.as_ref())),
         PhysicalNode::Symlink {
-            resolved: Ok(Resolved::File(canonical)),
+            resolved: Ok(ResolvedSymlink::File(canonical)),
             ..
         } => format!(
             "Symlink, resolves to file{not_a_dir} {}",
@@ -1263,6 +1265,70 @@ mod tests {
     fn test_is_root_windows() {
         insta::assert_snapshot!(format!("{}{STOP}", Report::new(r"C:\")), @r"
         is root `C:\` → `\\?\C:\`
+        🛑
+        ");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_windows_relative_parent_dir_is_folded_by_absolute() {
+        let fixture = Fixture::new();
+        std::fs::create_dir_all(fixture.join("a").join("b")).unwrap();
+        fixture.enter();
+
+        let input = r"a\b\..";
+        let absolute = std::path::absolute(input).unwrap();
+        assert!(
+            !absolute
+                .components()
+                .any(|c| c == std::path::Component::ParentDir),
+            "expected `absolute` to fold `..`, got {}",
+            absolute.display()
+        );
+
+        insta::assert_snapshot!(report(&fixture.scrub(), input), @r"
+        exists `a/b/..`
+         - `a/b/..`
+                ^^
+                ↳ Dir [✅ read, ✅ write, ✅ execute]
+                ↳ Absolute `/path/to/directory/a`
+         - `/path/to/directory/a`
+                     ^^^^^^^^^
+                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                     ↳ Contains (1)
+                       └── `a` (exists)
+        🛑
+        ");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_windows_relative_trailing_dot_is_stripped_by_absolute() {
+        let fixture = Fixture::new();
+        std::fs::create_dir_all(fixture.join("a").join("b")).unwrap();
+        std::fs::write(fixture.join("a").join("b").join("c"), "").unwrap();
+        fixture.enter();
+
+        let input = r"a\b\c.";
+        let absolute = std::path::absolute(input).unwrap();
+        assert_eq!(
+            absolute.file_name(),
+            Some(std::ffi::OsStr::new("c")),
+            "expected `absolute` to strip the trailing `.`, got {}",
+            absolute.display()
+        );
+
+        insta::assert_snapshot!(report(&fixture.scrub(), input), @r"
+        exists `a/b/c.`
+         - `a/b/c.`
+                ^^
+                ↳ File [✅ read, ✅ write, ✅ execute]
+                ↳ Absolute `/path/to/directory/a/b/c`
+         - `/path/to/directory/a/b/c`
+                                 ^
+                                 ↳ Dir [✅ read, ✅ write, ✅ execute]
+                                 ↳ Contains (1)
+                                   └── `c` (exists)
         🛑
         ");
     }

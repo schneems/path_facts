@@ -1,68 +1,10 @@
-//! What the filesystem reported at each component of a path
+//! Trace a lexical path to physical nodes
 //!
-//! Canonicalizing answers one question ("where does this land") and refuses to answer
-//! anything else. When it fails it collapses every reason into a single error, and a
-//! `NotFound` from a missing name and a `NotFound` from a broken symlink want different
-//! things said about them.
+//! A [`Trace`] walks a [`Path`] one [`Component`] at a time, starting from the root. Each [`Step`]
+//! records what the filesystem reported for its component as a [`PhysicalNode`], or the best-effort
+//! reason it couldn't learn more.
 //!
-//! A [`Trace`] is the walk itself rather than its verdict: one [`Step`] per component,
-//! each holding what a single `lstat` reported there. Nothing in it says whether what was
-//! found is good or bad news, because that depends on what the caller was trying to do. A
-//! missing path is a bug for `File::open` and a success for `File::create_new`.
-//!
-//! ## Pointing back at the input
-//!
-//! Walking requires an absolute path, because there is nowhere to start otherwise, but
-//! `./hello` is what the caller typed and `/home/you/hello` is not. So the walk keeps both:
-//! [`Trace::input`] is the spelling it was given, and each [`Step::input`] says which
-//! component of that spelling it came from.
-//!
-//! [`Trace::new`] takes the spelling and anchors it, rather than taking the two paths and
-//! trusting them to match. A report built on an `input` that was not what got walked
-//! points at a path nobody asked about, and the only way to rule that out is to leave no
-//! way to say it.
-//!
-//! Steps from the directory a relative path was resolved against have no such component,
-//! and report `None`. They are still worth showing, since the problem may well be up there,
-//! but they have to be shown against [`Step::at`] rather than against the input. That is
-//! the difference between "cannot stat `./hello`" and "the directory it would sit in is
-//! `/home/you`, which is what these permissions belong to".
-//!
-//! No byte offsets are recorded yet. Component indices into [`Path::components`] of
-//! [`Trace::input`] are enough to attach them later, without the walk having to care how
-//! a path gets rendered. That iterator is the index space: a raw split on separators is
-//! not, because it still sees the `.` parts and extra slashes that `components` drops.
-//!
-//! The facts the walk is built on:
-//!
-//! - A path is a lexical representation of parts, this can correspond to a physical location
-//!   on disk, but not every lexical operation maps to a physical operation for every path.
-//! - Symlinks and parent parts `..` require mapping lexical to physical paths for accurate information.
-//! - Sometimes we don't have enough information to confidently say if a path exists or not.
-//! - Resolution goes left to right, never by trimming the end. Trimming cannot work: the
-//!   last component may be `..`, and any component may be a symlink, so the physical parent of a
-//!   path is not generally the path with its last part removed.
-//! - `lstat` reporting `NotFound` is what allows naming past it. A name that does not
-//!   exist cannot be a symlink, so from that point on appending components is exact. This
-//!   is why `/a/b/c` can still name `/a/b` even when `b` is missing.
-//! - That name is exact as a *name*, not as an inode. Nothing is there to have permissions
-//!   or entries, and it never becomes a [`CanonicalPath`].
-//! - A `..` on a physical location can be "folded" i.e. `/a/b/../c` can be folded into
-//!   `/a/c` if `a` and `b` exist and are directories. A `..` is a "parent directory"
-//!   and the format of `x/y/z` of a path implies that `y` MUST be a directory for it to be
-//!   able to hold `z`. Therefore in `x/y/z/..` if `y` does not exist or is a file, it cannot be a directory
-//!   and the `..` cannot be folded into a physical location. But it can still be a valid path in
-//!   some operations such as `create_dir_all`. We don't know what operation was attempted that caused
-//!   someone to ask for `PathFacts` so we must provide helpful information for a range of scenarios.
-//! - Losing access (`EACCES`) is the real blocker, not absence. Without a proven absence
-//!   there is no way to argue a name is not a symlink.
-//! - Every fact is about the moment its syscall ran, and the walk makes several. Where two
-//!   of them contradict each other the walk says so ([`PhysicalNode::Raced`]) rather than
-//!   picking whichever it saw last, but most changes underneath it are invisible and it
-//!   claims no better.
-//! - A root is canonical by construction and reachable only by observation. `\\server\share`
-//!   names a machine that can be off, and nothing can be said about a path hanging off a
-//!   root that does not answer.
+//! The walk stops at the first component it can't see past.
 
 use crate::abs_path::{readlink, AbsPath, AbsPathError};
 use crate::canonical_path::{CannotCanonicalizeAnything, CanonicalPath, Entry};
@@ -75,123 +17,90 @@ use std::io::Write;
 use std::io::{stderr, ErrorKind};
 use std::path::{Component, Path, PathBuf};
 
-/// What a single `lstat` reported at one component
-///
-/// Describes physical disk. Whether any of it is a problem is the caller's question, not this
-/// type's.
+/// What a single, physical disk check reported for one [`Component`]
 #[derive(Debug)]
 pub(crate) enum PhysicalNode {
-    /// A directory, so the walk could continue through it
+    /// A directory
     Directory(CanonicalPath),
 
-    /// Not a directory and not a symlink, so nothing can be entered below it
+    /// Not a directory and not a symlink. It cannot hold another entry
     File(CanonicalPath),
 
     /// A symlink
     ///
-    /// Pointing somewhere and arriving somewhere are separate facts, so both are kept.
-    /// `target` is a single `readlink`, reporting where the link points without following
-    /// it. `resolved` is where following it lands and what is there, and carries the error
-    /// when it lands nowhere.
-    ///
-    /// Both are results because `lstat` calling a name a symlink does not promise that
-    /// either call succeeds. Apple's libc checks the link's own permission bits on
-    /// `readlink` while `lstat` needs only search on the parent, so a link can read as a
-    /// symlink and still refuse to say where it points. That is a fact about the link, not
-    /// a contradiction in the walk: `target` carries the refusal rather than
-    /// [`PhysicalNode::Raced`] swallowing the whole step.
-    ///
-    /// The error is kept rather than classified. A circular link, a dangling one, and one
-    /// whose target is unreadable are all "this link did not resolve, and here is what the
-    /// system said about it", which spares us matching on error codes to reword what the
-    /// system already worded.
-    ///
-    /// A link that does not resolve is reported rather than chased: the target's own chain
-    /// may not resolve either, and symlinks can be made to point in a circle.
+    /// - `target` is where the link points without following it (lexical).
+    ///   An error is returned when there's a permissions mismatch between what `symlink_metadata` needs,
+    ///   which tells us a file is a symlink, and what `read_link` needs, which tells us what the
+    ///   symlink holds. Or on TOCTOU.
+    /// - `resolved` is where the link resolves to (physical).
+    ///   This can fail for a number of reasons including when a symlink produces an infinite/circular
+    ///   chain. Be careful trying to traverse the target of an unresolvable result.
     Symlink {
         target: Result<(PathBuf, AbsPath), std::io::Error>,
-        resolved: Result<Resolved, std::io::Error>,
+        resolved: Result<ResolvedSymlink, std::io::Error>,
     },
 
-    /// Nothing is at this name
-    ///
-    /// The one observation that proves the name is not a symlink, which is what lets the
-    /// walk keep naming components below it. Carries the error so a report can quote the
-    /// system rather than invent wording for it.
-    Missing(#[allow(dead_code)] std::io::Error),
-
-    /// Can list entries from the parent but cannot access them directly
-    ParentNoExec {
-        parent: CanonicalPath,
-        /// Some if the directory has the entry, otherwise None
-        entry: Option<NormalComponent>,
-        /// What the lstat on the full path returned, which is the refusal that sent the walk
-        /// looking at the directory's permissions in the first place
-        #[allow(dead_code)]
-        error: std::io::Error,
-    },
-
-    /// Cannot tell missing from directory from symlink here
-    ///
-    /// [`CanonicalPath::entry`] (lstat on the path) failed in a way that fits nothing else,
-    /// leaving no reading of the name. The error is from the lstat.
-    ///
-    /// We know it is not:
-    ///
-    /// - [`PhysicalNode::ParentNoExec`] - The path's directory is missing execute (denies
-    ///   access/traversal) but can still be listed.
-    /// - [`PhysicalNode::Raced`] - A second lstat of the directory finds it gone or not a
-    ///   directory.
-    /// - [`PhysicalNode::Missing`] - All of:
-    ///   - The lstat on the full path WAS [`ErrorKind::NotFound`]
-    ///   - The race check lstat of the directory either saw a directory, or errored with
-    ///     something that was NOT [`ErrorKind::NotFound`]
-    ///
-    /// Any other errors/problems land here. Not an exhaustive set, since a filesystem driver
-    /// can fail in ways this crate cannot enumerate, but the ones seen so far:
-    ///
-    /// - A directory denying both search and listing, which is a refusal about the directory
-    ///   rather than about the name
-    /// - A component longer than the filesystem accepts
-    /// - Failing hardware, or a stale handle on a network mount
-    /// - A directory swapped mid-walk in a way the race check could not see
-    UnknownLookup(#[allow(dead_code)] std::io::Error),
-
-    /// `..` moved from one resolved directory to another
+    /// Entry is a lexical `..` (parent dir)
     ///
     /// Safe to apply lexically: a [`CanonicalPath`] holds no symlinks, and POSIX defines
     /// `..` on a symlink free path as removing the last component. Root is its own parent,
     /// matching `realpath` on `/..`.
     ParentDir {
         /// The directory folded e.g. for an input of `/a/b/c/..` the directory `/a/b/c` holds `..`
+        /// and folded below would be `/a/b/c`
         #[allow(dead_code)]
         folded: CanonicalPath,
-        /// Where `..` landed: the parent of `from`, or `from` itself at root e.g. `/a/b/c/..` → `/a/b`
+        /// Where `..` landed e.g. `/a/b/c/..` → `/a/b`
         resolved: CanonicalPath,
     },
 
-    /// Two calls about this component contradicted each other
+    /// Can list entries of the parent directory, but cannot access/traverse individual items
+    ParentNoExec {
+        /// The directory holding the name
+        parent: CanonicalPath,
+        /// Some if the directory has the entry, otherwise None
+        entry: Option<NormalComponent>,
+        /// This error from `symlink_metadata` on the full path triggered the permissions lookup.
+        #[allow(dead_code)]
+        error: std::io::Error,
+    },
+
+    /// Nothing is at this name
     ///
-    /// Not a fact about the path, a fact about the walk. Something moved underneath it, or
-    /// the filesystem answered inconsistently, and the second answer ruled out what the
-    /// first one had established. Nothing below it can be trusted, so naming stops.
+    /// This is constructed when:
     ///
-    /// `why` names the pair of calls that disagreed. It is written at the site rather than
-    /// derived from the error, so a bug report can quote a sentence that leads a maintainer
-    /// straight back to the code that produced it.
+    /// - The walk reached the directory holding it
+    /// - [`std::fs::symlink_metadata`] on the name fails with [`ErrorKind::NotFound`]
+    /// - It is not a [`PhysicalNode::ParentNoExec`]
+    /// - It is not a [`PhysicalNode::Raced`]
+    Missing(std::io::Error),
+
+    /// When no other classification fits
     ///
-    /// This catches self-contradiction only, which is a small corner of what can go wrong
-    /// underneath a walk. The walk notices a directory it stood in going away, because it
-    /// held a claim about that directory to be contradicted. It cannot notice the same
-    /// thing happening to the name it was asked about: a file deleted a moment before the
-    /// `lstat` reads as "was never there", which is exactly what [`PhysicalNode::Missing`]
-    /// would say if it were true, and there is no earlier observation to weigh it against.
+    /// The directory it sits in exists, but [`CanonicalPath::entry`] failed in a way
+    /// that fits no better classification.
     ///
-    /// So no `Raced` step means none was caught, not that nothing moved.
+    /// Some non-exhaustive examples:
+    ///
+    /// - A directory denying both search and listing
+    /// - A component longer than the filesystem accepts
+    /// - Failing hardware, or a stale handle on a network mount
+    /// - A directory changed in a way the race check could not see
+    UnknownLookup(std::io::Error),
+
+    /// Two filesystem calls contradicted each other
+    ///
+    /// For example (hypothetically) if one metadata call said a path is a directory, and another
+    /// said it is a file (not a symlink) then that would strongly indicate there's a TOCTOU issue
+    /// or some other race condition happening under the hood. This variant is used when we can
+    /// strongly assert two facts disagree.
+    ///
+    /// When the variant is something other than `Raced` it means that no race condition was caught,
+    /// not that nothing moved.
     Raced {
-        #[allow(dead_code)]
+        /// The reason we believe a race condition exists
         why: &'static str,
-        #[allow(dead_code)]
+        /// The error that triggered the investigation
         error: std::io::Error,
     },
 
@@ -199,25 +108,20 @@ pub(crate) enum PhysicalNode {
     NotReached,
 }
 
-/// Where following a symlink landed, and whether it can hold anything below it
-///
-/// The same split [`PhysicalNode::Directory`] and [`PhysicalNode::File`] draw at a name the
-/// walk looked at directly. It is recorded rather than asked for later because the walk
-/// already has to make the distinction to know whether it may continue, and a second `stat`
-/// at render time would answer for a different moment than the rest of the walk.
+/// Where following a symlink landed
 #[derive(Debug)]
-pub(crate) enum Resolved {
-    /// The link lands on a directory, so the walk can continue through it
+pub(crate) enum ResolvedSymlink {
+    /// The link lands on a directory. The walk can continue through it.
     Dir(CanonicalPath),
-    /// The link lands on something that is not a directory, so nothing is below it
+    /// The link lands on a file which stops the walk.
     File(CanonicalPath),
 }
 
-impl Resolved {
+impl ResolvedSymlink {
     /// Where the link landed, whatever is there
     pub(crate) fn path(&self) -> &CanonicalPath {
         match self {
-            Resolved::Dir(path) | Resolved::File(path) => path,
+            ResolvedSymlink::Dir(path) | ResolvedSymlink::File(path) => path,
         }
     }
 }
@@ -225,8 +129,7 @@ impl Resolved {
 impl PhysicalNode {
     /// The physical location this component resolved to
     ///
-    /// `None` for every observation that is not a place: an absence, a lookup that failed, a
-    /// link that goes nowhere, a contradiction, and a component the walk never got to.
+    /// `None` when something about the physical lookup failed.
     pub(crate) fn resolved_to(&self) -> Option<Cow<'_, CanonicalPath>> {
         match self {
             PhysicalNode::Directory(path) | PhysicalNode::File(path) => Some(Cow::Borrowed(path)),
@@ -246,47 +149,26 @@ impl PhysicalNode {
     }
 }
 
-/// One component of a path, and what was found there
+/// One [`Component`] of a path, and what was found there
 #[derive(Debug)]
 pub(crate) struct Step {
-    /// Which component of the caller's path this came from
+    /// Indexes [`Trace::input`] by its [`Path::components`].
     ///
-    /// Indexes [`Trace::input`] by [`Path::components`], so a report can point back at
-    /// the part of the path the caller actually typed. `None` for a component the caller
-    /// did not write, which is every component of the directory a relative path was
-    /// resolved against. Those are worth reporting too, they just have to be shown against
-    /// an absolute path ([`Step::at`]) rather than against the input.
+    /// For example, if the input is `/a/b/c` then the components will be
+    /// `[RootDir, Normal("a"), Normal("b"), Normal("c")]`. The step
+    /// index for `Normal("a")` would be `Some(1)`.
     ///
-    /// An interior `.` is not a component, so it has no index and cannot be a span. That
-    /// does not hide a problem: `.` is a no-op, and `/a/./b` still attributes `b` as
-    /// component 2. The later caret has to use this same iterator. A `split('/')` of the
-    /// original bytes would call index 2 `.` and underline the wrong place.
-    pub(crate) input: Option<usize>,
+    /// Each step is built from the absolute path, which can differ from the input.
+    /// Is `None` when the two differ at or after this step, which happens when:
+    ///
+    /// - The step comes from CWD and the path was relative.
+    /// - On Windows, [`std::path::absolute`] rewrote the input. It folds `..`, so `a\b\..`
+    ///   becomes `<cwd>\a`, and it strips a trailing `.`, so `a\b\c.` becomes `<cwd>\a\b\c`.
+    pub(crate) input_index: Option<usize>,
 
-    /// One component of the walked path, never the whole path
+    /// One component of the absolute path, a name or `..`. Never a root or `.`
     ///
-    /// For `/home/you/hello.txt` this is `home`, then `you`, then `hello.txt`. The physical
-    /// location those name is [`Step::at`]; the spelling the caller typed is
-    /// [`Trace::input`].
-    ///
-    /// Taken from [`Path::components`] on the anchored path: a file or directory name, or
-    /// `..`. Root is skipped, and so is `.`. [`Path::components`] already drops `.` except
-    /// at the start of a relative path, so `/a/./b` and `/a/b` produce the same names, and
-    /// a trailing `/a/b/.` is just `/a/b`. A leading `./hello` still yields a
-    /// [`Component::CurDir`] that the walk skips, so this is never `"."`. A dot *inside* a
-    /// name is ordinary (`foo.txt`, `.bashrc`).
-    ///
-    /// ```text
-    /// /home/you/hello.txt  →  home, you, hello.txt
-    /// ./hello/lol/foo.txt  →  hello, lol, foo.txt   (plus unattributed CWD parts)
-    /// /a/./b               →  a, b
-    /// /a/b/.               →  a, b
-    /// /a/b/..              →  a, b, ..
-    /// .bashrc              →  .bashrc
-    /// ```
-    ///
-    /// When a relative path is resolved, the directory it was anchored to is walked first.
-    /// Those steps have names too, they just have no [`Step::input`].
+    /// Can differ from the input, see [`Step::input_index`].
     pub(crate) name: OwnedComponent,
 
     /// The path this component names
@@ -298,7 +180,6 @@ pub(crate) struct Step {
     /// leaves nothing to name, and so does any component below a failed lookup, a loop, or a
     /// link that goes nowhere. Naming survives a proven absence, because absence rules out a
     /// symlink.
-    #[allow(dead_code)]
     pub(crate) at: Option<AbsPath>,
 
     pub(crate) contents: PhysicalNode,
@@ -658,7 +539,7 @@ impl Trace {
     /// absolute path in each case.
     pub(crate) fn parent_input_index(&self, dir: &CanonicalPath) -> Option<usize> {
         let before = StepCursor::trace_stopped_at(self).before()?;
-        let index = before.input?;
+        let index = before.input_index?;
 
         (before.contents.resolved_to()?.as_ref() == dir).then_some(index)
     }
@@ -753,7 +634,7 @@ fn attribute(steps: &mut [Step], input: &Path) {
         if step.name.as_ref() != component.as_os_str() {
             break;
         }
-        step.input = Some(index);
+        step.input_index = Some(index);
     }
 }
 
@@ -791,7 +672,7 @@ fn enter(position: Reached, name: NormalComponent) -> (Step, Reached) {
     match position {
         Reached::Lost => (
             Step {
-                input: None,
+                input_index: None,
                 name: name.into(),
                 at: None,
                 contents: PhysicalNode::NotReached,
@@ -804,7 +685,7 @@ fn enter(position: Reached, name: NormalComponent) -> (Step, Reached) {
             let at = join(&ghost, &name);
             (
                 Step {
-                    input: None,
+                    input_index: None,
                     name: name.into(),
                     at: Some(at.clone()),
                     contents: PhysicalNode::NotReached,
@@ -817,7 +698,7 @@ fn enter(position: Reached, name: NormalComponent) -> (Step, Reached) {
             let (saw, next) = look(&dir, &name, &at);
             (
                 Step {
-                    input: None,
+                    input_index: None,
                     name: name.into(),
                     at: Some(at),
                     contents: saw,
@@ -974,12 +855,12 @@ fn follow(dir: &CanonicalPath, link: &AbsPath) -> (PhysicalNode, Reached) {
         Ok(metadata) => {
             let (landed, next) = if metadata.is_dir() {
                 (
-                    Resolved::Dir(resolved.clone()),
+                    ResolvedSymlink::Dir(resolved.clone()),
                     Reached::Dir(resolved.clone()),
                 )
             } else {
                 (
-                    Resolved::File(resolved.clone()),
+                    ResolvedSymlink::File(resolved.clone()),
                     Reached::Ghost(AbsPath::from(resolved)),
                 )
             };
@@ -1010,7 +891,7 @@ fn up(position: Reached, name: ParentDirComponent) -> (Step, Reached) {
             let resolved = from.parent().unwrap_or_else(|| from.clone());
             (
                 Step {
-                    input: None,
+                    input_index: None,
                     name: name.into(),
                     at: Some(AbsPath::from(resolved.clone())),
                     contents: PhysicalNode::ParentDir {
@@ -1026,7 +907,7 @@ fn up(position: Reached, name: ParentDirComponent) -> (Step, Reached) {
         // fact about now.
         Reached::Ghost(_) | Reached::Lost => (
             Step {
-                input: None,
+                input_index: None,
                 name: name.into(),
                 at: None,
                 contents: PhysicalNode::NotReached,
@@ -1055,7 +936,7 @@ mod tests {
         names
             .iter()
             .map(|name| Step {
-                input: None,
+                input_index: None,
                 name: one(name),
                 at: None,
                 contents: PhysicalNode::NotReached,
@@ -1760,7 +1641,7 @@ mod tests {
         let input = path.components().collect::<Vec<_>>();
 
         for step in &trace.steps {
-            let index = step.input.unwrap();
+            let index = step.input_index.unwrap();
             assert_eq!(input[index].as_os_str(), step.name.as_ref());
         }
     }
@@ -1780,7 +1661,7 @@ mod tests {
         let attributed = trace
             .steps
             .iter()
-            .filter_map(|step| Some((step.input?, step.name.clone())))
+            .filter_map(|step| Some((step.input_index?, step.name.clone())))
             .collect::<Vec<_>>();
         assert_eq!(
             attributed,
@@ -1789,7 +1670,7 @@ mod tests {
 
         // A problem in the anchor is still reportable, just against an absolute path
         // rather than against anything the caller would recognize
-        for step in trace.steps.iter().filter(|step| step.input.is_none()) {
+        for step in trace.steps.iter().filter(|step| step.input_index.is_none()) {
             assert!(
                 step.at.is_some(),
                 "{:?} should still name a path",
@@ -1811,7 +1692,7 @@ mod tests {
         let input = path.components().collect::<Vec<_>>();
 
         for step in &trace.steps {
-            let index = step.input.unwrap();
+            let index = step.input_index.unwrap();
             assert_eq!(input[index].as_os_str(), step.name.as_ref());
         }
     }
@@ -1829,7 +1710,7 @@ mod tests {
 
         attribute(&mut steps, Path::new("unrelated"));
 
-        assert!(steps.iter().all(|step| step.input.is_none()));
+        assert!(steps.iter().all(|step| step.input_index.is_none()));
     }
 
     /// Alignment runs from the end, so a shared tail is attributed and the first name that
@@ -1841,7 +1722,10 @@ mod tests {
         attribute(&mut steps, Path::new("elsewhere/hello"));
 
         assert_eq!(
-            steps.iter().map(|step| step.input).collect::<Vec<_>>(),
+            steps
+                .iter()
+                .map(|step| step.input_index)
+                .collect::<Vec<_>>(),
             vec![None, None, Some(1)]
         );
     }

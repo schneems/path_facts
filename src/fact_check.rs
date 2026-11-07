@@ -3,8 +3,9 @@
 //! in this library.
 #[cfg(test)]
 mod tests {
-    use crate::{abs_path::AbsPath, canonical_path::CanonicalPath};
+    use crate::{abs_path::AbsPath, canonical_path::CanonicalPath, join_unfolded};
     use std::{
+        ffi::OsStr,
         fs::Metadata,
         path::{Component, Path, PathBuf},
     };
@@ -103,10 +104,6 @@ mod tests {
     /// not always the case. A real world example is that some OS's will enforce that `.` or `..` is
     /// a directory so if you have `a/dir/..` the `..` would "eat" `dir` but if you have `a/file.txt/..`
     /// the `..` will fail because `file.txt` is a file and not a dir.
-    ///
-    /// Canonicalize uses `realpath` while metadata uses `stat` (unix). Realpath is userspace,
-    /// stat is kernel space and checks that a path part with something after it is a dir or will
-    /// ENOTDIR. This is a exposed in Rust 1.83 as `ErrorKind::NotADirectory`
     #[cfg(target_vendor = "apple")]
     #[test]
     fn test_canonicalize_disagrees_with_metadata_on_a_trailing_dot_dot() {
@@ -201,19 +198,46 @@ mod tests {
         );
     }
 
-    /// `Components` erases `.` and keeps `..`, which is why only one of them is safe
+    /// [`std::path::Components`] erases `.` and keeps `..`
     ///
-    /// A `.` needs no filesystem to interpret, so `Path` folds it away and is right to:
-    /// `/a/b/.` reports a final `Normal("b")` and has the same parent as `/a/b`. A `..` is
-    /// kept, and `parent` returns `/a/b` for `/a/b/..` — the entry the `..` cancels rather
-    /// than any ancestor of the location.
+    /// Parsing a [`Path`] to return [`Components`] often folds away a trailing `.` (current
+    /// directory) so that `/a/b/.` becomes `/a/b` (without the trailing `.`), but it preserves a
+    /// trailing `..` (parent directory).
     ///
-    /// Every claim here is about `Path` alone, so nothing touches the disk and nothing is
-    /// platform specific.
+    /// The lexical parent of a path ending in `..` differs from its physical parent.
+    ///
+    /// For example `/a/b/c/..` (assuming no symlinks) resolves to a physical path of `/a/b`
+    /// where `..` folds/eats the `c` directory and would have a physical parent of `/a`.
+    /// However [`Path::parent`] is a lexical operation and for `/a/b/c/..` returns `/a/b/c` which
+    /// differs from the physical parent path (`/a`).
+    ///
+    /// Windows has some special behavior when verbatim paths are used.
     #[test]
     fn test_components_erases_current_dir_but_keeps_parent_dir() {
-        use std::ffi::OsStr;
-        use std::path::Component;
+        // On unix, `components` only ends in `CurDir` when the whole path is `.`
+        assert_eq!(
+            Path::new(".").components().next_back(),
+            Some(Component::CurDir)
+        );
+        assert_eq!(
+            Path::new("./").components().next_back(),
+            Some(Component::CurDir)
+        );
+        assert_eq!(
+            Path::new("./.").components().next_back(),
+            Some(Component::CurDir)
+        );
+        // Windows verbatim (`\\?\`) paths keep every `.`. The `..` logic is in another test
+        #[cfg(windows)]
+        {
+            assert_eq!(
+                Path::new(r"\\?\C:\a\.").components().next_back(),
+                Some(Component::CurDir)
+            );
+            assert!(Path::new(r"\\?\C:\a\.\b")
+                .components()
+                .any(|c| c == Component::CurDir));
+        }
 
         // `.` is gone from the component stream, trailing or interior
         assert_eq!(
@@ -245,6 +269,34 @@ mod tests {
             Some(Component::ParentDir)
         );
         assert_eq!(Path::new("/a/b/..").parent(), Some(Path::new("/a/b")));
+    }
+
+    /// Windows calls to `absolute` normalize things differently than unix
+    #[test]
+    fn absolute_facts() {
+        let path = join_unfolded(Path::new("a"), &["b", ".."]);
+        assert_has_parent_dir(&path);
+        let absolute = std::path::absolute(&path).unwrap();
+
+        // Windows normalizes in ways that Unix does not
+        #[cfg(windows)]
+        assert_normalized(&absolute);
+        #[cfg(unix)]
+        assert_has_parent_dir(&absolute);
+
+        let path = join_unfolded(Path::new("a"), &["b."]);
+        assert_eq!(path.file_name(), Some(OsStr::new("b.")));
+
+        let absolute = std::path::absolute(&path).unwrap();
+        #[cfg(windows)]
+        assert_eq!(
+            absolute.file_name(),
+            Some(OsStr::new("b")),
+            "expected absolute() to strip the trailing `.` from `b.`, got {}",
+            absolute.display()
+        );
+        #[cfg(unix)]
+        assert_eq!(absolute.file_name(), Some(OsStr::new("b.")));
     }
 
     /// [`Path::join`] and [`PathBuf::push`] with `..`
@@ -407,26 +459,10 @@ mod tests {
         ));
     }
 
-    /// Whether `lstat` and `readlink` can disagree about one symlink is platform-specific
+    /// [`symlink_metadata`] and [`std::fs::read_link`] platform-specific disagreement
     ///
-    /// The intuition worth pinning: a name `symlink_metadata` reports as a symlink is not a
-    /// name `read_link` is guaranteed to read — but only on some systems. This asserts both
-    /// realities and lets the platform decide which arm it takes, so the same test documents
-    /// the split and each side is proven where it runs (`bin/test` runs it on Linux under
-    /// Docker, see the README).
-    ///
-    /// A symlink carries its own permission bits on the BSD family (macOS included), and
-    /// `readlink` checks them while `lstat` needs only search on the parent. So stripping
-    /// read off the link with `lchmod` (`set_permissions` would follow it and touch the
-    /// target) leaves `symlink_metadata` still calling it a symlink while `read_link` is
-    /// refused with `EACCES`. [`PhysicalNode::Symlink`] holds this on its `target`: a link
-    /// whose target cannot be read is a fact about the link, not a contradiction in the
-    /// walk, so the refusal rides along as `target: Err` rather than collapsing the step.
-    ///
-    /// Linux does not honor symlink modes at all (`man 7 symlink`), and its `fchmodat`
-    /// refuses the no-follow flag with `EOPNOTSUPP`. So the disagreement cannot be
-    /// manufactured, `read_link` still answers, and the walk sees an ordinary (here
-    /// dangling) symlink.
+    /// When [`symlink_metadata`] reports a file as a symlink is not guaranteed that `read_link` should
+    /// return a valid read on one known platform (apple/mac).
     #[cfg(unix)]
     #[test]
     fn test_symlink_lstat_can_read_but_readlink_cannot_records_the_refusal() {

@@ -158,9 +158,12 @@ pub(crate) struct Step {
     /// `[RootDir, Normal("a"), Normal("b"), Normal("c")]`. The step
     /// index for `Normal("a")` would be `Some(1)`.
     ///
-    /// Is `None` when the step references something that was not included in the
-    /// original input. For example, when the input is relative we produce steps
-    /// for the absolute CWD before the relative part. In that scenario this is `None`
+    /// Each step is built from the absolute path, which can differ from the input.
+    /// Is `None` when the two differ at or after this step, which happens when:
+    ///
+    /// - The step comes from CWD and the path was relative.
+    /// - On Windows, [`std::path::absolute`] rewrote the input. It folds `..`, so `a\b\..`
+    ///   becomes `<cwd>\a`, and it strips a trailing `.`, so `a\b\c.` becomes `<cwd>\a\b\c`.
     pub(crate) input_index: Option<usize>,
 
     /// One component of the walked path, never the whole path

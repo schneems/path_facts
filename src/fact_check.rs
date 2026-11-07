@@ -3,7 +3,7 @@
 //! in this library.
 #[cfg(test)]
 mod tests {
-    use crate::{abs_path::AbsPath, canonical_path::CanonicalPath};
+    use crate::{abs_path::AbsPath, canonical_path::CanonicalPath, join_unfolded};
     use std::{
         ffi::OsStr,
         fs::Metadata,
@@ -269,6 +269,34 @@ mod tests {
             Some(Component::ParentDir)
         );
         assert_eq!(Path::new("/a/b/..").parent(), Some(Path::new("/a/b")));
+    }
+
+    /// Windows calls to `absolute` normalize things differently than unix
+    #[test]
+    fn absolute_facts() {
+        let path = join_unfolded(Path::new("a"), &["b", ".."]);
+        assert_has_parent_dir(&path);
+        let absolute = std::path::absolute(&path).unwrap();
+
+        // Windows normalizes in ways that Unix does not
+        #[cfg(windows)]
+        assert_normalized(&absolute);
+        #[cfg(unix)]
+        assert_has_parent_dir(&absolute);
+
+        let path = join_unfolded(Path::new("a"), &["b."]);
+        assert_eq!(path.file_name(), Some(OsStr::new("b.")));
+
+        let absolute = std::path::absolute(&path).unwrap();
+        #[cfg(windows)]
+        assert_eq!(
+            absolute.file_name(),
+            Some(OsStr::new("b")),
+            "expected absolute() to strip the trailing `.` from `b.`, got {}",
+            absolute.display()
+        );
+        #[cfg(unix)]
+        assert_eq!(absolute.file_name(), Some(OsStr::new("b.")));
     }
 
     /// [`Path::join`] and [`PathBuf::push`] with `..`

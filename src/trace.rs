@@ -152,18 +152,15 @@ impl PhysicalNode {
 /// One [`Component`] of a path, and what was found there
 #[derive(Debug)]
 pub(crate) struct Step {
-    /// Which component of the caller's path this came from
+    /// Indexes [`Trace::input`] by its [`Path::components`].
     ///
-    /// Indexes [`Trace::input`] by [`Path::components`], so a report can point back at
-    /// the part of the path the caller actually typed. `None` for a component the caller
-    /// did not write, which is every component of the directory a relative path was
-    /// resolved against. Those are worth reporting too, they just have to be shown against
-    /// an absolute path ([`Step::at`]) rather than against the input.
+    /// For example, if the input is `/a/b/c` then the components will be
+    /// `[RootDir, Normal("a"), Normal("b"), Normal("c")]`. The step
+    /// index for `Normal("a")` would be `Some(1)`.
     ///
-    /// An interior `.` is not a component, so it has no index and cannot be a span. That
-    /// does not hide a problem: `.` is a no-op, and `/a/./b` still attributes `b` as
-    /// component 2. The later caret has to use this same iterator. A `split('/')` of the
-    /// original bytes would call index 2 `.` and underline the wrong place.
+    /// Is `None` when the step references something that was not included in the
+    /// original input. For example, when the input is relative we produce steps
+    /// for the absolute CWD before the relative part. In that scenario this is `None`
     pub(crate) input_index: Option<usize>,
 
     /// One component of the walked path, never the whole path

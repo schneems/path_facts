@@ -1270,6 +1270,70 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
+    fn test_windows_relative_parent_dir_is_folded_by_absolute() {
+        let fixture = Fixture::new();
+        std::fs::create_dir_all(fixture.join("a").join("b")).unwrap();
+        fixture.enter();
+
+        let input = r"a\b\..";
+        let absolute = std::path::absolute(input).unwrap();
+        assert!(
+            !absolute
+                .components()
+                .any(|c| c == std::path::Component::ParentDir),
+            "expected `absolute` to fold `..`, got {}",
+            absolute.display()
+        );
+
+        insta::assert_snapshot!(report(&fixture.scrub(), input), @r"
+        exists `a/b/..`
+         - `a/b/..`
+                ^^
+                ↳ Dir [✅ read, ✅ write, ✅ execute]
+                ↳ Absolute `/path/to/directory/a`
+         - `/path/to/directory/a`
+                     ^^^^^^^^^
+                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                     ↳ Contains (1)
+                       └── `a` (exists)
+        🛑
+        ");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_windows_relative_trailing_dot_is_stripped_by_absolute() {
+        let fixture = Fixture::new();
+        std::fs::create_dir_all(fixture.join("a").join("b")).unwrap();
+        std::fs::write(fixture.join("a").join("b").join("c"), "").unwrap();
+        fixture.enter();
+
+        let input = r"a\b\c.";
+        let absolute = std::path::absolute(input).unwrap();
+        assert_eq!(
+            absolute.file_name(),
+            Some(std::ffi::OsStr::new("c")),
+            "expected `absolute` to strip the trailing `.`, got {}",
+            absolute.display()
+        );
+
+        insta::assert_snapshot!(report(&fixture.scrub(), input), @r"
+        exists `a/b/c.`
+         - `a/b/c.`
+                ^^
+                ↳ File [✅ read, ✅ write, ✅ execute]
+                ↳ Absolute `/path/to/directory/a/b/c`
+         - `/path/to/directory/a/b/c`
+                                 ^
+                                 ↳ Dir [✅ read, ✅ write, ✅ execute]
+                                 ↳ Contains (1)
+                                   └── `c` (exists)
+        🛑
+        ");
+    }
+
+    #[test]
     fn test_prior_dir_problem_relative_path() {
         let fixture = Fixture::new();
         fixture.enter();

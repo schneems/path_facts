@@ -231,7 +231,7 @@ fn stopped_step_callout(path: &Path, trace: &Trace, step: &Step, early: bool) ->
 
     Callout {
         path: path.display().to_string(),
-        caret: caret_at(path, step.input),
+        caret: caret_at(path, step.input_index),
         facts,
     }
 }

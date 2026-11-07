@@ -164,7 +164,7 @@ pub(crate) struct Step {
     /// does not hide a problem: `.` is a no-op, and `/a/./b` still attributes `b` as
     /// component 2. The later caret has to use this same iterator. A `split('/')` of the
     /// original bytes would call index 2 `.` and underline the wrong place.
-    pub(crate) input: Option<usize>,
+    pub(crate) input_index: Option<usize>,
 
     /// One component of the walked path, never the whole path
     ///
@@ -561,7 +561,7 @@ impl Trace {
     /// absolute path in each case.
     pub(crate) fn parent_input_index(&self, dir: &CanonicalPath) -> Option<usize> {
         let before = StepCursor::trace_stopped_at(self).before()?;
-        let index = before.input?;
+        let index = before.input_index?;
 
         (before.contents.resolved_to()?.as_ref() == dir).then_some(index)
     }
@@ -656,7 +656,7 @@ fn attribute(steps: &mut [Step], input: &Path) {
         if step.name.as_ref() != component.as_os_str() {
             break;
         }
-        step.input = Some(index);
+        step.input_index = Some(index);
     }
 }
 
@@ -694,7 +694,7 @@ fn enter(position: Reached, name: NormalComponent) -> (Step, Reached) {
     match position {
         Reached::Lost => (
             Step {
-                input: None,
+                input_index: None,
                 name: name.into(),
                 at: None,
                 contents: PhysicalNode::NotReached,
@@ -707,7 +707,7 @@ fn enter(position: Reached, name: NormalComponent) -> (Step, Reached) {
             let at = join(&ghost, &name);
             (
                 Step {
-                    input: None,
+                    input_index: None,
                     name: name.into(),
                     at: Some(at.clone()),
                     contents: PhysicalNode::NotReached,
@@ -720,7 +720,7 @@ fn enter(position: Reached, name: NormalComponent) -> (Step, Reached) {
             let (saw, next) = look(&dir, &name, &at);
             (
                 Step {
-                    input: None,
+                    input_index: None,
                     name: name.into(),
                     at: Some(at),
                     contents: saw,
@@ -913,7 +913,7 @@ fn up(position: Reached, name: ParentDirComponent) -> (Step, Reached) {
             let resolved = from.parent().unwrap_or_else(|| from.clone());
             (
                 Step {
-                    input: None,
+                    input_index: None,
                     name: name.into(),
                     at: Some(AbsPath::from(resolved.clone())),
                     contents: PhysicalNode::ParentDir {
@@ -929,7 +929,7 @@ fn up(position: Reached, name: ParentDirComponent) -> (Step, Reached) {
         // fact about now.
         Reached::Ghost(_) | Reached::Lost => (
             Step {
-                input: None,
+                input_index: None,
                 name: name.into(),
                 at: None,
                 contents: PhysicalNode::NotReached,
@@ -958,7 +958,7 @@ mod tests {
         names
             .iter()
             .map(|name| Step {
-                input: None,
+                input_index: None,
                 name: one(name),
                 at: None,
                 contents: PhysicalNode::NotReached,
@@ -1663,7 +1663,7 @@ mod tests {
         let input = path.components().collect::<Vec<_>>();
 
         for step in &trace.steps {
-            let index = step.input.unwrap();
+            let index = step.input_index.unwrap();
             assert_eq!(input[index].as_os_str(), step.name.as_ref());
         }
     }
@@ -1683,7 +1683,7 @@ mod tests {
         let attributed = trace
             .steps
             .iter()
-            .filter_map(|step| Some((step.input?, step.name.clone())))
+            .filter_map(|step| Some((step.input_index?, step.name.clone())))
             .collect::<Vec<_>>();
         assert_eq!(
             attributed,
@@ -1692,7 +1692,7 @@ mod tests {
 
         // A problem in the anchor is still reportable, just against an absolute path
         // rather than against anything the caller would recognize
-        for step in trace.steps.iter().filter(|step| step.input.is_none()) {
+        for step in trace.steps.iter().filter(|step| step.input_index.is_none()) {
             assert!(
                 step.at.is_some(),
                 "{:?} should still name a path",
@@ -1714,7 +1714,7 @@ mod tests {
         let input = path.components().collect::<Vec<_>>();
 
         for step in &trace.steps {
-            let index = step.input.unwrap();
+            let index = step.input_index.unwrap();
             assert_eq!(input[index].as_os_str(), step.name.as_ref());
         }
     }
@@ -1732,7 +1732,7 @@ mod tests {
 
         attribute(&mut steps, Path::new("unrelated"));
 
-        assert!(steps.iter().all(|step| step.input.is_none()));
+        assert!(steps.iter().all(|step| step.input_index.is_none()));
     }
 
     /// Alignment runs from the end, so a shared tail is attributed and the first name that
@@ -1744,7 +1744,10 @@ mod tests {
         attribute(&mut steps, Path::new("elsewhere/hello"));
 
         assert_eq!(
-            steps.iter().map(|step| step.input).collect::<Vec<_>>(),
+            steps
+                .iter()
+                .map(|step| step.input_index)
+                .collect::<Vec<_>>(),
             vec![None, None, Some(1)]
         );
     }

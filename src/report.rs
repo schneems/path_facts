@@ -1243,6 +1243,14 @@ mod tests {
         ");
     }
 
+    #[test]
+    fn test_nul_char() {
+        let fixture = Fixture::new();
+        fixture.enter();
+        let output = report(&fixture.scrub(), "a\0b");
+        insta::assert_snapshot!(format!("{output:?}"), @r#""`a\0b`\n - `a\0b`\n    ^^^\n    ↳ Cannot read raw metadata: file name contained an unexpected NUL byte\n    ↳ Absolute `/path/to/directory/a\0b`\n - `/path/to/directory/a\0b`\n             ^^^^^^^^^\n             ↳ Dir [✅ read, ✅ write, ✅ execute]\n             ↳ ❌ Missing `a\0b`\n             ↳ Contains (0)\n               └── (empty)\n🛑""#);
+    }
+
     // Root detection is "the path has no lexical parent". The spelling of a root differs by
     // platform, so each OS asserts its own: unix's `/` here, Windows's `C:\` below. On Windows `/`
     // is root-but-relative (it has a RootDir component but no drive prefix), so it would not

@@ -209,33 +209,23 @@ pub(crate) struct DirBeforeComponent {
     pub(crate) component: NormalComponent,
 }
 
-/// Every component of a path, and what the filesystem reported at each
+/// Every [`Component`] of a path, and the physical contents at each step
+///
+/// Constructed from the root and walked to the end of the input [`Path`]
 #[derive(Debug)]
 pub(crate) struct Trace {
-    /// The path the caller passed in, before it was anchored
-    ///
-    /// Kept verbatim, separators and `.` parts and all, because it is the spelling the
-    /// caller recognizes. Anchoring rewrites `./hello` into `/home/you/hello`, which is
-    /// the right thing to walk and the wrong thing to show back to someone who typed the
-    /// first one.
+    /// The original, unmodified, input [`Path`]
     input: PathBuf,
 
-    /// The same path, anchored so the walk has somewhere to start
-    ///
-    /// Not a different path, a different spelling of the same one. Every step's
-    /// [`Step::at`] is built from this rather than from [`Trace::input`], because `./hello`
-    /// names nothing on its own.
+    /// The input path, but absolute. All walks start from the root.
+    /// When the input path was already absolute this will match.
     absolute: AbsPath,
 
-    /// The filesystem root every step hangs off of
-    ///
-    /// Proven before the walk starts rather than assumed. A root is canonical by
-    /// construction, but that says nothing about whether it can be reached: a Windows path
-    /// can name a share on a machine that is off, and there is nothing to say about
-    /// `\\server\share\a\b\c` when `\\server\share` itself does not answer.
+    /// The physical, resolved root of the input path
     root: CanonicalPath,
 
-    /// Components of the path, and what was found in each
+    /// Details about the physical contents of each [`Component`] that comes after the
+    /// root in the path.
     steps: NonEmpty<Step>,
 }
 

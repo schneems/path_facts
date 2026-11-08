@@ -1247,8 +1247,7 @@ mod tests {
     fn test_nul_char() {
         let fixture = Fixture::new();
         fixture.enter();
-        let output = report(&fixture.scrub(), "a\0b");
-        insta::assert_snapshot!(format!("{output:?}"), @r#""`a\0b`\n - `a\0b`\n    ^^^\n    ↳ Cannot read raw metadata: file name contained an unexpected NUL byte\n    ↳ Absolute `/path/to/directory/a\0b`\n - `/path/to/directory/a\0b`\n             ^^^^^^^^^\n             ↳ Dir [✅ read, ✅ write, ✅ execute]\n             ↳ ❌ Missing `a\0b`\n             ↳ Contains (0)\n               └── (empty)\n🛑""#);
+        insta::assert_snapshot!(report(&fixture.scrub(), "a\0b"));
     }
 
     // Root detection is "the path has no lexical parent". The spelling of a root differs by

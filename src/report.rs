@@ -250,8 +250,8 @@ fn stopped_step_callout(path: &Path, trace: &Trace, step: &Step, early: bool) ->
 /// The listing shows the sought entry when it exists, plus up to `dir_limit` others.
 fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Option<Callout> {
     let listing = trace.listing()?;
-    let dir = listing.dir;
-    let sought = listing.entry;
+    let dir = listing.dir_before;
+    let sought = listing.component;
     let spelled = trace.stop_parent();
 
     let (shown, caret) = if let Some(span) = trace

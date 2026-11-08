@@ -185,11 +185,21 @@ pub(crate) struct Step {
     pub(crate) contents: PhysicalNode,
 }
 
-/// A directory that can be listed, and the name to point at inside it
+/// A directory and the next lexical [`Component`]
+///
+/// e.g. for `/a/b/c` if `b` is the directory, `c` would be the entry.
+///
+/// If the last entry is `..` then the entry is where it resolved to.
+/// e.g. for `/x/y/z/..` the `..` lands on `/x/y`, so the directory is `/x` and the entry is `y`.
+///
+/// See [`Trace::listing`] for details.
 #[derive(Debug)]
-pub(crate) struct Listing {
-    pub(crate) dir: CanonicalPath,
-    pub(crate) entry: NormalComponent,
+pub(crate) struct DirBeforeComponent {
+    /// Directory
+    pub(crate) dir_before: CanonicalPath,
+    /// Next lexical (not physical) component on the path (may or may not be on disk).
+    /// For a `..`, this is the name of the directory it lands on.
+    pub(crate) component: NormalComponent,
 }
 
 /// Every component of a path, and what the filesystem reported at each
@@ -384,16 +394,16 @@ impl Trace {
     /// failed there; otherwise it is the directory holding the final component.
     ///
     /// `None` only when the path resolves to a root, which sits in nothing.
-    pub(crate) fn listing(&self) -> Option<Listing> {
+    pub(crate) fn listing(&self) -> Option<DirBeforeComponent> {
         let cursor = StepCursor::trace_stopped_at(self);
         let step = cursor.current();
 
         // `..` is not an entry in any directory listing, so name the location it moved to
         // rather than the two dots that were written.
         if let PhysicalNode::ParentDir { resolved, .. } = &step.contents {
-            return Some(Listing {
-                dir: resolved.parent()?,
-                entry: resolved.filename_component()?,
+            return Some(DirBeforeComponent {
+                dir_before: resolved.parent()?,
+                component: resolved.filename_component()?,
             });
         }
 
@@ -418,9 +428,9 @@ impl Trace {
             }
         };
 
-        Some(Listing {
-            dir,
-            entry: step.name.normal()?.clone(),
+        Some(DirBeforeComponent {
+            dir_before: dir,
+            component: step.name.normal()?.clone(),
         })
     }
 
@@ -995,8 +1005,8 @@ mod tests {
         assert_eq!(trace.physical_location().unwrap().as_ref(), path);
 
         let listing = trace.listing().unwrap();
-        assert_eq!(listing.dir.as_ref(), dir.join("a").join("b"));
-        assert_eq!(listing.entry, norm("c"));
+        assert_eq!(listing.dir_before.as_ref(), dir.join("a").join("b"));
+        assert_eq!(listing.component, norm("c"));
     }
 
     /// A name that is not there is still a name in a directory that is, so the listing
@@ -1012,8 +1022,8 @@ mod tests {
         assert!(matches!(stopped(&trace).contents, PhysicalNode::Missing(_)));
 
         let listing = trace.listing().unwrap();
-        assert_eq!(listing.dir.as_ref(), b);
-        assert_eq!(listing.entry, norm("c"));
+        assert_eq!(listing.dir_before.as_ref(), b);
+        assert_eq!(listing.component, norm("c"));
         assert_eq!(trace.parent_name().unwrap().as_ref(), b);
     }
 
@@ -1041,8 +1051,8 @@ mod tests {
         }
 
         let listing = trace.listing().unwrap();
-        assert_eq!(listing.dir.as_ref(), dir);
-        assert_eq!(listing.entry, norm("c"));
+        assert_eq!(listing.dir_before.as_ref(), dir);
+        assert_eq!(listing.component, norm("c"));
     }
 
     /// A circular link is the same shape as a dangling one: `lstat` succeeds on the link
@@ -1066,8 +1076,8 @@ mod tests {
         }
 
         let listing = trace.listing().unwrap();
-        assert_eq!(listing.dir.as_ref(), dir);
-        assert_eq!(listing.entry, norm("loop1"));
+        assert_eq!(listing.dir_before.as_ref(), dir);
+        assert_eq!(listing.component, norm("loop1"));
     }
 
     /// The case a canonical path cannot express: `b` is missing, so `<dir>/a/b` is an exact
@@ -1085,8 +1095,8 @@ mod tests {
 
         // The listing points at the missing name itself, inside a directory that exists
         let listing = trace.listing().unwrap();
-        assert_eq!(listing.dir.as_ref(), dir.join("a"));
-        assert_eq!(listing.entry, norm("b"));
+        assert_eq!(listing.dir_before.as_ref(), dir.join("a"));
+        assert_eq!(listing.component, norm("b"));
         assert_eq!(trace.parent_name().unwrap().as_ref(), b);
     }
 
@@ -1101,8 +1111,8 @@ mod tests {
         assert_eq!(stopped(&trace).at.as_ref().unwrap().as_ref(), b);
 
         let listing = trace.listing().unwrap();
-        assert_eq!(listing.dir.as_ref(), dir.join("a"));
-        assert_eq!(listing.entry, norm("b"));
+        assert_eq!(listing.dir_before.as_ref(), dir.join("a"));
+        assert_eq!(listing.component, norm("b"));
         assert_eq!(trace.parent_name().unwrap().as_ref(), b.join("c"));
     }
 
@@ -1122,8 +1132,8 @@ mod tests {
         assert_eq!(stop.at.as_ref().unwrap().as_ref(), c);
 
         let listing = trace.listing().unwrap();
-        assert_eq!(listing.dir.as_ref(), b);
-        assert_eq!(listing.entry, norm("c"));
+        assert_eq!(listing.dir_before.as_ref(), b);
+        assert_eq!(listing.component, norm("c"));
 
         // The only query the `..` takes away
         assert!(trace.parent_name().is_none());
@@ -1141,8 +1151,8 @@ mod tests {
         assert_eq!(stopped(&trace).at.as_ref().unwrap().as_ref(), b);
 
         let listing = trace.listing().unwrap();
-        assert_eq!(listing.dir.as_ref(), dir.join("a"));
-        assert_eq!(listing.entry, norm("b"));
+        assert_eq!(listing.dir_before.as_ref(), dir.join("a"));
+        assert_eq!(listing.component, norm("b"));
         assert!(trace.parent_name().is_none());
     }
 
@@ -1160,8 +1170,8 @@ mod tests {
         assert!(trace.physical_location().is_none());
 
         let listing = trace.listing().unwrap();
-        assert_eq!(listing.dir.as_ref(), target);
-        assert_eq!(listing.entry, norm("c"));
+        assert_eq!(listing.dir_before.as_ref(), target);
+        assert_eq!(listing.component, norm("c"));
         assert_eq!(trace.parent_name().unwrap().as_ref(), target);
 
         let trace = walk(link.join("c").join("d").join("e"));
@@ -1171,8 +1181,8 @@ mod tests {
         );
 
         let listing = trace.listing().unwrap();
-        assert_eq!(listing.dir.as_ref(), target);
-        assert_eq!(listing.entry, norm("c"));
+        assert_eq!(listing.dir_before.as_ref(), target);
+        assert_eq!(listing.component, norm("c"));
         assert_eq!(
             trace.parent_name().unwrap().as_ref(),
             target.join("c").join("d")
@@ -1204,8 +1214,8 @@ mod tests {
 
         // Wherever the link points, the link itself sits in a directory that exists
         let listing = trace.listing().unwrap();
-        assert_eq!(listing.dir.as_ref(), dir);
-        assert_eq!(listing.entry, norm("dangling"));
+        assert_eq!(listing.dir_before.as_ref(), dir);
+        assert_eq!(listing.component, norm("dangling"));
 
         // A child of the link would live under the target, which does not resolve
         assert!(trace.parent_name().is_none());
@@ -1388,8 +1398,8 @@ mod tests {
         assert!(closed.join("inner").access(AccessMode::EXECUTE).is_err());
 
         let listing = trace.listing().unwrap();
-        assert_eq!(listing.dir.as_ref(), closed);
-        assert_eq!(listing.entry, norm("inner"));
+        assert_eq!(listing.dir_before.as_ref(), closed);
+        assert_eq!(listing.component, norm("inner"));
         assert!(trace.parent_name().is_none());
     }
 
@@ -1405,8 +1415,8 @@ mod tests {
         }
 
         let listing = trace.listing().unwrap();
-        assert_eq!(listing.dir.as_ref(), dir);
-        assert_eq!(listing.entry, norm("f"));
+        assert_eq!(listing.dir_before.as_ref(), dir);
+        assert_eq!(listing.component, norm("f"));
     }
 
     /// An ancestor that blocks descent stops the walk early, and that step carries the physical
@@ -1499,8 +1509,8 @@ mod tests {
         }
 
         let listing = trace.listing().unwrap();
-        assert_eq!(listing.dir.as_ref(), dir);
-        assert_eq!(listing.entry, norm("f"));
+        assert_eq!(listing.dir_before.as_ref(), dir);
+        assert_eq!(listing.component, norm("f"));
     }
 
     #[cfg(unix)]
@@ -1519,8 +1529,8 @@ mod tests {
         }
 
         let listing = trace.listing().unwrap();
-        assert_eq!(listing.dir.as_ref(), dir);
-        assert_eq!(listing.entry, norm("flink"));
+        assert_eq!(listing.dir_before.as_ref(), dir);
+        assert_eq!(listing.component, norm("flink"));
     }
 
     /// The entry name comes from the resolved location, so a trailing `..` points at `a`
@@ -1536,8 +1546,8 @@ mod tests {
         assert_eq!(trace.physical_location().unwrap().as_ref(), dir.join("a"));
 
         let listing = trace.listing().unwrap();
-        assert_eq!(listing.dir.as_ref(), dir);
-        assert_eq!(listing.entry, norm("a"));
+        assert_eq!(listing.dir_before.as_ref(), dir);
+        assert_eq!(listing.component, norm("a"));
         assert_eq!(trace.parent_name().unwrap().as_ref(), dir);
     }
 

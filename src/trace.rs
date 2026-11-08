@@ -17,6 +17,26 @@ use std::io::Write;
 use std::io::{stderr, ErrorKind};
 use std::path::{Component, Path, PathBuf};
 
+/// Every [`Component`] of a path, and the physical contents at each step
+///
+/// Constructed from the root and walked to the end of the input [`Path`]
+#[derive(Debug)]
+pub(crate) struct Trace {
+    /// The original, unmodified, input [`Path`]
+    input: PathBuf,
+
+    /// The input path, but absolute. All walks start from the root.
+    /// When the input path was already absolute this will match.
+    absolute: AbsPath,
+
+    /// The physical, resolved root of the input path
+    root: CanonicalPath,
+
+    /// Details about the physical contents of each [`Component`] that comes after the
+    /// root in the path.
+    steps: NonEmpty<Step>,
+}
+
 /// What a single, physical disk check reported for one [`Component`]
 #[derive(Debug)]
 pub(crate) enum PhysicalNode {
@@ -207,26 +227,6 @@ pub(crate) struct DirBeforeComponent {
     /// Next lexical (not physical) component on the path (may or may not be on disk).
     /// For a `..`, this is the name of the directory it lands on.
     pub(crate) component: NormalComponent,
-}
-
-/// Every [`Component`] of a path, and the physical contents at each step
-///
-/// Constructed from the root and walked to the end of the input [`Path`]
-#[derive(Debug)]
-pub(crate) struct Trace {
-    /// The original, unmodified, input [`Path`]
-    input: PathBuf,
-
-    /// The input path, but absolute. All walks start from the root.
-    /// When the input path was already absolute this will match.
-    absolute: AbsPath,
-
-    /// The physical, resolved root of the input path
-    root: CanonicalPath,
-
-    /// Details about the physical contents of each [`Component`] that comes after the
-    /// root in the path.
-    steps: NonEmpty<Step>,
 }
 
 /// The walk could not begin

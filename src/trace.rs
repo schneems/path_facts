@@ -171,17 +171,24 @@ pub(crate) struct Step {
     /// Can differ from the input, see [`Step::input_index`].
     pub(crate) name: OwnedComponent,
 
-    /// The path this component names
+    /// Physical(ish) representation of the component
     ///
-    /// Physical rather than lexical: a component below a symlink is named inside the
-    /// link's target, and `..` names the directory it moved to.
+    /// When this field is `Some`, it provides a path who's lexical and physical representations do
+    /// not diverge due to symlinks in prior directories. Meaning, every prior directory is either
+    /// expanded/resolved or is proved to not be a symlink via proving it does not exist.
+    /// e.g. if `/a` exists and `/a/b` provably does not, it is safe to say that the physical
+    /// and lexical representation of `/a/b/c` do not diverge.
     ///
-    /// `None` once naming stops, which happens two ways. A `..` that cannot be folded
-    /// leaves nothing to name, and so does any component below a failed lookup, a loop, or a
-    /// link that goes nowhere. Naming survives a proven absence, because absence rules out a
-    /// symlink.
+    /// If this component exists and is a symlink, it represents the physical path to that symlink (does not follow
+    /// the symlink). For a regular directory or file, or a `..`, it is the same as a
+    /// [`CanonicalPath`].
+    ///
+    /// It is `None` when we cannot provably construct a path that does not diverge. For example
+    /// if we could not resolve a symlink of a prior directory, we cannot confidently construct
+    /// a physical path.
     pub(crate) at: Option<AbsPath>,
 
+    /// What was found when we looked on disk
     pub(crate) contents: PhysicalNode,
 }
 

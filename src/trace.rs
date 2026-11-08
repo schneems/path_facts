@@ -169,7 +169,7 @@ impl PhysicalNode {
     }
 }
 
-/// One [`Component`] of a path, and what was found there
+/// Details about physical contents of one [`Component`] on a path
 #[derive(Debug)]
 pub(crate) struct Step {
     /// Indexes [`Trace::input`] by its [`Path::components`].

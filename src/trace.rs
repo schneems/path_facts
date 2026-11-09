@@ -547,7 +547,8 @@ impl Trace {
     /// belongs to the directory a relative path was anchored against and so was never written by
     /// the caller, or it names a different place than `dir`. A report has to fall back to an
     /// absolute path in each case.
-    pub(crate) fn parent_input_index(&self, dir: &CanonicalPath) -> Option<usize> {
+    pub(crate) fn parent_input_index(&self, input: &DirBeforeComponent) -> Option<usize> {
+        let dir = &input.dir_before;
         let before = StepCursor::trace_stopped_at(self).before()?;
         let index = before.input_index?;
 

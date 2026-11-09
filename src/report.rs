@@ -250,12 +250,12 @@ fn stopped_step_callout(path: &Path, trace: &Trace, step: &Step, early: bool) ->
 /// The listing shows the sought entry when it exists, plus up to `dir_limit` others.
 fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Option<Callout> {
     let listing = trace.listing()?;
-    let dir = listing.dir_before;
-    let sought = listing.component;
+    let dir = &listing.dir_before;
+    let sought = &listing.component;
     let spelled = trace.stop_parent();
 
     let (shown, caret) = if let Some(span) = trace
-        .parent_input_index(&dir)
+        .parent_input_index(&listing)
         .and_then(|index| caret_at(path, Some(index)))
     {
         (path.display().to_string(), Some(span))
@@ -265,7 +265,7 @@ fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Op
         let fallback = spelled.clone().unwrap_or_else(|| dir.clone().into());
         let span = callout::highlight(fallback.as_ref(), Caret::Last);
         (
-            fallback.join_normal(&sought).as_ref().display().to_string(),
+            fallback.join_normal(sought).as_ref().display().to_string(),
             span,
         )
     };
@@ -286,7 +286,7 @@ fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Op
         Err(error) => facts.push(Fact::Text(format!("Cannot list directory: {error}"))),
         // Promoted to its own fact rather than left as a gap in the tree, because a name that
         // is not there cannot be pointed at inside a list of names that are.
-        Ok(entries) if !entries.contains(&sought) => {
+        Ok(entries) if !entries.contains(sought) => {
             facts.push(Fact::Text(format!("❌ Missing {sought}")));
         }
         Ok(_) => {}
@@ -298,7 +298,7 @@ fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Op
         let mut others = 0;
         let mut hidden = 0;
         for entry in entries {
-            let is_sought = entry == &sought;
+            let is_sought = entry == sought;
             if !is_sought {
                 others += 1;
                 if others > dir_limit {

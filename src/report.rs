@@ -135,17 +135,17 @@ impl Report {
     fn render_cannot_trace(&self, cannot: &CannotTrace) -> String {
         let input = self.path.display();
         match cannot {
-            CannotTrace::Anchor(AbsPathError::NulChar(path)) => {
+            CannotTrace::CannotAbsolute(AbsPathError::NulChar(path)) => {
                 format!(
                     "path `{}` contains a NUL character {:?}",
                     path.display(),
                     path.display()
                 )
             }
-            CannotTrace::Anchor(AbsPathError::PathIsEmpty(path)) => {
+            CannotTrace::CannotAbsolute(AbsPathError::PathIsEmpty(path)) => {
                 format!("path `{}` is empty", path.display())
             }
-            CannotTrace::Anchor(AbsPathError::CannotReadCWD(path, error)) => {
+            CannotTrace::CannotAbsolute(AbsPathError::CannotReadCWD(path, error)) => {
                 let callout = Callout {
                     path: path.display().to_string(),
                     caret: None,

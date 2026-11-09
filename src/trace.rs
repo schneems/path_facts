@@ -229,21 +229,20 @@ pub(crate) struct DirBeforeComponent {
     pub(crate) component: NormalComponent,
 }
 
-/// The walk could not begin
+/// Errors when we could not construct a [`Trace`]
 ///
-/// Distinct from everything else this module reports. A problem at a component is a fact
-/// about that component: it is recorded, the walk stops, and the steps before it still
-/// answer. Neither of these leaves anything to record.
+/// Even though this is an "error" it's treated as data about the input path that we still
+/// use to output fact(s) about the input path.
 #[derive(Debug)]
 pub(crate) enum CannotTrace {
-    /// The spelling could not be anchored, so there is nowhere to start walking from
-    Anchor(AbsPathError),
+    /// Error while constructing an [`AbsPath`] from the input
+    CannotAbsolute(AbsPathError),
 
-    /// The root the path hangs off did not answer
+    /// The root of the input path could not be canonicalized
     RootNotReachable(CannotCanonicalizeAnything),
 
-    /// The path passed in is nothing but Root (lexically). Meaning it would produce a Trace with
-    /// empty steps. Turning this into an error case means we can guarantee every Trace has steps.
+    /// A [`Trace`] holds a root and at least one [`Component`] as [`Step`]s. If
+    /// the input is only a root, we cannot produce a valid [`Trace`]
     IsRoot(CanonicalPath),
 }
 
@@ -261,7 +260,7 @@ impl Trace {
     /// answers about the components before it, while a [`Trace`] of nothing would invite
     /// queries that could only say `None` without saying why.
     pub(crate) fn new(input: &Path) -> Result<Trace, CannotTrace> {
-        let absolute = AbsPath::new(input).map_err(CannotTrace::Anchor)?;
+        let absolute = AbsPath::new(input).map_err(CannotTrace::CannotAbsolute)?;
 
         let root = absolute.lex_root();
         let root = CanonicalPath::new(&root).map_err(|root_error| {

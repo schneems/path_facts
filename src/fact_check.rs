@@ -299,6 +299,22 @@ mod tests {
         assert_eq!(absolute.file_name(), Some(OsStr::new("b.")));
     }
 
+    #[test]
+    fn absolute_with_nul_in_relative_path() {
+        let path = Path::new("a\0b");
+        let absolute = std::path::absolute(path);
+
+        #[cfg(windows)]
+        assert_err_kind(absolute, std::io::ErrorKind::InvalidInput);
+        #[cfg(unix)]
+        assert_eq!(absolute.unwrap().file_name(), Some(OsStr::new("a\0b")));
+
+        assert!(matches!(
+            AbsPath::new(path),
+            Err(crate::abs_path::AbsPathError::NulChar(..))
+        ));
+    }
+
     /// [`Path::join`] and [`PathBuf::push`] with `..`
     ///
     /// [`Path::join`] folds a `..` away when the receiver has a verbatim (`\\?\`)

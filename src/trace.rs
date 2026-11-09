@@ -400,15 +400,9 @@ impl Trace {
         })
     }
 
-    /// The name of the directory the final component sits in
-    ///
-    /// Exact as a *name*, which is weaker than [`Trace::listing`]: the answer may be a
-    /// directory that does not exist, so it cannot be listed and has no permissions. What
-    /// it is good for is saying which directory would have to appear.
-    ///
-    /// `None` when naming stopped, and when the path is a root.
+    /// Lexical parent of the last [`Step::at`]
     #[cfg(test)]
-    pub(crate) fn parent_name(&self) -> Option<AbsPath> {
+    pub(crate) fn last_step_expanded_lexical_parent(&self) -> Option<AbsPath> {
         self.steps.last().at.as_ref()?.lex_parent()
     }
 
@@ -980,7 +974,10 @@ mod tests {
         let listing = trace.listing().unwrap();
         assert_eq!(listing.dir_before.as_ref(), b);
         assert_eq!(listing.component, norm("c"));
-        assert_eq!(trace.parent_name().unwrap().as_ref(), b);
+        assert_eq!(
+            trace.last_step_expanded_lexical_parent().unwrap().as_ref(),
+            b
+        );
     }
 
     /// A broken symlink is still an entry in its directory, so the listing answers even
@@ -1053,7 +1050,10 @@ mod tests {
         let listing = trace.listing().unwrap();
         assert_eq!(listing.dir_before.as_ref(), dir.join("a"));
         assert_eq!(listing.component, norm("b"));
-        assert_eq!(trace.parent_name().unwrap().as_ref(), b);
+        assert_eq!(
+            trace.last_step_expanded_lexical_parent().unwrap().as_ref(),
+            b
+        );
     }
 
     /// One absence covers every name below it, no further syscalls needed.
@@ -1069,7 +1069,10 @@ mod tests {
         let listing = trace.listing().unwrap();
         assert_eq!(listing.dir_before.as_ref(), dir.join("a"));
         assert_eq!(listing.component, norm("b"));
-        assert_eq!(trace.parent_name().unwrap().as_ref(), b.join("c"));
+        assert_eq!(
+            trace.last_step_expanded_lexical_parent().unwrap().as_ref(),
+            b.join("c")
+        );
     }
 
     /// The case the old `ParentDirAfterHole` verdict made confusing by reporting only what
@@ -1092,7 +1095,7 @@ mod tests {
         assert_eq!(listing.component, norm("c"));
 
         // The only query the `..` takes away
-        assert!(trace.parent_name().is_none());
+        assert!(trace.last_step_expanded_lexical_parent().is_none());
     }
 
     /// `..` cannot be folded across a hole: doing so would assume `b` gets created as a
@@ -1109,7 +1112,7 @@ mod tests {
         let listing = trace.listing().unwrap();
         assert_eq!(listing.dir_before.as_ref(), dir.join("a"));
         assert_eq!(listing.component, norm("b"));
-        assert!(trace.parent_name().is_none());
+        assert!(trace.last_step_expanded_lexical_parent().is_none());
     }
 
     /// Components below a symlink are named inside its target, not below the link.
@@ -1128,7 +1131,10 @@ mod tests {
         let listing = trace.listing().unwrap();
         assert_eq!(listing.dir_before.as_ref(), target);
         assert_eq!(listing.component, norm("c"));
-        assert_eq!(trace.parent_name().unwrap().as_ref(), target);
+        assert_eq!(
+            trace.last_step_expanded_lexical_parent().unwrap().as_ref(),
+            target
+        );
 
         let trace = walk(link.join("c").join("d").join("e"));
         assert_eq!(
@@ -1140,7 +1146,7 @@ mod tests {
         assert_eq!(listing.dir_before.as_ref(), target);
         assert_eq!(listing.component, norm("c"));
         assert_eq!(
-            trace.parent_name().unwrap().as_ref(),
+            trace.last_step_expanded_lexical_parent().unwrap().as_ref(),
             target.join("c").join("d")
         );
     }
@@ -1174,7 +1180,7 @@ mod tests {
         assert_eq!(listing.component, norm("dangling"));
 
         // A child of the link would live under the target, which does not resolve
-        assert!(trace.parent_name().is_none());
+        assert!(trace.last_step_expanded_lexical_parent().is_none());
     }
 
     /// A relative target resolves against the directory holding the link. Joining it onto
@@ -1356,7 +1362,7 @@ mod tests {
         let listing = trace.listing().unwrap();
         assert_eq!(listing.dir_before.as_ref(), closed);
         assert_eq!(listing.component, norm("inner"));
-        assert!(trace.parent_name().is_none());
+        assert!(trace.last_step_expanded_lexical_parent().is_none());
     }
 
     #[test]
@@ -1504,7 +1510,10 @@ mod tests {
         let listing = trace.listing().unwrap();
         assert_eq!(listing.dir_before.as_ref(), dir);
         assert_eq!(listing.component, norm("a"));
-        assert_eq!(trace.parent_name().unwrap().as_ref(), dir);
+        assert_eq!(
+            trace.last_step_expanded_lexical_parent().unwrap().as_ref(),
+            dir
+        );
     }
 
     #[test]

@@ -417,11 +417,7 @@ impl Trace {
         &self.absolute
     }
 
-    /// Reports on the physical status of the input path
-    ///
-    /// - Exists: Input maps to a file at that location, but there may be other problems
-    /// - `DoesNotExist`: Input definitively does NOT exist due to an observation made on a prior path
-    /// - Unknown: Problems prevent us from conclusively saying if the path is exists or not
+    /// Physical status of input path [`StatusOnDisk::Exists`], [`StatusOnDisk::DoesNotExist`] or [`StatusOnDisk::Unknown`]
     pub(crate) fn status_on_disk(&self) -> StatusOnDisk {
         match self.stop_status() {
             StopStatus::Early(step) => match &step.contents {
@@ -477,6 +473,7 @@ impl Trace {
         }
     }
 
+    /// Whether the trace completed or stopped early and the step where it stopped
     pub(crate) fn stop_status(&self) -> StopStatus<'_> {
         let cursor = StepCursor::trace_stopped_at(self);
         let step = cursor.current();

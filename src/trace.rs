@@ -259,7 +259,7 @@ impl Trace {
             })
         })?;
 
-        let mut position = Reached::Dir(root.clone());
+        let mut position = WalkPosition::Dir(root.clone());
         let mut steps = Vec::new();
 
         for component in absolute.as_ref().components() {
@@ -578,8 +578,8 @@ fn attribute(steps: &mut [Step], input: &Path) {
     }
 }
 
-/// Where the walk has gotten to partway through a path
-enum Reached {
+/// Current status of an in-progress walk.
+enum WalkPosition {
     /// A resolved directory, the only state where the filesystem can be asked anything
     Dir(CanonicalPath),
     /// Names below here are still exact, but nothing is there to examine
@@ -608,20 +608,20 @@ fn warn(input: impl AsRef<str>) {
 }
 
 /// Moves into `name`, which sits inside whatever the walk has reached
-fn enter(position: Reached, name: NormalComponent) -> (Step, Reached) {
+fn enter(position: WalkPosition, name: NormalComponent) -> (Step, WalkPosition) {
     match position {
-        Reached::Lost => (
+        WalkPosition::Lost => (
             Step {
                 input_index: None,
                 name: name.into(),
                 at: None,
                 contents: PhysicalNode::NotReached,
             },
-            Reached::Lost,
+            WalkPosition::Lost,
         ),
         // Nothing exists below a name that does not, so nothing below it can be a symlink
         // and there is nothing left to ask the filesystem.
-        Reached::Ghost(ghost) => {
+        WalkPosition::Ghost(ghost) => {
             let at = join(&ghost, &name);
             (
                 Step {
@@ -630,10 +630,10 @@ fn enter(position: Reached, name: NormalComponent) -> (Step, Reached) {
                     at: Some(at.clone()),
                     contents: PhysicalNode::NotReached,
                 },
-                Reached::Ghost(at),
+                WalkPosition::Ghost(at),
             )
         }
-        Reached::Dir(dir) => {
+        WalkPosition::Dir(dir) => {
             let at = join(&AbsPath::from(dir.clone()), &name);
             let (saw, next) = look(&dir, &name, &at);
             (
@@ -650,15 +650,18 @@ fn enter(position: Reached, name: NormalComponent) -> (Step, Reached) {
 }
 
 /// Asks the filesystem about `name` inside the resolved directory `dir`
-fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalNode, Reached) {
+fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalNode, WalkPosition) {
     match dir.entry(name) {
         Ok(Entry::Canonical(child, lstat)) => {
             if lstat.is_dir() {
-                (PhysicalNode::Directory(child.clone()), Reached::Dir(child))
+                (
+                    PhysicalNode::Directory(child.clone()),
+                    WalkPosition::Dir(child),
+                )
             } else {
                 (
                     PhysicalNode::File(child.clone()),
-                    Reached::Ghost(child.into()),
+                    WalkPosition::Ghost(child.into()),
                 )
             }
         }
@@ -690,7 +693,7 @@ fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalN
                                 entry: Some(name.clone()),
                                 error,
                             },
-                            Reached::Lost,
+                            WalkPosition::Lost,
                         );
                     } else if !any_errors {
                         return (
@@ -699,7 +702,7 @@ fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalN
                                 entry: None,
                                 error,
                             },
-                            Reached::Lost,
+                            WalkPosition::Lost,
                         );
                     }
                 }
@@ -707,12 +710,15 @@ fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalN
 
             // We know there's a problem with the directory, check to see if a prior assumption failed to hold
             match check_directory_race(dir) {
-                Some(why) => (PhysicalNode::Raced { why, error }, Reached::Lost),
+                Some(why) => (PhysicalNode::Raced { why, error }, WalkPosition::Lost),
                 None => {
                     if error.kind() == ErrorKind::NotFound {
-                        (PhysicalNode::Missing(error), Reached::Ghost(at.clone()))
+                        (
+                            PhysicalNode::Missing(error),
+                            WalkPosition::Ghost(at.clone()),
+                        )
                     } else {
-                        (PhysicalNode::UnknownLookup(error), Reached::Lost)
+                        (PhysicalNode::UnknownLookup(error), WalkPosition::Lost)
                     }
                 }
             }
@@ -767,7 +773,7 @@ fn check_directory_race(dir: &CanonicalPath) -> Option<&'static str> {
 /// Delegates the following to `realpath` so the loop budget and the rest of the target's
 /// own chain are libc's problem rather than ours. Whatever it refuses on comes back as the
 /// error, unexamined.
-fn follow(dir: &CanonicalPath, link: &AbsPath) -> (PhysicalNode, Reached) {
+fn follow(dir: &CanonicalPath, link: &AbsPath) -> (PhysicalNode, WalkPosition) {
     // `readlink` and `realpath` are two more looks at a name `lstat` already called a
     // symlink, and either can be refused (Apple checks the link's own permission bits on
     // `readlink`). A link whose target cannot be read is a fact about the link, so the
@@ -784,7 +790,7 @@ fn follow(dir: &CanonicalPath, link: &AbsPath) -> (PhysicalNode, Reached) {
                     target,
                     resolved: Err(error),
                 },
-                Reached::Lost,
+                WalkPosition::Lost,
             )
         }
     };
@@ -796,12 +802,12 @@ fn follow(dir: &CanonicalPath, link: &AbsPath) -> (PhysicalNode, Reached) {
             let (landed, next) = if metadata.is_dir() {
                 (
                     ResolvedSymlink::Dir(resolved.clone()),
-                    Reached::Dir(resolved.clone()),
+                    WalkPosition::Dir(resolved.clone()),
                 )
             } else {
                 (
                     ResolvedSymlink::File(resolved.clone()),
-                    Reached::Ghost(AbsPath::from(resolved)),
+                    WalkPosition::Ghost(AbsPath::from(resolved)),
                 )
             };
             (
@@ -819,15 +825,15 @@ fn follow(dir: &CanonicalPath, link: &AbsPath) -> (PhysicalNode, Reached) {
                 why: "realpath resolved this link, stat failed to resolve",
                 error,
             },
-            Reached::Lost,
+            WalkPosition::Lost,
         ),
     }
 }
 
 /// Applies `..` to whatever the walk has reached
-fn up(position: Reached, name: ParentDirComponent) -> (Step, Reached) {
+fn up(position: WalkPosition, name: ParentDirComponent) -> (Step, WalkPosition) {
     match position {
-        Reached::Dir(from) => {
+        WalkPosition::Dir(from) => {
             let resolved = from.parent().unwrap_or_else(|| from.clone());
             (
                 Step {
@@ -839,20 +845,20 @@ fn up(position: Reached, name: ParentDirComponent) -> (Step, Reached) {
                         resolved: resolved.clone(),
                     },
                 },
-                Reached::Dir(resolved),
+                WalkPosition::Dir(resolved),
             )
         }
         // Folding this would assume whatever fills the gap is a directory rather than a
         // symlink pointing somewhere else, which is a guess about the future rather than a
         // fact about now.
-        Reached::Ghost(_) | Reached::Lost => (
+        WalkPosition::Ghost(_) | WalkPosition::Lost => (
             Step {
                 input_index: None,
                 name: name.into(),
                 at: None,
                 contents: PhysicalNode::NotReached,
             },
-            Reached::Lost,
+            WalkPosition::Lost,
         ),
     }
 }

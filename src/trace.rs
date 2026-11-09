@@ -500,15 +500,6 @@ impl Trace {
                 }
             })
     }
-
-    /// The directory holding the stopping component, as an absolute path
-    ///
-    /// Lexical, and so available even when the directory does not exist. `None` only when the
-    /// stopping component sits directly in the root.
-    pub(crate) fn stop_parent(&self) -> Option<AbsPath> {
-        let cursor = StepCursor::trace_stopped_at(self);
-        cursor.current().at.as_ref()?.lex_parent()
-    }
 }
 
 /// A pointer to a specific step, allows us to inspect up or down

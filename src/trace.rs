@@ -540,6 +540,7 @@ impl<'a> StepCursor<'a> {
     }
 }
 
+/// Represents the status of the trace, if it finished or not.
 #[derive(Debug)]
 pub(crate) enum StopStatus<'a> {
     /// Stopped before last step
@@ -559,16 +560,7 @@ pub(crate) enum StatusOnDisk {
     Unknown,
 }
 
-/// Points each step back at the component of `input` it came from
-///
-/// Aligned from the end, by name. The two lists are not parallel from the front: anchoring
-/// a relative path prepends components the caller never wrote, and it drops the `.` parts
-/// they did write. They do share a tail, because anchoring only ever prepends.
-///
-/// Matching names rather than counting is what makes this safe. Anchoring is
-/// [`std::path::absolute`], whose normalization differs across platforms, and a
-/// disagreement here should cost a step its attribution rather than point a future caret
-/// at the wrong component. So the walk stops at the first name that does not line up.
+/// Match each [`Step::input_index`] to the index of the input [`Component`]
 fn attribute(steps: &mut [Step], input: &Path) {
     // The walk records no step for a `.`, so skipping them here keeps one in the middle of
     // a path from knocking everything before it out of alignment.

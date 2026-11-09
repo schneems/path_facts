@@ -580,14 +580,18 @@ fn attribute(steps: &mut [Step], input: &Path) {
 
 /// Current status of an in-progress walk.
 enum WalkPosition {
-    /// A resolved directory, the only state where the filesystem can be asked anything
+    /// A resolved directory
     Dir(CanonicalPath),
-    /// Names below here are still exact, but nothing is there to examine
+    /// Whatever comes after this does not exist
     ///
-    /// Reached through a proven absence or through something that is not a directory.
-    /// Both rule out a symlink, which is all that naming needs.
+    /// The path it holds is lexically safe (does not diverge from physical), all parts have been
+    /// resolved or do not exist.
+    ///
+    /// - Is a file or symlink to a file
+    /// - Proven missing
+    /// - Came after another prior `WalkPosition::Ghost`
     Ghost(AbsPath),
-    /// Nothing below here can even be named
+    /// We cannot prove what the component is, nor can we prove it's not there it is not lexically
     Lost,
 }
 

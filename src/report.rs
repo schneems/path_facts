@@ -250,12 +250,12 @@ fn stopped_step_callout(path: &Path, trace: &Trace, step: &Step, early: bool) ->
 /// The listing shows the sought entry when it exists, plus up to `dir_limit` others.
 fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Option<Callout> {
     let listing = trace.listing()?;
-    let dir = listing.dir;
-    let sought = listing.entry;
+    let dir = &listing.dir_before;
+    let sought = &listing.component;
     let spelled = trace.stop_parent();
 
     let (shown, caret) = if let Some(span) = trace
-        .parent_input_index(&dir)
+        .input_index_of_dir(&listing)
         .and_then(|index| caret_at(path, Some(index)))
     {
         (path.display().to_string(), Some(span))
@@ -265,7 +265,7 @@ fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Op
         let fallback = spelled.clone().unwrap_or_else(|| dir.clone().into());
         let span = callout::highlight(fallback.as_ref(), Caret::Last);
         (
-            fallback.join_normal(&sought).as_ref().display().to_string(),
+            fallback.join_normal(sought).as_ref().display().to_string(),
             span,
         )
     };
@@ -286,7 +286,7 @@ fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Op
         Err(error) => facts.push(Fact::Text(format!("Cannot list directory: {error}"))),
         // Promoted to its own fact rather than left as a gap in the tree, because a name that
         // is not there cannot be pointed at inside a list of names that are.
-        Ok(entries) if !entries.contains(&sought) => {
+        Ok(entries) if !entries.contains(sought) => {
             facts.push(Fact::Text(format!("❌ Missing {sought}")));
         }
         Ok(_) => {}
@@ -298,7 +298,7 @@ fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Op
         let mut others = 0;
         let mut hidden = 0;
         for entry in entries {
-            let is_sought = entry == &sought;
+            let is_sought = entry == sought;
             if !is_sought {
                 others += 1;
                 if others > dir_limit {
@@ -1007,9 +1007,7 @@ mod tests {
         ");
     }
 
-    /// `<dir>/a/b/..` resolves to `<dir>/a`, so the directory to list is `<dir>` — two steps back
-    /// from the `..`, not one. The parent caret cannot point at `b`, which names somewhere else,
-    /// so the callout falls back to spelling the directory out. See `Trace::parent_input_index`.
+    /// `<dir>/a/b/..` resolves to `<dir>/a`, so the directory to list is `<dir>`.
     #[test]
     fn test_exists_dot_dot_annotates_resolved_entry() {
         let fixture = Fixture::new();
@@ -1024,7 +1022,30 @@ mod tests {
                                    ^^
                                    ↳ Dir [✅ read, ✅ write, ✅ execute]
                                    ↳ Canonical `/path/to/directory/a`
-         - `/path/to/directory/a`
+         - `/path/to/directory/a/b/..`
+                     ^^^^^^^^^
+                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                     ↳ Contains (2)
+                       ├── `a` (exists)
+                       └── `other.txt`
+        🛑
+        ");
+    }
+
+    #[test]
+    fn test_exists_repeated_dot_dot_annotates_resolved_entry() {
+        let fixture = Fixture::new();
+        let a = fixture.join("a");
+        std::fs::create_dir_all(a.join("b")).unwrap();
+        std::fs::write(fixture.join("other.txt"), "").unwrap();
+
+        insta::assert_snapshot!(report(&fixture.scrub(), join_unfolded(&a, &["..", "a", "b", ".."])), @r"
+        exists `/path/to/directory/a/../a/b/..`
+         - `/path/to/directory/a/../a/b/..`
+                                        ^^
+                                        ↳ Dir [✅ read, ✅ write, ✅ execute]
+                                        ↳ Canonical `/path/to/directory/a`
+         - `/path/to/directory/a/../a/b/..`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
                      ↳ Contains (2)

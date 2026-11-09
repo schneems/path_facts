@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Fix: Show original path with `..` on the directory contains callout.
+
+```
+before:  - `/path/to/directory/a`
+                     ^^^^^^^^^
+after:   - `/path/to/directory/a/b/..`
+                     ^^^^^^^^^
+```
+
 - Fix: Show NUL byte in an input path.
 - Fix: "Cannot lstat" changed to "Cannot read raw metadata".
 - Fix: Directories are now limited to 20 **additional** entries by default. Previously there was no limit.

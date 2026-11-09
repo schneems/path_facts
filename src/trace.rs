@@ -264,11 +264,8 @@ impl Trace {
 
         for component in absolute.as_ref().components() {
             let (step, next) = match component::owned(component) {
-                // `Prefix` and `RootDir` are where the walk already starts, and `components`
-                // only ever yields them at the front of an absolute path.
-                //
-                // `CurDir` (`.`) is normally dropped by `join` at the end of a path but it survives
-                // in the middle.
+                // `Prefix` + `RootDir` come from the starting canonical path.
+                // `CurDir` references the last reached directory
                 OwnedComponent::Prefix(_)
                 | OwnedComponent::RootDir(_)
                 | OwnedComponent::CurDir(_) => continue,
@@ -294,9 +291,7 @@ impl Trace {
         })
     }
 
-    /// Where the path lands, when every component resolved
-    ///
-    /// `Some` exactly when `Trace::stopped_early_at` is `None`.
+    /// [`CanonicalPath`] of the full input if all components could be visited
     pub(crate) fn physical_location(&self) -> Option<CanonicalPath> {
         if self.stopped_early_at().is_some() {
             None
@@ -309,13 +304,13 @@ impl Trace {
         }
     }
 
-    // The step of the last part of the input path
+    // The step of the last component of the input path
     #[cfg(test)]
     pub(crate) fn last_step(&self) -> &Step {
         self.steps.last()
     }
 
-    /// The first step where the walk found a contradiction
+    /// The first step where the walk found a race condition
     #[cfg(test)]
     pub(crate) fn raced(&self) -> Option<&Step> {
         self.steps
@@ -330,39 +325,50 @@ impl Trace {
         self.steps[index].contents = PhysicalNode::Raced { why, error };
     }
 
-    /// The step the walk could not continue past
-    ///
-    /// `None` exactly when every component resolved, which is when `Trace::physical_location`
-    /// answers. Every step after this one is [`PhysicalNode::NotReached`], so this single
-    /// observation explains all of them.
+    /// The [`Step`] that prevented the full path from being walked
     pub(crate) fn stopped_early_at(&self) -> Option<&Step> {
         let cursor = StepCursor::trace_stopped_at(self);
         let step = cursor.current();
 
-        // Arriving at a file, a link, or an absence is an answer when the path ends there,
-        // and a dead end when more components follow.
-        let stopped = cursor.after().is_some() || step.contents.resolved_to().is_none();
+        // There's another step after this one
+        let stopped = cursor.after().is_some() ||
+                // The walk reached the last component but couldn't resolve it
+                step.contents.resolved_to().is_none();
         stopped.then_some(step)
     }
 
-    /// The directory to list, and the name to point at inside it
+    /// Directory to show on the report
     ///
-    /// Always an existing directory: for every arm except `Up` it is a place the walk
-    /// resolved; for `Up` it is the lexical parent of a canonical path, which must exist.
-    /// Existence, being-a-directory, and search (execute) permission are proven — the walk
-    /// or the canonicalization that produced the path traversed through it. Read permission
-    /// is not proven, so `read_dir` on it can still fail with `EACCES`.
+    /// Returns the last directory before the normal component where the walk stopped.
+    /// For example, here the walk stopped at `the` and the last directory is `before`:
     ///
-    /// When the walk stopped this is the deepest directory it reached plus the name that
-    /// failed there; otherwise it is the directory holding the final component.
+    /// ```text
+    /// /the/dir/before/the/file.txt
+    ///                 ^^^ component
+    ///          ^^^^^^ dir_before
+    /// ```
     ///
-    /// `None` only when the path resolves to a root, which sits in nothing.
+    /// If the component would have been a `..` it will return the entry it folded to. For example,
+    /// if the full path exists:
+    ///
+    /// ```text
+    /// /the/dir/before/eaten/..
+    ///          ^^^^^^ component
+    ///      ^^^ dir_before
+    /// ```
+    ///
+    /// The `..` component points/folds to `before` and the directory that holds it is `dir`.
+    ///
+    /// If someone is to list the contents of the directory, the component can be used to check if
+    /// there is a directory entry with that name.
+    ///
+    /// Returns `None` when it cannot return a dir and a component. This happens when the path resolves
+    /// to root like `/a/../b/..`.
     pub(crate) fn listing(&self) -> Option<DirBeforeComponent> {
         let cursor = StepCursor::trace_stopped_at(self);
         let step = cursor.current();
 
-        // `..` is not an entry in any directory listing, so name the location it moved to
-        // rather than the two dots that were written.
+        // Convert `..` to a normalized component that can be checked against contents of the directory.
         if let PhysicalNode::ParentDir { resolved, .. } = &step.contents {
             return Some(DirBeforeComponent {
                 dir_before: resolved.parent()?,
@@ -374,6 +380,8 @@ impl Trace {
         // Only a step that resolved to a place does that: `Directory`, a `Symlink` onto a
         // directory, or a `..` that landed on one. Every other outcome leaves `Ghost` or
         // `Lost`, from which the next step is `NotReached` and so not the one examined here.
+
+        // Extract directory from the stopped step
         let dir = match cursor.before() {
             None => self.root.clone(),
             Some(previous) => {

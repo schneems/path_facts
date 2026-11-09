@@ -1035,6 +1035,29 @@ mod tests {
     }
 
     #[test]
+    fn test_exists_repeated_dot_dot_annotates_resolved_entry() {
+        let fixture = Fixture::new();
+        let a = fixture.join("a");
+        std::fs::create_dir_all(a.join("b")).unwrap();
+        std::fs::write(fixture.join("other.txt"), "").unwrap();
+
+        insta::assert_snapshot!(report(&fixture.scrub(), join_unfolded(&a, &["..", "a", "b", ".."])), @r"
+        exists `/path/to/directory/a/../a/b/..`
+         - `/path/to/directory/a/../a/b/..`
+                                        ^^
+                                        ↳ Dir [✅ read, ✅ write, ✅ execute]
+                                        ↳ Canonical `/path/to/directory/a`
+         - `/path/to/directory/a`
+                     ^^^^^^^^^
+                     ↳ Dir [✅ read, ✅ write, ✅ execute]
+                     ↳ Contains (2)
+                       ├── `a` (exists)
+                       └── `other.txt`
+        🛑
+        ");
+    }
+
+    #[test]
     fn test_parent_exists_missing_file() {
         let fixture = Fixture::new();
         let missing = fixture.join("does_not_exist.txt");

@@ -376,12 +376,7 @@ impl Trace {
             });
         }
 
-        // This step was reached, so the step before it left the walk in `Reached::Dir`.
-        // Only a step that resolved to a place does that: `Directory`, a `Symlink` onto a
-        // directory, or a `..` that landed on one. Every other outcome leaves `Ghost` or
-        // `Lost`, from which the next step is `NotReached` and so not the one examined here.
-
-        // Extract directory from the stopped step
+        // Extract directory from the step prior to the one that stopped
         let dir = match cursor.before() {
             None => self.root.clone(),
             Some(previous) => {
@@ -417,16 +412,13 @@ impl Trace {
         self.steps.last().at.as_ref()?.lex_parent()
     }
 
-    /// The path the caller passed in, before it was anchored
-    #[allow(dead_code)]
+    /// The unmodified original path
+    #[cfg(test)]
     pub(crate) fn input(&self) -> &Path {
         &self.input
     }
 
-    /// The anchored path the walk was actually run against
-    ///
-    /// Held so a caller that needs it can take this one rather than anchor a second time
-    /// and end up with two paths that could differ.
+    /// An absolute version of the original path
     pub(crate) fn absolute(&self) -> &AbsPath {
         &self.absolute
     }

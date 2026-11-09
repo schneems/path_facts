@@ -255,7 +255,7 @@ fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Op
     let spelled = trace.stop_parent();
 
     let (shown, caret) = if let Some(span) = trace
-        .parent_input_index(&listing)
+        .input_index_of_dir(&listing)
         .and_then(|index| caret_at(path, Some(index)))
     {
         (path.display().to_string(), Some(span))
@@ -1007,9 +1007,7 @@ mod tests {
         ");
     }
 
-    /// `<dir>/a/b/..` resolves to `<dir>/a`, so the directory to list is `<dir>` — two steps back
-    /// from the `..`, not one. The parent caret cannot point at `b`, which names somewhere else,
-    /// so the callout falls back to spelling the directory out. See `Trace::parent_input_index`.
+    /// `<dir>/a/b/..` resolves to `<dir>/a`, so the directory to list is `<dir>`.
     #[test]
     fn test_exists_dot_dot_annotates_resolved_entry() {
         let fixture = Fixture::new();
@@ -1024,7 +1022,7 @@ mod tests {
                                    ^^
                                    ↳ Dir [✅ read, ✅ write, ✅ execute]
                                    ↳ Canonical `/path/to/directory/a`
-         - `/path/to/directory/a`
+         - `/path/to/directory/a/b/..`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
                      ↳ Contains (2)
@@ -1047,7 +1045,7 @@ mod tests {
                                         ^^
                                         ↳ Dir [✅ read, ✅ write, ✅ execute]
                                         ↳ Canonical `/path/to/directory/a`
-         - `/path/to/directory/a`
+         - `/path/to/directory/a/../a/b/..`
                      ^^^^^^^^^
                      ↳ Dir [✅ read, ✅ write, ✅ execute]
                      ↳ Contains (2)

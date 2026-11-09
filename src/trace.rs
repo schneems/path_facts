@@ -531,28 +531,20 @@ impl Trace {
         }
     }
 
-    /// Which component of [`Trace::input`] names `dir`, when the component just before the stop
-    /// does
-    ///
-    /// For pointing a caret at a directory inside the caller's own spelling. `dir` is the
-    /// directory being described, normally [`Trace::listing`]'s.
-    ///
-    /// The match is checked rather than assumed, because "the step before the stop" and "the
-    /// directory the stop sits in" are the same component only most of the time. A trailing `..`
-    /// resolves to its own grandparent, so its listing describes a directory two steps back and
-    /// the component before it names somewhere else entirely. Pointing a caret there would label
-    /// one directory with another's contents.
-    ///
-    /// `None` when there is nothing to point at: the stop is the first step, the step before it
-    /// belongs to the directory a relative path was anchored against and so was never written by
-    /// the caller, or it names a different place than `dir`. A report has to fall back to an
-    /// absolute path in each case.
-    pub(crate) fn parent_input_index(&self, input: &DirBeforeComponent) -> Option<usize> {
+    /// Returns input index of a directory that comes before a component
+    pub(crate) fn input_index_of_dir(&self, input: &DirBeforeComponent) -> Option<usize> {
         let dir = &input.dir_before;
-        let before = StepCursor::trace_stopped_at(self).before()?;
-        let index = before.input_index?;
-
-        (before.contents.resolved_to()?.as_ref() == dir).then_some(index)
+        self.steps
+            .iter()
+            .rev()
+            .filter(|step| !matches!(step.contents, PhysicalNode::ParentDir { .. }))
+            .find_map(|step| {
+                if step.contents.resolved_to()?.as_ref() == dir {
+                    step.input_index
+                } else {
+                    None
+                }
+            })
     }
 
     /// The directory holding the stopping component, as an absolute path

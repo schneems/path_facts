@@ -135,6 +135,13 @@ impl Report {
     fn render_cannot_trace(&self, cannot: &CannotTrace) -> String {
         let input = self.path.display();
         match cannot {
+            CannotTrace::Anchor(AbsPathError::NulChar(path)) => {
+                format!(
+                    "path `{}` contains a NUL character {:?}",
+                    path.display(),
+                    path.display()
+                )
+            }
             CannotTrace::Anchor(AbsPathError::PathIsEmpty(path)) => {
                 format!("path `{}` is empty", path.display())
             }
@@ -1241,6 +1248,12 @@ mod tests {
             ↳ Cannot read the current directory: {error}
         🛑
         ");
+    }
+
+    #[test]
+    fn test_nul_char() {
+        let output = Report::new("hello\0world").to_string();
+        insta::assert_snapshot!(output, @"path `hello\0world` contains a NUL character \"hello\\0world\"");
     }
 
     // Root detection is "the path has no lexical parent". The spelling of a root differs by

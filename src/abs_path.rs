@@ -71,6 +71,10 @@ impl AbsPath {
             return Err(AbsPathError::PathIsEmpty(path.to_owned()));
         }
 
+        if path.as_os_str().as_encoded_bytes().contains(&0) {
+            return Err(AbsPathError::NulChar(path.to_owned()));
+        }
+
         if path.is_relative() {
             let absolute = std::path::absolute(path)
                 .map_err(|error| AbsPathError::CannotReadCWD(path.to_owned(), error))?;
@@ -287,6 +291,7 @@ fn expand_leading_dots(base: CanonicalPath, rest: &RelativePath) -> AbsPath {
 
 #[derive(Debug)]
 pub(crate) enum AbsPathError {
+    NulChar(PathBuf),
     PathIsEmpty(PathBuf),
     CannotReadCWD(PathBuf, std::io::Error),
 }

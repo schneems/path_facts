@@ -308,6 +308,11 @@ mod tests {
         assert_err_kind(absolute, std::io::ErrorKind::InvalidInput);
         #[cfg(unix)]
         assert_eq!(absolute.unwrap().file_name(), Some(OsStr::new("a\0b")));
+
+        assert!(matches!(
+            AbsPath::new(path),
+            Err(crate::abs_path::AbsPathError::NulChar(..))
+        ));
     }
 
     /// [`Path::join`] and [`PathBuf::push`] with `..`

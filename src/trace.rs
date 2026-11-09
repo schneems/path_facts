@@ -247,18 +247,6 @@ pub(crate) enum CannotTrace {
 }
 
 impl Trace {
-    /// Walks the path left to right, recording what is at each component
-    ///
-    /// Takes the spelling the caller wrote and anchors it here, rather than accepting an
-    /// already-anchored path alongside it. The two have to agree for a report to point at
-    /// anything real, and deriving one from the other is what leaves no way for them to
-    /// disagree. [`Trace::absolute`] hands the anchored path back, so a caller that needs
-    /// it does not have to anchor a second time.
-    ///
-    /// Errors only when the walk cannot begin, which is the one shape of failure that
-    /// leaves nothing to report. Every other problem stops the walk partway and still
-    /// answers about the components before it, while a [`Trace`] of nothing would invite
-    /// queries that could only say `None` without saying why.
     pub(crate) fn new(input: &Path) -> Result<Trace, CannotTrace> {
         let absolute = AbsPath::new(input).map_err(CannotTrace::CannotAbsolute)?;
 
@@ -327,36 +315,15 @@ impl Trace {
         self.steps.last()
     }
 
-    /// The step where the walk caught a contradiction, if it caught one
-    ///
-    /// A [`PhysicalNode::Raced`] leaves the walk `Lost`, so it is the deepest component
-    /// reached and there is at most one: nothing below a race is examined. It is not always
-    /// `Trace::last_step` though. A race before the final component leaves the steps after
-    /// it [`PhysicalNode::NotReached`], so testing the last step alone would miss it, which is
-    /// why this scans.
-    ///
-    /// `None` does not promise the walk saw a consistent filesystem, only that it caught no
-    /// self-contradiction. Most changes underneath a walk are invisible to it (see
-    /// [`PhysicalNode::Raced`]).
-    #[allow(dead_code)]
+    /// The first step where the walk found a contradiction
+    #[cfg(test)]
     pub(crate) fn raced(&self) -> Option<&Step> {
         self.steps
             .iter()
             .find(|step| matches!(step.contents, PhysicalNode::Raced { .. }))
     }
 
-    /// Rewrites the stopped step's outcome as a [`PhysicalNode::Raced`], for tests
-    ///
-    /// A race is two syscalls a moment apart disagreeing, and the walk only ever sees one by
-    /// losing a bet with the scheduler, so it cannot be arranged on demand (the
-    /// `no_longer_a_directory` tests cover the judgement that names one, not the timing).
-    /// This puts a known race into an otherwise real trace so detecting and displaying one
-    /// can be tested without winning that bet.
-    ///
-    /// The race is written where a real one lands: the deepest step reached, leaving any
-    /// component after it [`PhysicalNode::NotReached`] and every other field as the walk
-    /// recorded it. Walk a path that stops early (a file mid-path) to place the race before
-    /// the final component.
+    /// Appends a [`PhysicalNode::Raced`] variant for tests
     #[cfg(test)]
     pub(crate) fn append_race(&mut self, why: &'static str, error: std::io::Error) {
         let index = StepCursor::trace_stopped_at(self).index;

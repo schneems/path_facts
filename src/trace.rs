@@ -611,7 +611,7 @@ fn warn(input: impl AsRef<str>) {
     panic!("{}", input.as_ref());
 }
 
-/// Moves into `name`, which sits inside whatever the walk has reached
+/// Entry point for the walk of every [`NormalComponent`].
 fn enter(position: WalkPosition, name: NormalComponent) -> (Step, WalkPosition) {
     match position {
         WalkPosition::Lost => (
@@ -623,8 +623,6 @@ fn enter(position: WalkPosition, name: NormalComponent) -> (Step, WalkPosition) 
             },
             WalkPosition::Lost,
         ),
-        // Nothing exists below a name that does not, so nothing below it can be a symlink
-        // and there is nothing left to ask the filesystem.
         WalkPosition::Ghost(ghost) => {
             let at = join(&ghost, &name);
             (
@@ -653,7 +651,7 @@ fn enter(position: WalkPosition, name: NormalComponent) -> (Step, WalkPosition) 
     }
 }
 
-/// Asks the filesystem about `name` inside the resolved directory `dir`
+/// Queries the filesystem about `name` inside the resolved directory `dir`
 fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalNode, WalkPosition) {
     match dir.entry(name) {
         Ok(Entry::Canonical(child, lstat)) => {

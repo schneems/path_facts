@@ -8,9 +8,7 @@ use crate::canonical_path::{CannotCanonicalizeAnything, CanonicalPath};
 use crate::env_config;
 use crate::non_empty::NonEmpty;
 use crate::style;
-use crate::trace::{
-    CannotTrace, PhysicalNode, ResolvedSymlink, StatusOnDisk, Step, StopStatus, Trace,
-};
+use crate::trace::{CannotTrace, PhysicalNode, ResolvedSymlink, StatusOnDisk, Step, Trace};
 use faccess::{AccessMode, PathExt};
 use std::fmt::Display;
 use std::num::NonZeroUsize;
@@ -177,18 +175,14 @@ fn trace_and_callouts(trace: Trace, dir_limit: usize) -> (Trace, NonEmpty<Callou
     (trace, callouts)
 }
 
-/// Each callout is a path with associated facts about it.
-///
-/// Always at least one: the walk always stopped somewhere, and that somewhere is what the first
-/// callout describes. The second appears whenever the stopping step sits in a directory the walk
-/// managed to look inside.
+/// Build Callouts for a trace
 fn callouts(trace: &Trace, dir_limit: usize) -> NonEmpty<Callout> {
-    let (step, early) = match trace.stop_status() {
-        StopStatus::Early(step) => (step, true),
-        StopStatus::Final(step) => (step, false),
-    };
-
-    let mut callouts = NonEmpty::new(stopped_step_callout(trace, step, early));
+    let status = trace.stop_status();
+    let mut callouts = NonEmpty::new(stopped_step_callout(
+        trace,
+        status.step(),
+        status.stopped_early(),
+    ));
     if let Some(parent) = parent_of_stopped_callout(trace, dir_limit) {
         callouts.push(parent);
     }
@@ -920,8 +914,7 @@ mod tests {
             .iter()
             .map(|(what, path)| {
                 let trace = Trace::new(path).unwrap();
-                let (StopStatus::Early(step) | StopStatus::Final(step)) = trace.stop_status();
-                let answer = match resolved_elsewhere(step) {
+                let answer = match resolved_elsewhere(trace.stop_status().step()) {
                     Some(canonical) => canonical.to_string(),
                     None => "None".to_string(),
                 };

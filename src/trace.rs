@@ -548,6 +548,18 @@ pub(crate) enum StopStatus<'a> {
     Final(&'a Step),
 }
 
+impl<'a> StopStatus<'a> {
+    pub(crate) fn stopped_early(&self) -> bool {
+        matches!(self, StopStatus::Early(_))
+    }
+
+    pub(crate) fn step(&self) -> &'a Step {
+        match self {
+            StopStatus::Early(step) | StopStatus::Final(step) => step,
+        }
+    }
+}
+
 /// Status of a path on disk
 #[derive(Debug)]
 pub(crate) enum StatusOnDisk {

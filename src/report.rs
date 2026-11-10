@@ -392,7 +392,7 @@ fn stopped_step_detail_facts(step: &Step) -> Vec<Fact> {
                 "Target `{}` → {absolute}",
                 written.display()
             ))],
-            Err(error) => vec![Fact::Text(format!("Cannot readlink: {error}"))],
+            Err(error) => vec![Fact::Text(format!("Cannot read symlink target: {error}"))],
         },
         // The type line says the name was only ever seen in a listing. This says what the system
         // answered when the walk asked about it directly, which is the sentence a reader can
@@ -400,7 +400,7 @@ fn stopped_step_detail_facts(step: &Step) -> Vec<Fact> {
         // again at render time would put a filesystem read inside `Display`, and an answer from a
         // different moment than the rest of the callout.
         PhysicalNode::ParentNoExec { error, .. } => {
-            vec![Fact::Text(format!("Cannot lstat: {error}"))]
+            vec![Fact::Text(format!("Cannot read raw metadata: {error}"))]
         }
         _ => Vec::new(),
     }
@@ -1608,11 +1608,11 @@ mod tests {
 
     // Unix-only: the behavior is not reproducible on the Windows CI runner.
     //
-    // The test needs "a directory you can list but not descend into" so that the lstat on a child
-    // is refused. Unix models this as the directory execute bit, dropped here with
+    // The test needs "a directory you can list but not descend into" so that `symlink_metadata`
+    // on a child is refused. Unix models this as the directory execute bit, dropped here with
     // `set_mode(0o644)`. Windows models it as the "Traverse folder / execute file" ACL right, and
     // GitHub's Windows runner executes as an administrator whose token bypasses per-user traverse
-    // denials, so `icacls /deny` leaves the lstat succeeding.
+    // denials, so `icacls /deny` leaves `symlink_metadata` succeeding.
     #[test]
     #[cfg(unix)]
     fn test_no_execute_dir_with_file() {
@@ -1637,7 +1637,7 @@ mod tests {
          - `/path/to/directory/no_exec_dir/file.txt`
                                            ^^^^^^^^
                                            ↳ Parent directory missing execute permission
-                                           ↳ Cannot lstat: {error}
+                                           ↳ Cannot read raw metadata: {error}
          - `/path/to/directory/no_exec_dir/file.txt`
                                ^^^^^^^^^^^
                                ↳ Dir [✅ read, ✅ write, ❌ execute]
@@ -1650,7 +1650,7 @@ mod tests {
     }
 
     // Unix-only for the same reason as the test above: it removes directory traverse (0o444) so
-    // the lstat on a child is refused, which the Windows runner's admin token bypasses.
+    // `symlink_metadata` on a child is refused, which the Windows runner's admin token bypasses.
     #[test]
     #[cfg(unix)]
     fn test_no_write_dir_with_file() {
@@ -1661,7 +1661,7 @@ mod tests {
         let file = no_write_dir.join("file.txt");
         std::fs::write(&file, "content").unwrap();
 
-        // read only: no write (fires the warning), no execute (the lstat is refused)
+        // read only: no write (fires the warning), no execute (`symlink_metadata` is refused)
         set_mode(&no_write_dir, 0o444).unwrap();
 
         let scrubber = fixture
@@ -1676,7 +1676,7 @@ mod tests {
          - `/path/to/directory/no_write_dir/file.txt`
                                             ^^^^^^^^
                                             ↳ Parent directory missing execute permission
-                                            ↳ Cannot lstat: {error}
+                                            ↳ Cannot read raw metadata: {error}
          - `/path/to/directory/no_write_dir/file.txt`
                                ^^^^^^^^^^^^
                                ↳ Dir [✅ read, ❌ write, ❌ execute]
@@ -1730,7 +1730,7 @@ mod tests {
 
         let mut trace = Trace::new(&path).unwrap();
         trace.append_race(
-            "realpath resolved this link, stat failed to resolve",
+            "the link canonicalized, but reading its resolved metadata failed",
             std::fs::metadata(fixture.join("does_not_exist")).unwrap_err(),
         );
 
@@ -1744,7 +1744,7 @@ mod tests {
                                  ↳ ⚠️ Filesystem change detected while gathering facts.
                                    ⚠️ Facts displayed may be invalid, stale or disagree.
                                    ⚠️
-                                   ⚠️ Detected: realpath resolved this link, stat failed to resolve
+                                   ⚠️ Detected: the link canonicalized, but reading its resolved metadata failed
                                    ⚠️ Error: {error}
          - `/path/to/directory/a/b`
                                ^

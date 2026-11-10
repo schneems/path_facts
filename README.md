@@ -88,7 +88,7 @@ std::fs::rename(&from, to).map_err(|error| formatdoc! {"
 
 ### Async support
 
-This library uses syncronous file system calls. If you're using this library in an async context,
+This library uses synchronous file system calls. If you're using this library in an async context,
 you'll want to use an async wrapper like [`tokio::task::spawn_blocking`](https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html).
 
 ### Configuring via ENV vars

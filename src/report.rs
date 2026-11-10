@@ -283,11 +283,7 @@ fn parent_of_stopped_callout(trace: &Trace, dir_limit: usize) -> Option<Callout>
     })
 }
 
-/// The one line that always leads the stopping-step callout: what is at that component.
-///
-/// An early stop folds the reason the walk could not continue into the type itself, because a
-/// bare `File` on a component with more path after it reads like an answer rather than the
-/// problem it is.
+/// First description of the step that stopped (should hint why it stopped there when early)
 fn stopped_step_type_line(step: &Step, early: bool) -> String {
     let not_a_dir = if early { ", not a dir" } else { "" };
 
@@ -335,8 +331,7 @@ fn stopped_step_type_line(step: &Step, early: bool) -> String {
     }
 }
 
-/// Facts that only some node kinds carry: where a link points, and why the walk could not reach
-/// through to the name.
+/// Extra details about a stopped step beyond [`stopped_step_type_line`]
 fn stopped_step_detail_facts(step: &Step) -> Vec<Fact> {
     match &step.contents {
         PhysicalNode::Symlink { target, .. } => match target {
@@ -349,11 +344,6 @@ fn stopped_step_detail_facts(step: &Step) -> Vec<Fact> {
             ))],
             Err(error) => vec![Fact::Text(format!("Cannot read symlink target: {error}"))],
         },
-        // The type line says the name was only ever seen in a listing. This says what the system
-        // answered when the walk asked about it directly, which is the sentence a reader can
-        // search for. The error is the one the walk already holds rather than a fresh call: asking
-        // again at render time would put a filesystem read inside `Display`, and an answer from a
-        // different moment than the rest of the callout.
         PhysicalNode::ParentNoExec { error, .. } => {
             vec![Fact::Text(format!("Cannot read raw metadata: {error}"))]
         }
@@ -361,10 +351,8 @@ fn stopped_step_detail_facts(step: &Step) -> Vec<Fact> {
     }
 }
 
-/// Where the component resolved to, when that is somewhere other than where it is spelled.
-///
-/// `None` when the two agree, which is the common case and would only add a line repeating the
-/// bullet above it.
+/// Physical resolved path if it's different than what's already visible in callout
+/// Helps avoid repetition of facts already visible on the screen
 fn resolved_elsewhere(step: &Step) -> Option<CanonicalPath> {
     match &step.contents {
         // In the `/path/to/directory/a/b/..` is always shown as `/path/to/directory/a`
@@ -386,21 +374,7 @@ fn resolved_elsewhere(step: &Step) -> Option<CanonicalPath> {
     }
 }
 
-/// What a directory's permission bits allow, spelled out, when at least one of them is denied.
-///
-/// Silent on a directory that permits everything, where the triad above already says so and three
-/// more lines of "yes" would bury the facts worth reading.
-///
-/// Each line stands on its own. It is tempting to fold them together — "entries can be listed but
-/// not reached" says the interesting part of two bits in one breath — but that sentence is only
-/// true when read is granted, and a `0o111` directory grants search and refuses the listing. A
-/// fact that quietly depends on another bit is one a reader cannot check against the triad, so
-/// each bit gets its own sentence and claims nothing about the others.
-///
-/// Read is reported either way, because "the listing you are about to see is everything that is
-/// there" and "there is no listing" are both answers the reader needs once anything else is
-/// denied. Write and execute appear only when denied: a permission that is granted causes no
-/// surprise worth a line.
+/// Directory permission capabilities spelled out in words
 fn dir_permission_facts(dir: &Path) -> Vec<Fact> {
     let write = dir.access(AccessMode::WRITE).is_ok();
     let execute = dir.access(AccessMode::EXECUTE).is_ok();
@@ -437,21 +411,12 @@ fn triad(path: &Path) -> String {
     )
 }
 
-/// Every scenario the library renders, asserted once.
-///
-/// [`PathFacts`](crate::PathFacts) forwards its `Display` here, so these snapshots are the only
-/// copy. `path_facts::tests` keeps a single test proving that forwarding is verbatim, which is
-/// what makes each snapshot below a claim about both types without a second suite to keep in step.
-///
-/// Every snapshot ends in `🛑` so a trailing newline is visible rather than trimmed away, and
-/// every fixture is built under [`Fixture::root`] so the carets have stable names to point at.
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::join_unfolded;
     use crate::test_support::*;
 
-    /// Renders a report and scrubs it with `scrubber`.
     fn report(scrubber: &Scrubber, path: impl AsRef<Path>) -> String {
         scrubber.carets(&Report::new(path).to_string())
     }
@@ -587,11 +552,6 @@ mod tests {
         ");
     }
 
-    /// Rendering asks disk nothing: every fact is gathered by `Report::new`.
-    ///
-    /// Deleting everything the callouts describe is the only way to tell the difference from the
-    /// outside. A `Display` that still read permissions or listed the directory would answer
-    /// from the emptied disk and stop matching the first render.
     #[test]
     fn test_render_does_not_touch_the_filesystem() {
         let fixture = Fixture::new();
@@ -611,11 +571,6 @@ mod tests {
         );
     }
 
-    // A `0o111` (search-only, no-read) parent directory: the walk can *search* through it to
-    // resolve `child.txt`, so the path reaches its final component, but the parent cannot be
-    // `read_dir`'d. The refused listing is reported on the parent callout itself, which is why the
-    // callout names a directory and then declines to show what is in it. Unix-only:
-    // search-without-read is a POSIX mode the Windows runner cannot reproduce.
     #[test]
     #[cfg(unix)]
     fn test_prior_dir_problem_search_only_parent() {
@@ -647,18 +602,6 @@ mod tests {
         ");
     }
 
-    // A `0o000` parent directory, which is neither searchable nor readable. The lookup inside it
-    // is refused with `EACCES` rather than answered with `ENOENT`, so the walk cannot say whether
-    // the name is there. The fallback that would normally turn a refused lookup into `Parent
-    // directory missing execute permission` needs a listing to check the name against, and this
-    // directory will not give one either, so the refusal stands as its own outcome.
-    //
-    // `child.txt` is written before the mode drops, so this snapshot is a claim about a file that
-    // demonstrably exists: `Cannot tell what is here` is the walk declining to guess, not a
-    // roundabout spelling of missing.
-    //
-    // Unix-only, for the same reason as the tests above: the Windows runner's admin token bypasses
-    // the denial.
     #[test]
     #[cfg(unix)]
     fn test_lookup_refused_by_an_unreadable_parent() {
@@ -672,7 +615,6 @@ mod tests {
 
         let output = report(&fixture.scrub(), &child);
 
-        // Restore permissions so the tempdir can be cleaned up.
         set_mode(&denied, 0o755).unwrap();
 
         insta::assert_snapshot!(output, @r"
@@ -823,15 +765,6 @@ mod tests {
         ");
     }
 
-    /// Every shape `resolved_elsewhere` tells apart, in one table.
-    ///
-    /// The question is not where the component landed — [`PhysicalNode::resolved_to`] answers that
-    /// by itself, and every arm here takes the place from there. It is whether a `Canonical` line
-    /// would name somewhere the callout has not already named. What changes per arm is the spelling
-    /// that counts as "already named": the caret's own location for most nodes, the directory that
-    /// held the two dots for a `..`, and the link's written target for a symlink. Weighing all
-    /// three against `Step::at` would answer "no" for `..` every time and "yes" for a symlink every
-    /// time, which is why the comparison cannot be shared.
     #[test]
     fn test_resolved_elsewhere_per_node_kind() {
         use std::path::Component;
@@ -1020,8 +953,6 @@ mod tests {
         ");
     }
 
-    /// Two reports in one message. The summary line carries no `→` arrow precisely so a caller can
-    /// prepend `From path` / `To path` and have it still read as a sentence.
     #[test]
     fn test_rename_two_missing_paths() {
         use indoc::formatdoc;
@@ -1132,9 +1063,6 @@ mod tests {
         ");
     }
 
-    /// The link resolves, so the type line can say what it landed on, and what it landed on is
-    /// why the walk stopped. `, not a dir` is the same contrast a plain `File` draws when the
-    /// caller wrote more path after it, said here about the destination rather than the link.
     #[test]
     fn test_symlink_to_file_with_more_path_after_it() {
         let target = Fixture::named("target");
@@ -1189,14 +1117,6 @@ mod tests {
         ");
     }
 
-    // Unix-only test, though the failure it covers is not unix-only. `CannotReadCWD` fires
-    // whenever `std::env::current_dir()` fails, which can happen on Windows too (e.g. the working
-    // directory lived on a removable or network drive that went away, or its permissions were
-    // revoked out from under the process).
-    //
-    // What differs is how to *provoke* it deterministically. On unix we just delete the CWD while
-    // sitting in it. Windows holds an open handle to the CWD and refuses to remove it, so that
-    // trick is unavailable, and the remaining triggers cannot be staged reliably from a unit test.
     #[test]
     #[cfg(unix)]
     fn test_cannot_read_cwd() {
@@ -1221,10 +1141,6 @@ mod tests {
         insta::assert_snapshot!(output, @"path `hello\0world` contains a NUL character \"hello\\0world\"");
     }
 
-    // Root detection is "the path has no lexical parent". The spelling of a root differs by
-    // platform, so each OS asserts its own: unix's `/` here, Windows's `C:\` below. On Windows `/`
-    // is root-but-relative (it has a RootDir component but no drive prefix), so it would not
-    // report as root.
     #[test]
     #[cfg(unix)]
     fn test_is_root() {
@@ -1234,10 +1150,6 @@ mod tests {
         ");
     }
 
-    // A drive root like `C:\` has a Prefix and a RootDir but no further components, so it has no
-    // lexical parent and reports as root, the same property `/` has on unix. Unscrubbed: the
-    // backslashes and the verbatim prefix are the point, and this snapshot can only ever be
-    // recorded by a Windows runner.
     #[test]
     #[cfg(windows)]
     fn test_is_root_windows() {
@@ -1506,10 +1418,6 @@ mod tests {
         );
     }
 
-    /// A symlink-to-directory ancestor whose target holds a file that callouts descent. The early
-    /// stop is reported at its physical location under the resolved target (`.../real/a.txt`), not
-    /// under the link's own name, pinning that `step.at` is physical-through-parent and not a
-    /// lexical spelling of the input.
     #[test]
     fn test_prior_path_is_file_under_a_symlinked_directory() {
         let fixture = Fixture::new();
@@ -1560,13 +1468,6 @@ mod tests {
         ");
     }
 
-    // Unix-only: the behavior is not reproducible on the Windows CI runner.
-    //
-    // The test needs "a directory you can list but not descend into" so that `symlink_metadata`
-    // on a child is refused. Unix models this as the directory execute bit, dropped here with
-    // `set_mode(0o644)`. Windows models it as the "Traverse folder / execute file" ACL right, and
-    // GitHub's Windows runner executes as an administrator whose token bypasses per-user traverse
-    // denials, so `icacls /deny` leaves `symlink_metadata` succeeding.
     #[test]
     #[cfg(unix)]
     fn test_no_execute_dir_with_file() {
@@ -1603,8 +1504,6 @@ mod tests {
         ");
     }
 
-    // Unix-only for the same reason as the test above: it removes directory traverse (0o444) so
-    // `symlink_metadata` on a child is refused, which the Windows runner's admin token bypasses.
     #[test]
     #[cfg(unix)]
     fn test_no_write_dir_with_file() {
@@ -1643,8 +1542,6 @@ mod tests {
         ");
     }
 
-    // Unix-only: builds `AbsPath` from unix-rooted paths (`/` and `/pretend/...`), which are not
-    // valid absolute paths on Windows (roots look like `C:\`).
     #[test]
     #[cfg(unix)]
     fn test_cannot_canonicalize_anything() {
@@ -1673,9 +1570,6 @@ mod tests {
         ");
     }
 
-    /// A race caught on the final component. The walk resolved every step, then a re-check
-    /// contradicted what it had just seen. A real race cannot be timed on demand, so
-    /// `Trace::append_race` writes a known one into an otherwise real trace.
     #[test]
     fn test_renders_a_raced_final_component() {
         let fixture = Fixture::new();

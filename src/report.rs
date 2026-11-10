@@ -282,7 +282,7 @@ fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Op
         Ok(_) => {}
     }
 
-    // Last, so the tree it nests never comes between two `↳` facts.
+    // Last, so the tree it nests never comes between two `>` facts.
     if let Ok(entries) = &entries {
         let mut rows = Vec::new();
         let mut others = 0;
@@ -518,11 +518,11 @@ mod tests {
         exists `/path/to/directory/e.txt`
          - `/path/to/directory/e.txt`
                                ^^^^^
-                               ↳ File [✅ read, ✅ write, ❌ execute]
+                               > File [✅ read, ✅ write, ❌ execute]
          - `/path/to/directory/e.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (5)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (5)
                        ├── `a.txt`
                        ├── `b.txt`
                        ├── ...
@@ -544,11 +544,11 @@ mod tests {
         exists `/path/to/directory/a.txt`
          - `/path/to/directory/a.txt`
                                ^^^^^
-                               ↳ File [✅ read, ✅ write, ❌ execute]
+                               > File [✅ read, ✅ write, ❌ execute]
          - `/path/to/directory/a.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (3)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (3)
                        ├── `a.txt` (exists)
                        └── ...
         🛑
@@ -568,11 +568,11 @@ mod tests {
         exists `/path/to/directory/c.txt`
          - `/path/to/directory/c.txt`
                                ^^^^^
-                               ↳ File [✅ read, ✅ write, ❌ execute]
+                               > File [✅ read, ✅ write, ❌ execute]
          - `/path/to/directory/c.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (3)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (3)
                        ├── ...
                        └── `c.txt` (exists)
         🛑
@@ -592,11 +592,11 @@ mod tests {
         exists `/path/to/directory/d.txt`
          - `/path/to/directory/d.txt`
                                ^^^^^
-                               ↳ File [✅ read, ✅ write, ❌ execute]
+                               > File [✅ read, ✅ write, ❌ execute]
          - `/path/to/directory/d.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (6)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (6)
                        ├── `a.txt`
                        ├── `b.txt`
                        ├── ...
@@ -621,12 +621,12 @@ mod tests {
         does not exist `/path/to/directory/missing.txt`
          - `/path/to/directory/missing.txt`
                                ^^^^^^^^^^^
-                               ↳ Missing: {error}
+                               > Missing: {error}
          - `/path/to/directory/missing.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ ❌ Missing `missing.txt`
-                     ↳ Contains (3)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > ❌ Missing `missing.txt`
+                     > Contains (3)
                        └── ...
         🛑
         ");
@@ -681,13 +681,13 @@ mod tests {
         exists `/path/to/directory/search_only/child.txt`
          - `/path/to/directory/search_only/child.txt`
                                            ^^^^^^^^^
-                                           ↳ File [✅ read, ✅ write, ❌ execute]
+                                           > File [✅ read, ✅ write, ❌ execute]
          - `/path/to/directory/search_only/child.txt`
                                ^^^^^^^^^^^
-                               ↳ Dir [❌ read, ❌ write, ✅ execute]
-                               ↳ Cannot list entries (no read permission)
-                               ↳ Cannot create, delete, or rename entries (no write permission)
-                               ↳ Cannot list directory: Permission denied (os error 13)
+                               > Dir [❌ read, ❌ write, ✅ execute]
+                               > Cannot list entries (no read permission)
+                               > Cannot create, delete, or rename entries (no write permission)
+                               > Cannot list directory: Permission denied (os error 13)
         🛑
         ");
     }
@@ -724,14 +724,14 @@ mod tests {
         `/path/to/directory/denied/child.txt`
          - `/path/to/directory/denied/child.txt`
                                       ^^^^^^^^^
-                                      ↳ Cannot read raw metadata: Permission denied (os error 13)
+                                      > Cannot read raw metadata: Permission denied (os error 13)
          - `/path/to/directory/denied/child.txt`
                                ^^^^^^
-                               ↳ Dir [❌ read, ❌ write, ❌ execute]
-                               ↳ Cannot list entries (no read permission)
-                               ↳ Cannot create, delete, or rename entries (no write permission)
-                               ↳ Cannot enter, traverse, or access entries (no execute permission)
-                               ↳ Cannot list directory: Permission denied (os error 13)
+                               > Dir [❌ read, ❌ write, ❌ execute]
+                               > Cannot list entries (no read permission)
+                               > Cannot create, delete, or rename entries (no write permission)
+                               > Cannot enter, traverse, or access entries (no execute permission)
+                               > Cannot list directory: Permission denied (os error 13)
         🛑
         ");
     }
@@ -751,11 +751,11 @@ mod tests {
             @r"
         does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
                                            ^^^^^
-                                           ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+                                           > File, not a dir [✅ read, ✅ write, ❌ execute]
          - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (1)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (1)
                        └── `a.txt` (exists)
         🛑
         "
@@ -777,11 +777,11 @@ mod tests {
             @r"
         Path does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
                                                 ^^^^^
-                                                ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+                                                > File, not a dir [✅ read, ✅ write, ❌ execute]
          - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (1)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (1)
                        └── `a.txt` (exists)
         🛑
         "
@@ -804,11 +804,11 @@ mod tests {
         lead
         does not exist `/path/to/directory/a.txt/b/c/does_not_exist.txt`
                                            ^^^^^
-                                           ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+                                           > File, not a dir [✅ read, ✅ write, ❌ execute]
          - `/path/to/directory/a.txt/b/c/does_not_exist.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (1)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (1)
                        └── `a.txt` (exists)
         🛑
         "
@@ -829,12 +829,12 @@ mod tests {
         does not exist `/path/to/directory/a/b/c/does_not_exist.txt`
          - `/path/to/directory/a/b/c/does_not_exist.txt`
                                ^
-                               ↳ Missing: {error}
+                               > Missing: {error}
          - `/path/to/directory/a/b/c/does_not_exist.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ ❌ Missing `a`
-                     ↳ Contains (0)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > ❌ Missing `a`
+                     > Contains (0)
                        └── (empty)
         🛑
         ");
@@ -858,11 +858,11 @@ mod tests {
         exists `/path/to/directory/exists.txt`
          - `/path/to/directory/exists.txt`
                                ^^^^^^^^^^
-                               ↳ File [✅ read, ✅ write, ❌ execute]
+                               > File [✅ read, ✅ write, ❌ execute]
          - `/path/to/directory/exists.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (1)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (1)
                        └── `exists.txt` (exists)
         🛑
         ");
@@ -1010,12 +1010,12 @@ mod tests {
         exists `/path/to/directory/a/b/..`
          - `/path/to/directory/a/b/..`
                                    ^^
-                                   ↳ Dir [✅ read, ✅ write, ✅ execute]
-                                   ↳ Canonical `/path/to/directory/a`
+                                   > Dir [✅ read, ✅ write, ✅ execute]
+                                   > Canonical `/path/to/directory/a`
          - `/path/to/directory/a/b/..`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (2)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (2)
                        ├── `a` (exists)
                        └── `other.txt`
         🛑
@@ -1033,12 +1033,12 @@ mod tests {
         exists `/path/to/directory/a/../a/b/..`
          - `/path/to/directory/a/../a/b/..`
                                         ^^
-                                        ↳ Dir [✅ read, ✅ write, ✅ execute]
-                                        ↳ Canonical `/path/to/directory/a`
+                                        > Dir [✅ read, ✅ write, ✅ execute]
+                                        > Canonical `/path/to/directory/a`
          - `/path/to/directory/a/../a/b/..`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (2)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (2)
                        ├── `a` (exists)
                        └── `other.txt`
         🛑
@@ -1055,12 +1055,12 @@ mod tests {
         does not exist `/path/to/directory/does_not_exist.txt`
          - `/path/to/directory/does_not_exist.txt`
                                ^^^^^^^^^^^^^^^^^^
-                               ↳ Missing: {error}
+                               > Missing: {error}
          - `/path/to/directory/does_not_exist.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ ❌ Missing `does_not_exist.txt`
-                     ↳ Contains (0)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > ❌ Missing `does_not_exist.txt`
+                     > Contains (0)
                        └── (empty)
         🛑
         ");
@@ -1102,25 +1102,25 @@ mod tests {
         From path does not exist `doesnotexist.txt`
          - `doesnotexist.txt`
             ^^^^^^^^^^^^^^^^
-            ↳ Missing: {error}
-            ↳ Absolute `/path/to/directory/doesnotexist.txt`
+            > Missing: {error}
+            > Absolute `/path/to/directory/doesnotexist.txt`
          - `/path/to/directory/doesnotexist.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ ❌ Missing `doesnotexist.txt`
-                     ↳ Contains (0)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > ❌ Missing `doesnotexist.txt`
+                     > Contains (0)
                        └── (empty)
 
         To path does not exist `also_does_not_exist.txt`
          - `also_does_not_exist.txt`
             ^^^^^^^^^^^^^^^^^^^^^^^
-            ↳ Missing: {error}
-            ↳ Absolute `/path/to/directory/also_does_not_exist.txt`
+            > Missing: {error}
+            > Absolute `/path/to/directory/also_does_not_exist.txt`
          - `/path/to/directory/also_does_not_exist.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ ❌ Missing `also_does_not_exist.txt`
-                     ↳ Contains (0)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > ❌ Missing `also_does_not_exist.txt`
+                     > Contains (0)
                        └── (empty)
 
         🛑
@@ -1139,12 +1139,12 @@ mod tests {
         exists `exists.txt`
          - `exists.txt`
             ^^^^^^^^^^
-            ↳ File [✅ read, ✅ write, ❌ execute]
-            ↳ Absolute `/path/to/directory/exists.txt`
+            > File [✅ read, ✅ write, ❌ execute]
+            > Absolute `/path/to/directory/exists.txt`
          - `/path/to/directory/exists.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (1)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (1)
                        └── `exists.txt` (exists)
         🛑
         ");
@@ -1167,12 +1167,12 @@ mod tests {
         exists `/path/to/link/link_to_target.txt`
          - `/path/to/link/link_to_target.txt`
                           ^^^^^^^^^^^^^^^^^^
-                          ↳ Symlink, resolves to file [✅ read, ✅ write, ❌ execute]
-                          ↳ Target `/path/to/target/target.txt`
+                          > Symlink, resolves to file [✅ read, ✅ write, ❌ execute]
+                          > Target `/path/to/target/target.txt`
          - `/path/to/link/link_to_target.txt`
                      ^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (1)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (1)
                        └── `link_to_target.txt` (exists)
         🛑
         ");
@@ -1197,12 +1197,12 @@ mod tests {
         does not exist `/path/to/link/link_to_target.txt/below.txt`
          - `/path/to/link/link_to_target.txt/below.txt`
                           ^^^^^^^^^^^^^^^^^^
-                          ↳ Symlink, resolves to file, not a dir [✅ read, ✅ write, ❌ execute]
-                          ↳ Target `/path/to/target/target.txt`
+                          > Symlink, resolves to file, not a dir [✅ read, ✅ write, ❌ execute]
+                          > Target `/path/to/target/target.txt`
          - `/path/to/link/link_to_target.txt/below.txt`
                      ^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (1)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (1)
                        └── `link_to_target.txt` (exists)
         🛑
         ");
@@ -1224,12 +1224,12 @@ mod tests {
         exists `/path/to/link/link_to_dir`
          - `/path/to/link/link_to_dir`
                           ^^^^^^^^^^^
-                          ↳ Symlink, resolves to dir [✅ read, ✅ write, ✅ execute]
-                          ↳ Target `/path/to/target/target_dir`
+                          > Symlink, resolves to dir [✅ read, ✅ write, ✅ execute]
+                          > Target `/path/to/target/target_dir`
          - `/path/to/link/link_to_dir`
                      ^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (1)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (1)
                        └── `link_to_dir` (exists)
         🛑
         ");
@@ -1256,7 +1256,7 @@ mod tests {
         insta::assert_snapshot!(report(&scrubber, "relative_path.txt"), @r"
         `relative_path.txt`
          - `relative_path.txt`
-            ↳ Cannot read the current directory: {error}
+            > Cannot read the current directory: {error}
         🛑
         ");
     }
@@ -1314,12 +1314,12 @@ mod tests {
         exists `a/b/..`
          - `a/b/..`
                 ^^
-                ↳ Dir [✅ read, ✅ write, ✅ execute]
-                ↳ Absolute `/path/to/directory/a`
+                > Dir [✅ read, ✅ write, ✅ execute]
+                > Absolute `/path/to/directory/a`
          - `/path/to/directory/a`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (1)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (1)
                        └── `a` (exists)
         🛑
         ");
@@ -1346,12 +1346,12 @@ mod tests {
         exists `a/b/c.`
          - `a/b/c.`
                 ^^
-                ↳ File [✅ read, ✅ write, ✅ execute]
-                ↳ Absolute `/path/to/directory/a/b/c`
+                > File [✅ read, ✅ write, ✅ execute]
+                > Absolute `/path/to/directory/a/b/c`
          - `/path/to/directory/a/b/c`
                                  ^
-                                 ↳ Dir [✅ read, ✅ write, ✅ execute]
-                                 ↳ Contains (1)
+                                 > Dir [✅ read, ✅ write, ✅ execute]
+                                 > Contains (1)
                                    └── `c` (exists)
         🛑
         ");
@@ -1367,13 +1367,13 @@ mod tests {
         does not exist `a/b/c/does_not_exist.txt`
          - `a/b/c/does_not_exist.txt`
             ^
-            ↳ Missing: {error}
-            ↳ Absolute `/path/to/directory/a/b/c/does_not_exist.txt`
+            > Missing: {error}
+            > Absolute `/path/to/directory/a/b/c/does_not_exist.txt`
          - `/path/to/directory/a`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ ❌ Missing `a`
-                     ↳ Contains (0)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > ❌ Missing `a`
+                     > Contains (0)
                        └── (empty)
         🛑
         ");
@@ -1401,14 +1401,14 @@ mod tests {
         does not exist `/path/to/directory/readonly_dir/does_not_exist.txt`
          - `/path/to/directory/readonly_dir/does_not_exist.txt`
                                             ^^^^^^^^^^^^^^^^^^
-                                            ↳ Missing: {error}
+                                            > Missing: {error}
          - `/path/to/directory/readonly_dir/does_not_exist.txt`
                                ^^^^^^^^^^^^
-                               ↳ Dir [✅ read, ❌ write, ✅ execute]
-                               ↳ Entries can be listed (read permission)
-                               ↳ Cannot create, delete, or rename entries (no write permission)
-                               ↳ ❌ Missing `does_not_exist.txt`
-                               ↳ Contains (0)
+                               > Dir [✅ read, ❌ write, ✅ execute]
+                               > Entries can be listed (read permission)
+                               > Cannot create, delete, or rename entries (no write permission)
+                               > ❌ Missing `does_not_exist.txt`
+                               > Contains (0)
                                  └── (empty)
         🛑
         ");
@@ -1430,12 +1430,12 @@ mod tests {
         exists `/path/to/directory/link1`
          - `/path/to/directory/link1`
                                ^^^^^
-                               ↳ Symlink, cannot follow: {error}
-                               ↳ Target `/path/to/directory/link2`
+                               > Symlink, cannot follow: {error}
+                               > Target `/path/to/directory/link2`
          - `/path/to/directory/link1`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (2)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (2)
                        ├── `link1` (exists)
                        └── `link2`
         🛑
@@ -1457,13 +1457,13 @@ mod tests {
         exists `link1`
          - `link1`
             ^^^^^
-            ↳ Symlink, cannot follow: {error}
-            ↳ Target `link2` → `/path/to/directory/link2`
-            ↳ Absolute `/path/to/directory/link1`
+            > Symlink, cannot follow: {error}
+            > Target `link2` → `/path/to/directory/link2`
+            > Absolute `/path/to/directory/link1`
          - `/path/to/directory/link1`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (2)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (2)
                        ├── `link1` (exists)
                        └── `link2`
         🛑
@@ -1484,12 +1484,12 @@ mod tests {
         exists `/path/to/directory/broken_link`
          - `/path/to/directory/broken_link`
                                ^^^^^^^^^^^
-                               ↳ Symlink, cannot follow: {error}
-                               ↳ Target `/path/to/directory/does_not_exist`
+                               > Symlink, cannot follow: {error}
+                               > Target `/path/to/directory/does_not_exist`
          - `/path/to/directory/broken_link`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (1)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (1)
                        └── `broken_link` (exists)
         🛑
         ");
@@ -1511,12 +1511,12 @@ mod tests {
         `/path/to/directory/broken_link/and/more.txt`
          - `/path/to/directory/broken_link/and/more.txt`
                                ^^^^^^^^^^^
-                               ↳ Symlink, cannot follow: {error}
-                               ↳ Target `/path/to/directory/does_not_exist`
+                               > Symlink, cannot follow: {error}
+                               > Target `/path/to/directory/does_not_exist`
          - `/path/to/directory/broken_link/and/more.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (1)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (1)
                        └── `broken_link` (exists)
         🛑
         "
@@ -1540,12 +1540,12 @@ mod tests {
         `/path/to/directory/broken_link/and/more.txt`
          - `/path/to/directory/broken_link/and/more.txt`
                                ^^^^^^^^^^^
-                               ↳ Symlink, cannot follow: {error}
-                               ↳ Target `../does_not_exist` → `/path/to/does_not_exist`
+                               > Symlink, cannot follow: {error}
+                               > Target `../does_not_exist` → `/path/to/does_not_exist`
          - `/path/to/directory/broken_link/and/more.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (1)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (1)
                        └── `broken_link` (exists)
         🛑
         "
@@ -1570,11 +1570,11 @@ mod tests {
         does not exist `/path/to/directory/linkdir/a.txt/b/x`
          - `/path/to/directory/linkdir/a.txt/b/x`
                                        ^^^^^
-                                       ↳ File, not a dir [✅ read, ✅ write, ❌ execute]
+                                       > File, not a dir [✅ read, ✅ write, ❌ execute]
          - `/path/to/directory/linkdir/a.txt/b/x`
                                ^^^^^^^
-                               ↳ Dir [✅ read, ✅ write, ✅ execute]
-                               ↳ Contains (1)
+                               > Dir [✅ read, ✅ write, ✅ execute]
+                               > Contains (1)
                                  └── `a.txt` (exists)
         🛑
         ");
@@ -1594,13 +1594,13 @@ mod tests {
         exists `broken_link`
          - `broken_link`
             ^^^^^^^^^^^
-            ↳ Symlink, cannot follow: {error}
-            ↳ Target `does_not_exist` → `/path/to/directory/does_not_exist`
-            ↳ Absolute `/path/to/directory/broken_link`
+            > Symlink, cannot follow: {error}
+            > Target `does_not_exist` → `/path/to/directory/does_not_exist`
+            > Absolute `/path/to/directory/broken_link`
          - `/path/to/directory/broken_link`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (1)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (1)
                        └── `broken_link` (exists)
         🛑
         ");
@@ -1636,14 +1636,14 @@ mod tests {
         exists `/path/to/directory/no_exec_dir/file.txt`
          - `/path/to/directory/no_exec_dir/file.txt`
                                            ^^^^^^^^
-                                           ↳ Parent directory missing execute permission
-                                           ↳ Cannot read raw metadata: {error}
+                                           > Parent directory missing execute permission
+                                           > Cannot read raw metadata: {error}
          - `/path/to/directory/no_exec_dir/file.txt`
                                ^^^^^^^^^^^
-                               ↳ Dir [✅ read, ✅ write, ❌ execute]
-                               ↳ Entries can be listed (read permission)
-                               ↳ Cannot enter, traverse, or access entries (no execute permission)
-                               ↳ Contains (1)
+                               > Dir [✅ read, ✅ write, ❌ execute]
+                               > Entries can be listed (read permission)
+                               > Cannot enter, traverse, or access entries (no execute permission)
+                               > Contains (1)
                                  └── `file.txt` (exists)
         🛑
         ");
@@ -1675,15 +1675,15 @@ mod tests {
         exists `/path/to/directory/no_write_dir/file.txt`
          - `/path/to/directory/no_write_dir/file.txt`
                                             ^^^^^^^^
-                                            ↳ Parent directory missing execute permission
-                                            ↳ Cannot read raw metadata: {error}
+                                            > Parent directory missing execute permission
+                                            > Cannot read raw metadata: {error}
          - `/path/to/directory/no_write_dir/file.txt`
                                ^^^^^^^^^^^^
-                               ↳ Dir [✅ read, ❌ write, ❌ execute]
-                               ↳ Entries can be listed (read permission)
-                               ↳ Cannot create, delete, or rename entries (no write permission)
-                               ↳ Cannot enter, traverse, or access entries (no execute permission)
-                               ↳ Contains (1)
+                               > Dir [✅ read, ❌ write, ❌ execute]
+                               > Entries can be listed (read permission)
+                               > Cannot create, delete, or rename entries (no write permission)
+                               > Cannot enter, traverse, or access entries (no execute permission)
+                               > Contains (1)
                                  └── `file.txt` (exists)
         🛑
         ");
@@ -1713,8 +1713,8 @@ mod tests {
         `/pretend/root/does/not/exist/somehow`
          - `/pretend/root/does/not/exist/somehow`
                                          ^^^^^^^
-                                         ↳ Root `/` is not reachable
-                                         ↳ Cannot canonicalize: simulated error
+                                         > Root `/` is not reachable
+                                         > Cannot canonicalize: simulated error
         🛑
         ");
     }
@@ -1741,15 +1741,15 @@ mod tests {
         `/path/to/directory/a/b`
          - `/path/to/directory/a/b`
                                  ^
-                                 ↳ ⚠️ Filesystem change detected while gathering facts.
+                                 > ⚠️ Filesystem change detected while gathering facts.
                                    ⚠️ Facts displayed may be invalid, stale or disagree.
                                    ⚠️
                                    ⚠️ Detected: the link canonicalized, but reading its resolved metadata failed
                                    ⚠️ Error: {error}
          - `/path/to/directory/a/b`
                                ^
-                               ↳ Dir [✅ read, ✅ write, ✅ execute]
-                               ↳ Contains (1)
+                               > Dir [✅ read, ✅ write, ✅ execute]
+                               > Contains (1)
                                  └── `b` (exists)
         🛑
         ");

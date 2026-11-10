@@ -12,6 +12,7 @@ after:   - `/path/to/directory/a/b/..`
 ```
 
 - Fix: Show NUL byte in an input path.
+- Fix: Facts are now prefixed with an ASCII `>` instead of `↳`.
 - Fix: "Cannot lstat" changed to "Cannot read raw metadata".
 - Fix: "Cannot readlink" changed to "Cannot read symlink target".
 - Fix: Directories are now limited to 20 **additional** entries by default. Previously there was no limit.

@@ -82,22 +82,22 @@ mod tests {
         insta::assert_snapshot!(fixture.scrub().carets(&FromTo::new(&link, &real).to_string()), @r"
         From path exists `/path/to/directory/latest.log`
                                              ^^^^^^^^^^
-                                             ↳ Symlink, resolves to file [✅ read, ✅ write, ❌ execute]
-                                             ↳ Target `2024-01.log` → `/path/to/directory/2024-01.log`
-                                             ↳ Same location as to path (below)
+                                             > Symlink, resolves to file [✅ read, ✅ write, ❌ execute]
+                                             > Target `2024-01.log` → `/path/to/directory/2024-01.log`
+                                             > Same location as to path (below)
          - `/path/to/directory/latest.log`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (2)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (2)
                        ├── `2024-01.log`
                        └── `latest.log` (exists)
         To path exists `/path/to/directory/2024-01.log`
                                            ^^^^^^^^^^^
-                                           ↳ File [✅ read, ✅ write, ❌ execute]
+                                           > File [✅ read, ✅ write, ❌ execute]
          - `/path/to/directory/2024-01.log`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (2)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (2)
                        ├── `2024-01.log` (exists)
                        └── `latest.log`
         🛑
@@ -116,21 +116,21 @@ mod tests {
         insta::assert_snapshot!(fixture.scrub().carets(&FromTo::new(from, &to).to_string()), @r"
         From path exists `2024-01.log`
                           ^^^^^^^^^^^
-                          ↳ File [✅ read, ✅ write, ❌ execute]
-                          ↳ Absolute `/path/to/directory/2024-01.log`
-                          ↳ Same location as to path (below)
+                          > File [✅ read, ✅ write, ❌ execute]
+                          > Absolute `/path/to/directory/2024-01.log`
+                          > Same location as to path (below)
          - `/path/to/directory/2024-01.log`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (1)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (1)
                        └── `2024-01.log` (exists)
         To path exists `/path/to/directory/2024-01.log`
                                            ^^^^^^^^^^^
-                                           ↳ File [✅ read, ✅ write, ❌ execute]
+                                           > File [✅ read, ✅ write, ❌ execute]
          - `/path/to/directory/2024-01.log`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ Contains (1)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > Contains (1)
                        └── `2024-01.log` (exists)
         🛑
         ");
@@ -186,23 +186,23 @@ mod tests {
 
         From path does not exist `doesnotexist.txt`
                                   ^^^^^^^^^^^^^^^^
-                                  ↳ Missing: {error}
-                                  ↳ Absolute `/path/to/directory/doesnotexist.txt`
+                                  > Missing: {error}
+                                  > Absolute `/path/to/directory/doesnotexist.txt`
          - `/path/to/directory/doesnotexist.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ ❌ Missing `doesnotexist.txt`
-                     ↳ Contains (0)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > ❌ Missing `doesnotexist.txt`
+                     > Contains (0)
                        └── (empty)
         To path does not exist `also_does_not_exist.txt`
                                 ^^^^^^^^^^^^^^^^^^^^^^^
-                                ↳ Missing: {error}
-                                ↳ Absolute `/path/to/directory/also_does_not_exist.txt`
+                                > Missing: {error}
+                                > Absolute `/path/to/directory/also_does_not_exist.txt`
          - `/path/to/directory/also_does_not_exist.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ ❌ Missing `also_does_not_exist.txt`
-                     ↳ Contains (0)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > ❌ Missing `also_does_not_exist.txt`
+                     > Contains (0)
                        └── (empty)
 
         🛑
@@ -221,20 +221,20 @@ mod tests {
         insta::assert_snapshot!(scrubber.carets(&FromTo::new(&from, &to).to_string()), @r"
         From path exists `/path/to/directory`
                                    ^^^^^^^^^
-                                   ↳ Dir [✅ read, ✅ write, ✅ execute]
+                                   > Dir [✅ read, ✅ write, ✅ execute]
          - `/path/to/directory`
                   ^^
-                  ↳ Dir [✅ read, ✅ write, ✅ execute]
-                  ↳ Contains (1)
+                  > Dir [✅ read, ✅ write, ✅ execute]
+                  > Contains (1)
                     └── `directory` (exists)
         To path does not exist `/path/to/directory/new.txt`
                                                    ^^^^^^^
-                                                   ↳ Missing: {error}
+                                                   > Missing: {error}
          - `/path/to/directory/new.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ ❌ Missing `new.txt`
-                     ↳ Contains (0)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > ❌ Missing `new.txt`
+                     > Contains (0)
                        └── (empty)
         🛑
         ");
@@ -252,20 +252,20 @@ mod tests {
         insta::assert_snapshot!(scrubber.carets(&FromTo::new(&from, &to).to_string()), @r"
         From path does not exist `/path/to/directory/new.txt`
                                                      ^^^^^^^
-                                                     ↳ Missing: {error}
+                                                     > Missing: {error}
          - `/path/to/directory/new.txt`
                      ^^^^^^^^^
-                     ↳ Dir [✅ read, ✅ write, ✅ execute]
-                     ↳ ❌ Missing `new.txt`
-                     ↳ Contains (0)
+                     > Dir [✅ read, ✅ write, ✅ execute]
+                     > ❌ Missing `new.txt`
+                     > Contains (0)
                        └── (empty)
         To path exists `/path/to/directory`
                                  ^^^^^^^^^
-                                 ↳ Dir [✅ read, ✅ write, ✅ execute]
+                                 > Dir [✅ read, ✅ write, ✅ execute]
          - `/path/to/directory`
                   ^^
-                  ↳ Dir [✅ read, ✅ write, ✅ execute]
-                  ↳ Contains (1)
+                  > Dir [✅ read, ✅ write, ✅ execute]
+                  > Contains (1)
                     └── `directory` (exists)
         🛑
         ");

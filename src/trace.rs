@@ -624,7 +624,7 @@ fn enter(position: WalkPosition, name: NormalComponent) -> (Step, WalkPosition) 
             WalkPosition::Lost,
         ),
         WalkPosition::Ghost(ghost) => {
-            let at = join(&ghost, &name);
+            let at = ghost.join_normal(&name);
             (
                 Step {
                     input_index: None,
@@ -636,7 +636,7 @@ fn enter(position: WalkPosition, name: NormalComponent) -> (Step, WalkPosition) 
             )
         }
         WalkPosition::Dir(dir) => {
-            let at = join(&AbsPath::from(dir.clone()), &name);
+            let at = AbsPath::from(dir.clone()).join_normal(&name);
             let (saw, next) = look(&dir, &name, &at);
             (
                 Step {
@@ -668,10 +668,6 @@ fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalN
             }
         }
         Ok(Entry::Symlink) => follow(dir, at),
-        // Both readings of a failure here are claims about a name inside a directory, so
-        // neither survives the directory having stopped being one. Worth the second look
-        // because it costs one `lstat` per walk: the walk never asks the filesystem
-        // anything again after this.
         Err(error) => {
             if dir.as_ref().access(AccessMode::EXECUTE).is_err() {
                 if let Ok(read_dir) = dir.as_ref().read_dir() {
@@ -728,29 +724,10 @@ fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalN
     }
 }
 
-/// Looks again at a directory the walk already stepped into, once a lookup inside it failed
+/// Check a failed operation on a director for a possible data race
 ///
-/// Returns `Some()` with a reason for why a data race occured, or None when the path is
-/// still a directory.
-///
-/// Answers the sentence for [`PhysicalNode::Raced`] when the directory is not one any more,
-/// which is the case neither reading of that failure can survive. `NotFound` on a name
-/// inside a directory and `NotFound` because the directory itself is gone arrive as the
-/// same error about the same path, so nothing but a second look separates them.
-///
-/// Reads the directory rather than the error code, which is what makes it uniform: no
-/// mapping from a platform's numbers to a meaning, and the same answer on targets where
-/// those numbers differ.
-///
-/// `lstat` rather than `stat`, because a [`CanonicalPath`] holds no symlinks. A symlink
-/// standing where the walk left a directory contradicts that even when it points at a
-/// directory, and following it first would hide exactly the swap worth reporting.
-///
-/// Answers `None` on anything short of a sighting, including a second look that fails for
-/// its own reasons. Proving nothing is the honest outcome there, and the walk keeps the
-/// reading it already had. That direction is deliberate: a missed contradiction leaves a
-/// report no worse than before, while an invented one blames the filesystem for a bug in
-/// here.
+/// If we found evidence that a path is no longer a directorythis will return the reason
+/// why we came to that conclusion.
 fn check_directory_race(dir: &CanonicalPath) -> Option<&'static str> {
     match std::fs::symlink_metadata(dir.as_ref()) {
         Ok(lstat) => {
@@ -771,17 +748,7 @@ fn check_directory_race(dir: &CanonicalPath) -> Option<&'static str> {
 }
 
 /// Resolves a symlink
-///
-/// Delegates the following to `realpath` so the loop budget and the rest of the target's
-/// own chain are libc's problem rather than ours. Whatever it refuses on comes back as the
-/// error, unexamined.
 fn follow(dir: &CanonicalPath, link: &AbsPath) -> (PhysicalNode, WalkPosition) {
-    // `readlink` and `realpath` are two more looks at a name `lstat` already called a
-    // symlink, and either can be refused (Apple checks the link's own permission bits on
-    // `readlink`). A link whose target cannot be read is a fact about the link, so the
-    // refusal is carried on `target` rather than folded into a `Raced` step. Both are kept
-    // because "cannot read where it points" and "cannot resolve where it lands" are
-    // different failures about the same link.
     let target = readlink(dir, link);
 
     let resolved = match CanonicalPath::new(link) {
@@ -797,8 +764,6 @@ fn follow(dir: &CanonicalPath, link: &AbsPath) -> (PhysicalNode, WalkPosition) {
         }
     };
 
-    // A link to a file cannot hold children. Letting it through would leave the walk
-    // standing in something that is not a directory, which would make `..` unsound.
     match std::fs::metadata(resolved.as_ref()) {
         Ok(metadata) => {
             let (landed, next) = if metadata.is_dir() {
@@ -820,8 +785,6 @@ fn follow(dir: &CanonicalPath, link: &AbsPath) -> (PhysicalNode, WalkPosition) {
                 next,
             )
         }
-        // `realpath` answering means the target exists and every directory on the way to it
-        // is searchable, which is everything a `stat` on it needs.
         Err(error) => (
             PhysicalNode::Raced {
                 why: "realpath resolved this link, stat failed to resolve",
@@ -832,7 +795,7 @@ fn follow(dir: &CanonicalPath, link: &AbsPath) -> (PhysicalNode, WalkPosition) {
     }
 }
 
-/// Applies `..` to whatever the walk has reached
+/// Applies `..` to the current physical path
 fn up(position: WalkPosition, name: ParentDirComponent) -> (Step, WalkPosition) {
     match position {
         WalkPosition::Dir(from) => {
@@ -850,9 +813,6 @@ fn up(position: WalkPosition, name: ParentDirComponent) -> (Step, WalkPosition) 
                 WalkPosition::Dir(resolved),
             )
         }
-        // Folding this would assume whatever fills the gap is a directory rather than a
-        // symlink pointing somewhere else, which is a guess about the future rather than a
-        // fact about now.
         WalkPosition::Ghost(_) | WalkPosition::Lost => (
             Step {
                 input_index: None,
@@ -863,10 +823,6 @@ fn up(position: WalkPosition, name: ParentDirComponent) -> (Step, WalkPosition) 
             WalkPosition::Lost,
         ),
     }
-}
-
-fn join(dir: &AbsPath, name: &NormalComponent) -> AbsPath {
-    dir.join_normal(name)
 }
 
 #[cfg(test)]

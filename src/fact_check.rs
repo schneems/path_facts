@@ -481,7 +481,7 @@ mod tests {
     /// return a valid read on one known platform (apple/mac).
     #[cfg(unix)]
     #[test]
-    fn test_symlink_lstat_can_read_but_readlink_cannot_records_the_refusal() {
+    fn test_symlink_metadata_succeeds_but_read_link_fails_records_the_refusal() {
         use crate::trace::{PhysicalNode, Trace};
 
         let temp = tempfile::tempdir().unwrap();
@@ -490,7 +490,7 @@ mod tests {
         // The target does not exist, so on Linux the walk sees a dangling symlink.
         std::os::unix::fs::symlink(dir.join("target"), &link).unwrap();
 
-        // `lstat` sees a symlink on every platform; that never changes below.
+        // `symlink_metadata` sees a symlink on every platform; that never changes below.
         assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
 
         #[cfg(target_vendor = "apple")]

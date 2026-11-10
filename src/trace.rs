@@ -654,8 +654,8 @@ fn enter(position: WalkPosition, name: NormalComponent) -> (Step, WalkPosition) 
 /// Queries the filesystem about `name` inside the resolved directory `dir`
 fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalNode, WalkPosition) {
     match dir.entry(name) {
-        Ok(Entry::Canonical(child, lstat)) => {
-            if lstat.is_dir() {
+        Ok(Entry::Canonical(child, metadata)) => {
+            if metadata.is_dir() {
                 (
                     PhysicalNode::Directory(child.clone()),
                     WalkPosition::Dir(child),
@@ -730,8 +730,8 @@ fn look(dir: &CanonicalPath, name: &NormalComponent, at: &AbsPath) -> (PhysicalN
 /// why we came to that conclusion.
 fn check_directory_race(dir: &CanonicalPath) -> Option<&'static str> {
     match std::fs::symlink_metadata(dir.as_ref()) {
-        Ok(lstat) => {
-            if lstat.is_dir() {
+        Ok(metadata) => {
+            if metadata.is_dir() {
                 None
             } else {
                 Some("the walk stepped into the directory holding this name, and its raw metadata now reports something that is not a directory")

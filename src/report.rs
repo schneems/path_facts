@@ -1608,11 +1608,11 @@ mod tests {
 
     // Unix-only: the behavior is not reproducible on the Windows CI runner.
     //
-    // The test needs "a directory you can list but not descend into" so that the lstat on a child
-    // is refused. Unix models this as the directory execute bit, dropped here with
+    // The test needs "a directory you can list but not descend into" so that `symlink_metadata`
+    // on a child is refused. Unix models this as the directory execute bit, dropped here with
     // `set_mode(0o644)`. Windows models it as the "Traverse folder / execute file" ACL right, and
     // GitHub's Windows runner executes as an administrator whose token bypasses per-user traverse
-    // denials, so `icacls /deny` leaves the lstat succeeding.
+    // denials, so `icacls /deny` leaves `symlink_metadata` succeeding.
     #[test]
     #[cfg(unix)]
     fn test_no_execute_dir_with_file() {
@@ -1650,7 +1650,7 @@ mod tests {
     }
 
     // Unix-only for the same reason as the test above: it removes directory traverse (0o444) so
-    // the lstat on a child is refused, which the Windows runner's admin token bypasses.
+    // `symlink_metadata` on a child is refused, which the Windows runner's admin token bypasses.
     #[test]
     #[cfg(unix)]
     fn test_no_write_dir_with_file() {
@@ -1661,7 +1661,7 @@ mod tests {
         let file = no_write_dir.join("file.txt");
         std::fs::write(&file, "content").unwrap();
 
-        // read only: no write (fires the warning), no execute (the lstat is refused)
+        // read only: no write (fires the warning), no execute (`symlink_metadata` is refused)
         set_mode(&no_write_dir, 0o444).unwrap();
 
         let scrubber = fixture

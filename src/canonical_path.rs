@@ -78,7 +78,7 @@ impl CanonicalPath {
     ///
     /// - The path points to a resolved location on disk
     ///
-    /// The location on disk either needs to be `lstat`-able or be observed
+    /// The location on disk either needs to be readable by `symlink_metadata` or be observed
     /// in a directory (when the directory has read, but not execute permission).
     pub(crate) unsafe fn unchecked_join(&self, rest: &NormalComponent) -> CanonicalPath {
         CanonicalPath(self.as_ref().join(rest.as_ref()))
@@ -107,7 +107,7 @@ impl CanonicalPath {
     ///
     /// - Exists, because `symlink_metadata` succeeded on it.
     /// - Fully normalized, because `self` holds no symlinks and no `.` or `..` parts, and
-    ///   `lstat` shows `name` is not a symlink. A `Normal` component adds no dot parts.
+    ///   `symlink_metadata` shows `name` is not a symlink. A `Normal` component adds no dot parts.
     /// - Every directory involved is executable, because `self` already carried that and
     ///   the lookup of `name` inside it just succeeded, which requires it.
     ///
@@ -118,12 +118,12 @@ impl CanonicalPath {
     /// was true when the syscall ran.
     pub(crate) fn entry(&self, name: &NormalComponent) -> Result<Entry, std::io::Error> {
         let path = self.0.join(name.as_ref());
-        let lstat = std::fs::symlink_metadata(&path)?;
+        let metadata = std::fs::symlink_metadata(&path)?;
 
-        if lstat.file_type().is_symlink() {
+        if metadata.file_type().is_symlink() {
             Ok(Entry::Symlink)
         } else {
-            Ok(Entry::Canonical(CanonicalPath(path), lstat))
+            Ok(Entry::Canonical(CanonicalPath(path), metadata))
         }
     }
 

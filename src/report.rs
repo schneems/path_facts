@@ -207,7 +207,7 @@ fn stopped_step_callout(trace: &Trace, step: &Step, early: bool) -> Callout {
 
     Callout {
         path: path.display().to_string(),
-        caret: caret_at(path, step.input_index),
+        caret: callout::highlight(path, step.input_index.map_or(Caret::Last, Caret::Index)),
         facts,
     }
 }
@@ -221,7 +221,7 @@ fn parent_of_stopped_callout(trace: &Trace, dir_limit: usize) -> Option<Callout>
 
     let (shown, caret) = if let Some(span) = trace
         .input_index_of_dir(&listing)
-        .and_then(|index| caret_at(path, Some(index)))
+        .and_then(|index| callout::highlight(path, Caret::Index(index)))
     {
         (path.display().to_string(), Some(span))
     } else {
@@ -281,12 +281,6 @@ fn parent_of_stopped_callout(trace: &Trace, dir_limit: usize) -> Option<Callout>
         caret,
         facts,
     })
-}
-
-/// A caret over the input component at `index`, falling back to the last component when the
-/// step was never attributed to one the caller wrote.
-fn caret_at(path: &Path, index: Option<usize>) -> Option<callout::Span> {
-    callout::highlight(path, index.map_or_else(|| Caret::Last, Caret::Index))
 }
 
 /// The one line that always leads the stopping-step callout: what is at that component.

@@ -13,7 +13,7 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
-    /// Directory missing execute means "cannot read metadata"
+    /// Directory missing execute means "cannot read raw or resolved metadata"
     ///
     /// The names of files in the directory can be listed but not traversed.
     /// i.e. `/dir/a/b/c` would not be reachable if `dir` is missing the execute

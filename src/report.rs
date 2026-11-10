@@ -77,7 +77,7 @@ impl Report {
 
         format!(
             "{}\n{}",
-            self.existance(trace),
+            self.existence(trace),
             callout::render_callouts(callouts)
         )
     }
@@ -88,7 +88,7 @@ impl Report {
             Err(cannot) => return format!("{prefix}{}", self.render_cannot_trace(cannot)),
         };
 
-        let summary = self.existance(trace);
+        let summary = self.existence(trace);
         let path_col = prefix.rsplit('\n').next().unwrap_or("").chars().count()
             + summary
                 .chars()
@@ -107,7 +107,7 @@ impl Report {
         out
     }
 
-    fn existance(&self, trace: &Trace) -> String {
+    fn existence(&self, trace: &Trace) -> String {
         let input = self.path.display();
         match trace.status_on_disk() {
             StatusOnDisk::Exists => format!("exists `{input}`"),
@@ -246,7 +246,7 @@ fn parent_of_stopped_callout(trace: &Trace, dir_limit: usize) -> Option<Callout>
         Ok(_) => {}
     }
 
-    // List directory contents last so it doesn't comes between two facts
+    // List directory contents last so it doesn't come between two facts
     if let Ok(entries) = &entries {
         let mut rows = Vec::new();
         let mut others = 0;

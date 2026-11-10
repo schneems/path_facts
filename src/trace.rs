@@ -293,15 +293,11 @@ impl Trace {
 
     /// [`CanonicalPath`] of the full input if all components could be visited
     pub(crate) fn physical_location(&self) -> Option<CanonicalPath> {
-        if self.stopped_early_at().is_some() {
-            None
-        } else {
-            self.steps
-                .last()
-                .contents
-                .resolved_to()
-                .map(Cow::into_owned)
-        }
+        self.steps
+            .last()
+            .contents
+            .resolved_to()
+            .map(Cow::into_owned)
     }
 
     // The step of the last component of the input path
@@ -323,18 +319,6 @@ impl Trace {
     pub(crate) fn append_race(&mut self, why: &'static str, error: std::io::Error) {
         let index = StepCursor::trace_stopped_at(self).index;
         self.steps[index].contents = PhysicalNode::Raced { why, error };
-    }
-
-    /// The [`Step`] that prevented the full path from being walked
-    pub(crate) fn stopped_early_at(&self) -> Option<&Step> {
-        let cursor = StepCursor::trace_stopped_at(self);
-        let step = cursor.current();
-
-        // There's another step after this one
-        let stopped = cursor.after().is_some() ||
-                // The walk reached the last component but couldn't resolve it
-                step.contents.resolved_to().is_none();
-        stopped.then_some(step)
     }
 
     /// Directory to show on the report
@@ -407,7 +391,6 @@ impl Trace {
     }
 
     /// The unmodified original path
-    #[cfg(test)]
     pub(crate) fn input(&self) -> &Path {
         &self.input
     }
@@ -547,6 +530,18 @@ pub(crate) enum StopStatus<'a> {
     Early(&'a Step),
     /// Traced to completion (may still have errors in last step)
     Final(&'a Step),
+}
+
+impl<'a> StopStatus<'a> {
+    pub(crate) fn stopped_early(&self) -> bool {
+        matches!(self, StopStatus::Early(_))
+    }
+
+    pub(crate) fn step(&self) -> &'a Step {
+        match self {
+            StopStatus::Early(step) | StopStatus::Final(step) => step,
+        }
+    }
 }
 
 /// Status of a path on disk
@@ -876,7 +871,7 @@ mod tests {
     }
 
     fn stopped(trace: &Trace) -> &Step {
-        trace.stopped_early_at().unwrap()
+        StepCursor::trace_stopped_at(trace).current()
     }
 
     #[test]
@@ -887,7 +882,6 @@ mod tests {
         std::fs::write(&path, "").unwrap();
 
         let trace = walk(&path);
-        assert!(trace.stopped_early_at().is_none());
         assert_eq!(trace.physical_location().unwrap().as_ref(), path);
 
         let listing = trace.listing().unwrap();

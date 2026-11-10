@@ -8,18 +8,13 @@ use crate::canonical_path::{CannotCanonicalizeAnything, CanonicalPath};
 use crate::env_config;
 use crate::non_empty::NonEmpty;
 use crate::style;
-use crate::trace::{
-    CannotTrace, PhysicalNode, ResolvedSymlink, StatusOnDisk, Step, StopStatus, Trace,
-};
+use crate::trace::{CannotTrace, PhysicalNode, ResolvedSymlink, StatusOnDisk, Step, Trace};
 use faccess::{AccessMode, PathExt};
 use std::fmt::Display;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
 /// Shows facts about a path as a series of caret-annotated callouts when `Display`ed.
-///
-/// Same walk and same facts as [`PathFacts`](crate::PathFacts), different presentation. Pick one
-/// per call site; they are not meant to be interleaved.
 #[derive(Debug)]
 pub(crate) struct Report {
     /// Original input path, exactly as the caller spelled it
@@ -48,24 +43,18 @@ impl Report {
         result: Result<Trace, CannotTrace>,
         dir_limit: usize,
     ) -> Self {
-        let trace = result.map(|trace| traced(path.as_ref(), trace, dir_limit));
+        let trace = result.map(|trace| trace_and_callouts(trace, dir_limit));
         Report {
             path: path.as_ref().to_path_buf(),
             trace,
         }
     }
 
-    /// The single entry on disk this path resolves to, when every component resolved.
-    ///
-    /// `None` when the walk stopped early or never began: a missing name, a broken link, an empty
-    /// input. Two reports whose locations are both `Some` and equal name one entry on disk, however
-    /// each path was spelled — which is what [`FromTo`](crate::FromTo) keys its cross-reference on.
     pub(crate) fn resolved_location(&self) -> Option<CanonicalPath> {
         let (trace, _) = self.trace.as_ref().ok()?;
         trace.physical_location()
     }
 
-    /// Adds a cross-path note beneath the facts of the component the walk stopped at.
     pub(crate) fn annotate_stopped(&mut self, note: String) {
         if let Ok((_, callouts)) = &mut self.trace {
             callouts.first_mut().facts.push(Fact::Text(note));
@@ -88,22 +77,19 @@ impl Report {
 
         format!(
             "{}\n{}",
-            self.summary(trace),
+            self.existence(trace),
             callout::render_callouts(callouts)
         )
     }
 
-    /// Renders the report with a prefix
-    ///
-    /// This rendering method allows us to underline the path in the first line with a caret (`^^^^`).
     pub(crate) fn render_with_prefix(&self, prefix: &str) -> String {
         let (trace, callouts) = match self.trace.as_ref() {
             Ok(walked) => walked,
             Err(cannot) => return format!("{prefix}{}", self.render_cannot_trace(cannot)),
         };
 
-        let summary = self.summary(trace);
-        let path_col = last_line_width(prefix)
+        let summary = self.existence(trace);
+        let path_col = prefix.rsplit('\n').next().unwrap_or("").chars().count()
             + summary
                 .chars()
                 .position(|char| char == '`')
@@ -121,8 +107,7 @@ impl Report {
         out
     }
 
-    /// The standalone verdict line. No arrow, so a caller may prepend arbitrary text.
-    fn summary(&self, trace: &Trace) -> String {
+    fn existence(&self, trace: &Trace) -> String {
         let input = self.path.display();
         match trace.status_on_disk() {
             StatusOnDisk::Exists => format!("exists `{input}`"),
@@ -131,7 +116,7 @@ impl Report {
         }
     }
 
-    /// The walk never started, so there are no components to point a caret at.
+    /// What to print when we couldn't start a [`Trace`]
     fn render_cannot_trace(&self, cannot: &CannotTrace) -> String {
         let input = self.path.display();
         match cannot {
@@ -185,82 +170,63 @@ impl Report {
     }
 }
 
-/// Character width of the prefix's last line — everything after its final newline — which is what
-/// a folded caret is shifted right by. Empty, or a prefix ending in a newline, measures zero.
-fn last_line_width(input: &str) -> usize {
-    input.rsplit('\n').next().unwrap_or("").chars().count()
-}
-
-/// Pairs a walk with the callouts built from it.
-///
-/// Every filesystem call this type makes happens here: building the callouts reads permissions
-/// and lists a directory. Leaving that in `Display` would hide syscalls behind a `{}` and let two
-/// renderings of the same value disagree, each having asked disk at a different moment.
-fn traced(path: &Path, trace: Trace, dir_limit: usize) -> (Trace, NonEmpty<Callout>) {
-    let callouts = callouts(path, &trace, dir_limit);
+fn trace_and_callouts(trace: Trace, dir_limit: usize) -> (Trace, NonEmpty<Callout>) {
+    let callouts = callouts(&trace, dir_limit);
     (trace, callouts)
 }
 
-/// Each callout is a path with associated facts about it.
-///
-/// Always at least one: the walk always stopped somewhere, and that somewhere is what the first
-/// callout describes. The second appears whenever the stopping step sits in a directory the walk
-/// managed to look inside.
-fn callouts(path: &Path, trace: &Trace, dir_limit: usize) -> NonEmpty<Callout> {
-    let (step, early) = match trace.stop_status() {
-        StopStatus::Early(step) => (step, true),
-        StopStatus::Final(step) => (step, false),
-    };
-
-    let mut callouts = NonEmpty::new(stopped_step_callout(path, trace, step, early));
-    if let Some(parent) = parent_of_stopped_callout(path, trace, dir_limit) {
+/// Build Callouts for a trace
+fn callouts(trace: &Trace, dir_limit: usize) -> NonEmpty<Callout> {
+    let status = trace.stop_status();
+    let mut callouts = NonEmpty::new(stopped_step_callout(
+        trace,
+        status.step(),
+        status.stopped_early(),
+    ));
+    if let Some(parent) = parent_of_stopped_callout(trace, dir_limit) {
         callouts.push(parent);
     }
     callouts
 }
 
 /// The caller's whole path, caret on the component the walk stopped at.
-fn stopped_step_callout(path: &Path, trace: &Trace, step: &Step, early: bool) -> Callout {
+fn stopped_step_callout(trace: &Trace, step: &Step, early: bool) -> Callout {
+    let path = trace.input();
     let mut facts = vec![Fact::Text(stopped_step_type_line(step, early))];
     facts.extend(stopped_step_detail_facts(step));
 
-    // A relative input names nothing on its own, so show what it was anchored to. Absolute
-    // inputs already say it.
+    // We may need to show the full path later, ensure the end user can see at a glance
+    // how the full path is connected to the original input
     if path.is_relative() {
         facts.push(Fact::Text(format!("Absolute {}", trace.absolute())));
     }
 
-    // Only worth a line when the component landed somewhere other than where it is spelled,
-    // which is what a symlink (or a folded `..`) does.
     if let Some(canonical) = resolved_elsewhere(step) {
         facts.push(Fact::Text(format!("Canonical {canonical}")));
     }
 
     Callout {
         path: path.display().to_string(),
-        caret: caret_at(path, step.input_index),
+        caret: callout::highlight(path, step.input_index.map_or(Caret::Last, Caret::Index)),
         facts,
     }
 }
 
-/// Show the directory holding the stopped step.
-///
-/// If the input path is relative, the directory shown could be an absolute parent path.
-///
-/// The listing shows the sought entry when it exists, plus up to `dir_limit` others.
-fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Option<Callout> {
+/// Show the directory with contents holding the stopped step.
+fn parent_of_stopped_callout(trace: &Trace, dir_limit: usize) -> Option<Callout> {
+    let path = trace.input();
     let listing = trace.listing()?;
     let dir = &listing.dir_before;
     let sought = &listing.component;
 
     let (shown, caret) = if let Some(span) = trace
         .input_index_of_dir(&listing)
-        .and_then(|index| caret_at(path, Some(index)))
+        .and_then(|index| callout::highlight(path, Caret::Index(index)))
     {
         (path.display().to_string(), Some(span))
     } else {
-        // The section we want to show is not present in the original input path for example `foo.txt` doesn't have
-        // any parent dir shown. So instead show the full path
+        // When the dir_before + component cannot be mapped to an input index show the full path of the
+        // directory + the component.
         let span = callout::highlight(dir.as_ref(), Caret::Last);
         (
             dir.as_ref().join(sought.as_ref()).display().to_string(),
@@ -274,15 +240,13 @@ fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Op
     let entries = dir.normal_entries();
     match &entries {
         Err(error) => facts.push(Fact::Text(format!("Cannot list directory: {error}"))),
-        // Promoted to its own fact rather than left as a gap in the tree, because a name that
-        // is not there cannot be pointed at inside a list of names that are.
         Ok(entries) if !entries.contains(sought) => {
             facts.push(Fact::Text(format!("❌ Missing {sought}")));
         }
         Ok(_) => {}
     }
 
-    // Last, so the tree it nests never comes between two `>` facts.
+    // List directory contents last so it doesn't come between two facts
     if let Ok(entries) = &entries {
         let mut rows = Vec::new();
         let mut others = 0;
@@ -319,20 +283,7 @@ fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Op
     })
 }
 
-/// A caret over the input component at `index`, falling back to the last component when the
-/// step was never attributed to one the caller wrote.
-fn caret_at(path: &Path, index: Option<usize>) -> Option<callout::Span> {
-    match index {
-        Some(index) => callout::highlight(path, Caret::Index(index)),
-        None => callout::highlight(path, Caret::Last),
-    }
-}
-
-/// The one line that always leads the stopping-step callout: what is at that component.
-///
-/// An early stop folds the reason the walk could not continue into the type itself, because a
-/// bare `File` on a component with more path after it reads like an answer rather than the
-/// problem it is.
+/// First description of the step that stopped (should hint why it stopped there when early)
 fn stopped_step_type_line(step: &Step, early: bool) -> String {
     let not_a_dir = if early { ", not a dir" } else { "" };
 
@@ -380,8 +331,7 @@ fn stopped_step_type_line(step: &Step, early: bool) -> String {
     }
 }
 
-/// Facts that only some node kinds carry: where a link points, and why the walk could not reach
-/// through to the name.
+/// Extra details about a stopped step beyond [`stopped_step_type_line`]
 fn stopped_step_detail_facts(step: &Step) -> Vec<Fact> {
     match &step.contents {
         PhysicalNode::Symlink { target, .. } => match target {
@@ -394,11 +344,6 @@ fn stopped_step_detail_facts(step: &Step) -> Vec<Fact> {
             ))],
             Err(error) => vec![Fact::Text(format!("Cannot read symlink target: {error}"))],
         },
-        // The type line says the name was only ever seen in a listing. This says what the system
-        // answered when the walk asked about it directly, which is the sentence a reader can
-        // search for. The error is the one the walk already holds rather than a fresh call: asking
-        // again at render time would put a filesystem read inside `Display`, and an answer from a
-        // different moment than the rest of the callout.
         PhysicalNode::ParentNoExec { error, .. } => {
             vec![Fact::Text(format!("Cannot read raw metadata: {error}"))]
         }
@@ -406,10 +351,8 @@ fn stopped_step_detail_facts(step: &Step) -> Vec<Fact> {
     }
 }
 
-/// Where the component resolved to, when that is somewhere other than where it is spelled.
-///
-/// `None` when the two agree, which is the common case and would only add a line repeating the
-/// bullet above it.
+/// Physical resolved path if it's different than what's already visible in callout
+/// Helps avoid repetition of facts already visible on the screen
 fn resolved_elsewhere(step: &Step) -> Option<CanonicalPath> {
     match &step.contents {
         // In the `/path/to/directory/a/b/..` is always shown as `/path/to/directory/a`
@@ -431,21 +374,7 @@ fn resolved_elsewhere(step: &Step) -> Option<CanonicalPath> {
     }
 }
 
-/// What a directory's permission bits allow, spelled out, when at least one of them is denied.
-///
-/// Silent on a directory that permits everything, where the triad above already says so and three
-/// more lines of "yes" would bury the facts worth reading.
-///
-/// Each line stands on its own. It is tempting to fold them together — "entries can be listed but
-/// not reached" says the interesting part of two bits in one breath — but that sentence is only
-/// true when read is granted, and a `0o111` directory grants search and refuses the listing. A
-/// fact that quietly depends on another bit is one a reader cannot check against the triad, so
-/// each bit gets its own sentence and claims nothing about the others.
-///
-/// Read is reported either way, because "the listing you are about to see is everything that is
-/// there" and "there is no listing" are both answers the reader needs once anything else is
-/// denied. Write and execute appear only when denied: a permission that is granted causes no
-/// surprise worth a line.
+/// Directory permission capabilities spelled out in words
 fn dir_permission_facts(dir: &Path) -> Vec<Fact> {
     let write = dir.access(AccessMode::WRITE).is_ok();
     let execute = dir.access(AccessMode::EXECUTE).is_ok();
@@ -482,21 +411,12 @@ fn triad(path: &Path) -> String {
     )
 }
 
-/// Every scenario the library renders, asserted once.
-///
-/// [`PathFacts`](crate::PathFacts) forwards its `Display` here, so these snapshots are the only
-/// copy. `path_facts::tests` keeps a single test proving that forwarding is verbatim, which is
-/// what makes each snapshot below a claim about both types without a second suite to keep in step.
-///
-/// Every snapshot ends in `🛑` so a trailing newline is visible rather than trimmed away, and
-/// every fixture is built under [`Fixture::root`] so the carets have stable names to point at.
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::join_unfolded;
     use crate::test_support::*;
 
-    /// Renders a report and scrubs it with `scrubber`.
     fn report(scrubber: &Scrubber, path: impl AsRef<Path>) -> String {
         scrubber.carets(&Report::new(path).to_string())
     }
@@ -632,11 +552,6 @@ mod tests {
         ");
     }
 
-    /// Rendering asks disk nothing: every fact is gathered by `Report::new`.
-    ///
-    /// Deleting everything the callouts describe is the only way to tell the difference from the
-    /// outside. A `Display` that still read permissions or listed the directory would answer
-    /// from the emptied disk and stop matching the first render.
     #[test]
     fn test_render_does_not_touch_the_filesystem() {
         let fixture = Fixture::new();
@@ -656,11 +571,6 @@ mod tests {
         );
     }
 
-    // A `0o111` (search-only, no-read) parent directory: the walk can *search* through it to
-    // resolve `child.txt`, so the path reaches its final component, but the parent cannot be
-    // `read_dir`'d. The refused listing is reported on the parent callout itself, which is why the
-    // callout names a directory and then declines to show what is in it. Unix-only:
-    // search-without-read is a POSIX mode the Windows runner cannot reproduce.
     #[test]
     #[cfg(unix)]
     fn test_prior_dir_problem_search_only_parent() {
@@ -692,18 +602,6 @@ mod tests {
         ");
     }
 
-    // A `0o000` parent directory, which is neither searchable nor readable. The lookup inside it
-    // is refused with `EACCES` rather than answered with `ENOENT`, so the walk cannot say whether
-    // the name is there. The fallback that would normally turn a refused lookup into `Parent
-    // directory missing execute permission` needs a listing to check the name against, and this
-    // directory will not give one either, so the refusal stands as its own outcome.
-    //
-    // `child.txt` is written before the mode drops, so this snapshot is a claim about a file that
-    // demonstrably exists: `Cannot tell what is here` is the walk declining to guess, not a
-    // roundabout spelling of missing.
-    //
-    // Unix-only, for the same reason as the tests above: the Windows runner's admin token bypasses
-    // the denial.
     #[test]
     #[cfg(unix)]
     fn test_lookup_refused_by_an_unreadable_parent() {
@@ -717,7 +615,6 @@ mod tests {
 
         let output = report(&fixture.scrub(), &child);
 
-        // Restore permissions so the tempdir can be cleaned up.
         set_mode(&denied, 0o755).unwrap();
 
         insta::assert_snapshot!(output, @r"
@@ -868,15 +765,6 @@ mod tests {
         ");
     }
 
-    /// Every shape `resolved_elsewhere` tells apart, in one table.
-    ///
-    /// The question is not where the component landed — [`PhysicalNode::resolved_to`] answers that
-    /// by itself, and every arm here takes the place from there. It is whether a `Canonical` line
-    /// would name somewhere the callout has not already named. What changes per arm is the spelling
-    /// that counts as "already named": the caret's own location for most nodes, the directory that
-    /// held the two dots for a `..`, and the link's written target for a symlink. Weighing all
-    /// three against `Step::at` would answer "no" for `..` every time and "yes" for a symlink every
-    /// time, which is why the comparison cannot be shared.
     #[test]
     fn test_resolved_elsewhere_per_node_kind() {
         use std::path::Component;
@@ -942,8 +830,7 @@ mod tests {
             .iter()
             .map(|(what, path)| {
                 let trace = Trace::new(path).unwrap();
-                let (StopStatus::Early(step) | StopStatus::Final(step)) = trace.stop_status();
-                let answer = match resolved_elsewhere(step) {
+                let answer = match resolved_elsewhere(trace.stop_status().step()) {
                     Some(canonical) => canonical.to_string(),
                     None => "None".to_string(),
                 };
@@ -1066,8 +953,6 @@ mod tests {
         ");
     }
 
-    /// Two reports in one message. The summary line carries no `→` arrow precisely so a caller can
-    /// prepend `From path` / `To path` and have it still read as a sentence.
     #[test]
     fn test_rename_two_missing_paths() {
         use indoc::formatdoc;
@@ -1178,9 +1063,6 @@ mod tests {
         ");
     }
 
-    /// The link resolves, so the type line can say what it landed on, and what it landed on is
-    /// why the walk stopped. `, not a dir` is the same contrast a plain `File` draws when the
-    /// caller wrote more path after it, said here about the destination rather than the link.
     #[test]
     fn test_symlink_to_file_with_more_path_after_it() {
         let target = Fixture::named("target");
@@ -1235,14 +1117,6 @@ mod tests {
         ");
     }
 
-    // Unix-only test, though the failure it covers is not unix-only. `CannotReadCWD` fires
-    // whenever `std::env::current_dir()` fails, which can happen on Windows too (e.g. the working
-    // directory lived on a removable or network drive that went away, or its permissions were
-    // revoked out from under the process).
-    //
-    // What differs is how to *provoke* it deterministically. On unix we just delete the CWD while
-    // sitting in it. Windows holds an open handle to the CWD and refuses to remove it, so that
-    // trick is unavailable, and the remaining triggers cannot be staged reliably from a unit test.
     #[test]
     #[cfg(unix)]
     fn test_cannot_read_cwd() {
@@ -1267,10 +1141,6 @@ mod tests {
         insta::assert_snapshot!(output, @"path `hello\0world` contains a NUL character \"hello\\0world\"");
     }
 
-    // Root detection is "the path has no lexical parent". The spelling of a root differs by
-    // platform, so each OS asserts its own: unix's `/` here, Windows's `C:\` below. On Windows `/`
-    // is root-but-relative (it has a RootDir component but no drive prefix), so it would not
-    // report as root.
     #[test]
     #[cfg(unix)]
     fn test_is_root() {
@@ -1280,10 +1150,6 @@ mod tests {
         ");
     }
 
-    // A drive root like `C:\` has a Prefix and a RootDir but no further components, so it has no
-    // lexical parent and reports as root, the same property `/` has on unix. Unscrubbed: the
-    // backslashes and the verbatim prefix are the point, and this snapshot can only ever be
-    // recorded by a Windows runner.
     #[test]
     #[cfg(windows)]
     fn test_is_root_windows() {
@@ -1552,10 +1418,6 @@ mod tests {
         );
     }
 
-    /// A symlink-to-directory ancestor whose target holds a file that callouts descent. The early
-    /// stop is reported at its physical location under the resolved target (`.../real/a.txt`), not
-    /// under the link's own name, pinning that `step.at` is physical-through-parent and not a
-    /// lexical spelling of the input.
     #[test]
     fn test_prior_path_is_file_under_a_symlinked_directory() {
         let fixture = Fixture::new();
@@ -1606,13 +1468,6 @@ mod tests {
         ");
     }
 
-    // Unix-only: the behavior is not reproducible on the Windows CI runner.
-    //
-    // The test needs "a directory you can list but not descend into" so that `symlink_metadata`
-    // on a child is refused. Unix models this as the directory execute bit, dropped here with
-    // `set_mode(0o644)`. Windows models it as the "Traverse folder / execute file" ACL right, and
-    // GitHub's Windows runner executes as an administrator whose token bypasses per-user traverse
-    // denials, so `icacls /deny` leaves `symlink_metadata` succeeding.
     #[test]
     #[cfg(unix)]
     fn test_no_execute_dir_with_file() {
@@ -1649,8 +1504,6 @@ mod tests {
         ");
     }
 
-    // Unix-only for the same reason as the test above: it removes directory traverse (0o444) so
-    // `symlink_metadata` on a child is refused, which the Windows runner's admin token bypasses.
     #[test]
     #[cfg(unix)]
     fn test_no_write_dir_with_file() {
@@ -1689,8 +1542,6 @@ mod tests {
         ");
     }
 
-    // Unix-only: builds `AbsPath` from unix-rooted paths (`/` and `/pretend/...`), which are not
-    // valid absolute paths on Windows (roots look like `C:\`).
     #[test]
     #[cfg(unix)]
     fn test_cannot_canonicalize_anything() {
@@ -1719,9 +1570,6 @@ mod tests {
         ");
     }
 
-    /// A race caught on the final component. The walk resolved every step, then a re-check
-    /// contradicted what it had just seen. A real race cannot be timed on demand, so
-    /// `Trace::append_race` writes a known one into an otherwise real trace.
     #[test]
     fn test_renders_a_raced_final_component() {
         let fixture = Fixture::new();

@@ -135,17 +135,17 @@ impl Report {
     fn render_cannot_trace(&self, cannot: &CannotTrace) -> String {
         let input = self.path.display();
         match cannot {
-            CannotTrace::Anchor(AbsPathError::NulChar(path)) => {
+            CannotTrace::CannotAbsolute(AbsPathError::NulChar(path)) => {
                 format!(
                     "path `{}` contains a NUL character {:?}",
                     path.display(),
                     path.display()
                 )
             }
-            CannotTrace::Anchor(AbsPathError::PathIsEmpty(path)) => {
+            CannotTrace::CannotAbsolute(AbsPathError::PathIsEmpty(path)) => {
                 format!("path `{}` is empty", path.display())
             }
-            CannotTrace::Anchor(AbsPathError::CannotReadCWD(path, error)) => {
+            CannotTrace::CannotAbsolute(AbsPathError::CannotReadCWD(path, error)) => {
                 let callout = Callout {
                     path: path.display().to_string(),
                     caret: None,
@@ -252,7 +252,6 @@ fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Op
     let listing = trace.listing()?;
     let dir = &listing.dir_before;
     let sought = &listing.component;
-    let spelled = trace.stop_parent();
 
     let (shown, caret) = if let Some(span) = trace
         .input_index_of_dir(&listing)
@@ -262,23 +261,14 @@ fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Op
     } else {
         // The section we want to show is not present in the original input path for example `foo.txt` doesn't have
         // any parent dir shown. So instead show the full path
-        let fallback = spelled.clone().unwrap_or_else(|| dir.clone().into());
-        let span = callout::highlight(fallback.as_ref(), Caret::Last);
+        let span = callout::highlight(dir.as_ref(), Caret::Last);
         (
-            fallback.join_normal(sought).as_ref().display().to_string(),
+            dir.as_ref().join(sought.as_ref()).display().to_string(),
             span,
         )
     };
 
     let mut facts = vec![Fact::Text(format!("Dir {}", triad(dir.as_ref())))];
-
-    // The directory as spelled and the directory it resolves to differ whenever a symlink or
-    // a `..` sits above the stopped step. Saying so is the only way a reader can tell which
-    // directory the listing below describes.
-    if spelled.map_or(true, |parent| parent.as_ref() != dir.as_ref()) {
-        facts.push(Fact::Text(format!("Canonical {dir}")));
-    }
-
     facts.extend(dir_permission_facts(dir.as_ref()));
 
     let entries = dir.normal_entries();

@@ -17,9 +17,6 @@ use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
 /// Shows facts about a path as a series of caret-annotated callouts when `Display`ed.
-///
-/// Same walk and same facts as [`PathFacts`](crate::PathFacts), different presentation. Pick one
-/// per call site; they are not meant to be interleaved.
 #[derive(Debug)]
 pub(crate) struct Report {
     /// Original input path, exactly as the caller spelled it
@@ -48,24 +45,18 @@ impl Report {
         result: Result<Trace, CannotTrace>,
         dir_limit: usize,
     ) -> Self {
-        let trace = result.map(|trace| traced(path.as_ref(), trace, dir_limit));
+        let trace = result.map(|trace| trace_and_callouts(path.as_ref(), trace, dir_limit));
         Report {
             path: path.as_ref().to_path_buf(),
             trace,
         }
     }
 
-    /// The single entry on disk this path resolves to, when every component resolved.
-    ///
-    /// `None` when the walk stopped early or never began: a missing name, a broken link, an empty
-    /// input. Two reports whose locations are both `Some` and equal name one entry on disk, however
-    /// each path was spelled — which is what [`FromTo`](crate::FromTo) keys its cross-reference on.
     pub(crate) fn resolved_location(&self) -> Option<CanonicalPath> {
         let (trace, _) = self.trace.as_ref().ok()?;
         trace.physical_location()
     }
 
-    /// Adds a cross-path note beneath the facts of the component the walk stopped at.
     pub(crate) fn annotate_stopped(&mut self, note: String) {
         if let Ok((_, callouts)) = &mut self.trace {
             callouts.first_mut().facts.push(Fact::Text(note));
@@ -88,22 +79,19 @@ impl Report {
 
         format!(
             "{}\n{}",
-            self.summary(trace),
+            self.existance(trace),
             callout::render_callouts(callouts)
         )
     }
 
-    /// Renders the report with a prefix
-    ///
-    /// This rendering method allows us to underline the path in the first line with a caret (`^^^^`).
     pub(crate) fn render_with_prefix(&self, prefix: &str) -> String {
         let (trace, callouts) = match self.trace.as_ref() {
             Ok(walked) => walked,
             Err(cannot) => return format!("{prefix}{}", self.render_cannot_trace(cannot)),
         };
 
-        let summary = self.summary(trace);
-        let path_col = last_line_width(prefix)
+        let summary = self.existance(trace);
+        let path_col = prefix.rsplit('\n').next().unwrap_or("").chars().count()
             + summary
                 .chars()
                 .position(|char| char == '`')
@@ -121,8 +109,7 @@ impl Report {
         out
     }
 
-    /// The standalone verdict line. No arrow, so a caller may prepend arbitrary text.
-    fn summary(&self, trace: &Trace) -> String {
+    fn existance(&self, trace: &Trace) -> String {
         let input = self.path.display();
         match trace.status_on_disk() {
             StatusOnDisk::Exists => format!("exists `{input}`"),
@@ -131,7 +118,7 @@ impl Report {
         }
     }
 
-    /// The walk never started, so there are no components to point a caret at.
+    /// What to print when we couldn't start a [`Trace`]
     fn render_cannot_trace(&self, cannot: &CannotTrace) -> String {
         let input = self.path.display();
         match cannot {
@@ -185,18 +172,7 @@ impl Report {
     }
 }
 
-/// Character width of the prefix's last line — everything after its final newline — which is what
-/// a folded caret is shifted right by. Empty, or a prefix ending in a newline, measures zero.
-fn last_line_width(input: &str) -> usize {
-    input.rsplit('\n').next().unwrap_or("").chars().count()
-}
-
-/// Pairs a walk with the callouts built from it.
-///
-/// Every filesystem call this type makes happens here: building the callouts reads permissions
-/// and lists a directory. Leaving that in `Display` would hide syscalls behind a `{}` and let two
-/// renderings of the same value disagree, each having asked disk at a different moment.
-fn traced(path: &Path, trace: Trace, dir_limit: usize) -> (Trace, NonEmpty<Callout>) {
+fn trace_and_callouts(path: &Path, trace: Trace, dir_limit: usize) -> (Trace, NonEmpty<Callout>) {
     let callouts = callouts(path, &trace, dir_limit);
     (trace, callouts)
 }

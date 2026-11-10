@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.1
+
 - Fix: Show original path with `..` on the directory contains callout.
 
 ```

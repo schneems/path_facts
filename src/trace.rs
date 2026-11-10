@@ -407,7 +407,6 @@ impl Trace {
     }
 
     /// The unmodified original path
-    #[cfg(test)]
     pub(crate) fn input(&self) -> &Path {
         &self.input
     }

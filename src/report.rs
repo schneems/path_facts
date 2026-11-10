@@ -45,7 +45,7 @@ impl Report {
         result: Result<Trace, CannotTrace>,
         dir_limit: usize,
     ) -> Self {
-        let trace = result.map(|trace| trace_and_callouts(path.as_ref(), trace, dir_limit));
+        let trace = result.map(|trace| trace_and_callouts(trace, dir_limit));
         Report {
             path: path.as_ref().to_path_buf(),
             trace,
@@ -172,8 +172,8 @@ impl Report {
     }
 }
 
-fn trace_and_callouts(path: &Path, trace: Trace, dir_limit: usize) -> (Trace, NonEmpty<Callout>) {
-    let callouts = callouts(path, &trace, dir_limit);
+fn trace_and_callouts(trace: Trace, dir_limit: usize) -> (Trace, NonEmpty<Callout>) {
+    let callouts = callouts(&trace, dir_limit);
     (trace, callouts)
 }
 
@@ -182,21 +182,22 @@ fn trace_and_callouts(path: &Path, trace: Trace, dir_limit: usize) -> (Trace, No
 /// Always at least one: the walk always stopped somewhere, and that somewhere is what the first
 /// callout describes. The second appears whenever the stopping step sits in a directory the walk
 /// managed to look inside.
-fn callouts(path: &Path, trace: &Trace, dir_limit: usize) -> NonEmpty<Callout> {
+fn callouts(trace: &Trace, dir_limit: usize) -> NonEmpty<Callout> {
     let (step, early) = match trace.stop_status() {
         StopStatus::Early(step) => (step, true),
         StopStatus::Final(step) => (step, false),
     };
 
-    let mut callouts = NonEmpty::new(stopped_step_callout(path, trace, step, early));
-    if let Some(parent) = parent_of_stopped_callout(path, trace, dir_limit) {
+    let mut callouts = NonEmpty::new(stopped_step_callout(trace, step, early));
+    if let Some(parent) = parent_of_stopped_callout(trace, dir_limit) {
         callouts.push(parent);
     }
     callouts
 }
 
 /// The caller's whole path, caret on the component the walk stopped at.
-fn stopped_step_callout(path: &Path, trace: &Trace, step: &Step, early: bool) -> Callout {
+fn stopped_step_callout(trace: &Trace, step: &Step, early: bool) -> Callout {
+    let path = trace.input();
     let mut facts = vec![Fact::Text(stopped_step_type_line(step, early))];
     facts.extend(stopped_step_detail_facts(step));
 
@@ -224,7 +225,8 @@ fn stopped_step_callout(path: &Path, trace: &Trace, step: &Step, early: bool) ->
 /// If the input path is relative, the directory shown could be an absolute parent path.
 ///
 /// The listing shows the sought entry when it exists, plus up to `dir_limit` others.
-fn parent_of_stopped_callout(path: &Path, trace: &Trace, dir_limit: usize) -> Option<Callout> {
+fn parent_of_stopped_callout(trace: &Trace, dir_limit: usize) -> Option<Callout> {
+    let path = trace.input();
     let listing = trace.listing()?;
     let dir = &listing.dir_before;
     let sought = &listing.component;

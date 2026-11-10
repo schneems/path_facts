@@ -195,14 +195,12 @@ fn stopped_step_callout(trace: &Trace, step: &Step, early: bool) -> Callout {
     let mut facts = vec![Fact::Text(stopped_step_type_line(step, early))];
     facts.extend(stopped_step_detail_facts(step));
 
-    // A relative input names nothing on its own, so show what it was anchored to. Absolute
-    // inputs already say it.
+    // We may need to show the full path later, ensure the end user can see at a glance
+    // how the full path is connected to the original input
     if path.is_relative() {
         facts.push(Fact::Text(format!("Absolute {}", trace.absolute())));
     }
 
-    // Only worth a line when the component landed somewhere other than where it is spelled,
-    // which is what a symlink (or a folded `..`) does.
     if let Some(canonical) = resolved_elsewhere(step) {
         facts.push(Fact::Text(format!("Canonical {canonical}")));
     }
@@ -214,11 +212,7 @@ fn stopped_step_callout(trace: &Trace, step: &Step, early: bool) -> Callout {
     }
 }
 
-/// Show the directory holding the stopped step.
-///
-/// If the input path is relative, the directory shown could be an absolute parent path.
-///
-/// The listing shows the sought entry when it exists, plus up to `dir_limit` others.
+/// Show the directory with contents holding the stopped step.
 fn parent_of_stopped_callout(trace: &Trace, dir_limit: usize) -> Option<Callout> {
     let path = trace.input();
     let listing = trace.listing()?;
@@ -231,8 +225,8 @@ fn parent_of_stopped_callout(trace: &Trace, dir_limit: usize) -> Option<Callout>
     {
         (path.display().to_string(), Some(span))
     } else {
-        // The section we want to show is not present in the original input path for example `foo.txt` doesn't have
-        // any parent dir shown. So instead show the full path
+        // When the dir_before + component cannot be mapped to an input index show the full path of the
+        // directory + the component.
         let span = callout::highlight(dir.as_ref(), Caret::Last);
         (
             dir.as_ref().join(sought.as_ref()).display().to_string(),
@@ -246,15 +240,13 @@ fn parent_of_stopped_callout(trace: &Trace, dir_limit: usize) -> Option<Callout>
     let entries = dir.normal_entries();
     match &entries {
         Err(error) => facts.push(Fact::Text(format!("Cannot list directory: {error}"))),
-        // Promoted to its own fact rather than left as a gap in the tree, because a name that
-        // is not there cannot be pointed at inside a list of names that are.
         Ok(entries) if !entries.contains(sought) => {
             facts.push(Fact::Text(format!("❌ Missing {sought}")));
         }
         Ok(_) => {}
     }
 
-    // Last, so the tree it nests never comes between two `>` facts.
+    // List directory contents last so it doesn't comes between two facts
     if let Ok(entries) = &entries {
         let mut rows = Vec::new();
         let mut others = 0;

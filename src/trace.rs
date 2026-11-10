@@ -830,12 +830,10 @@ mod tests {
     use super::*;
     use crate::join_unfolded;
 
-    /// Traces a path the way a caller would, anchoring it and handing the spelling back
     fn walk(path: impl AsRef<Path>) -> Trace {
         Trace::new(path.as_ref()).unwrap()
     }
 
-    /// The steps `attribute` sees, without walking anything to produce them
     fn named(names: &[&str]) -> Vec<Step> {
         names
             .iter()
@@ -864,17 +862,12 @@ mod tests {
         first
     }
 
-    /// Tempdirs on macOS live under a symlink, so resolve once up front to keep the
-    /// expected values readable.
     fn tempdir() -> (tempfile::TempDir, PathBuf) {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path().canonicalize().unwrap();
         (temp, dir)
     }
 
-    /// The filesystem root `path` is anchored to
-    ///
-    /// Built from components so no test has to spell out a separator.
     fn root_of(path: &Path) -> PathBuf {
         path.components()
             .take_while(|component| matches!(component, Component::Prefix(_) | Component::RootDir))
@@ -882,7 +875,6 @@ mod tests {
             .collect()
     }
 
-    /// The step the walk stopped at, which has to exist for the test to be about anything
     fn stopped(trace: &Trace) -> &Step {
         trace.stopped_early_at().unwrap()
     }
@@ -903,8 +895,6 @@ mod tests {
         assert_eq!(listing.component, norm("c"));
     }
 
-    /// A name that is not there is still a name in a directory that is, so the listing
-    /// answers even though the path does not resolve.
     #[test]
     fn test_entry_that_is_missing_still_has_a_directory() {
         let (_temp, dir) = tempdir();
@@ -924,8 +914,6 @@ mod tests {
         );
     }
 
-    /// A broken symlink is still an entry in its directory, so the listing answers even
-    /// though the path cannot be canonicalized.
     #[cfg(unix)]
     #[test]
     fn test_entry_that_is_a_broken_symlink_reports_its_target() {
@@ -952,9 +940,6 @@ mod tests {
         assert_eq!(listing.component, norm("c"));
     }
 
-    /// A circular link is the same shape as a dangling one: `lstat` succeeds on the link
-    /// itself, and only following it fails. Nothing here matches on the error code, the
-    /// system's own message is the report.
     #[cfg(unix)]
     #[test]
     fn test_entry_that_is_a_symlink_loop_still_has_a_directory() {
@@ -977,8 +962,6 @@ mod tests {
         assert_eq!(listing.component, norm("loop1"));
     }
 
-    /// The case a canonical path cannot express: `b` is missing, so `<dir>/a/b` is an exact
-    /// name for where `c` would sit even though nothing is there.
     #[test]
     fn test_naming_continues_below_a_missing_name() {
         let (_temp, dir) = tempdir();
@@ -990,7 +973,6 @@ mod tests {
         assert!(matches!(stop.contents, PhysicalNode::Missing(_)));
         assert_eq!(stop.at.as_ref().unwrap().as_ref(), b);
 
-        // The listing points at the missing name itself, inside a directory that exists
         let listing = trace.listing().unwrap();
         assert_eq!(listing.dir_before.as_ref(), dir.join("a"));
         assert_eq!(listing.component, norm("b"));
@@ -1000,7 +982,6 @@ mod tests {
         );
     }
 
-    /// One absence covers every name below it, no further syscalls needed.
     #[test]
     fn test_naming_continues_arbitrarily_far_below_a_missing_name() {
         let (_temp, dir) = tempdir();
@@ -1019,9 +1000,6 @@ mod tests {
         );
     }
 
-    /// The case the old `ParentDirAfterHole` verdict made confusing by reporting only what
-    /// it could not do. A `..` below a missing name changes nothing about where the walk
-    /// stopped, so the listing still answers.
     #[test]
     fn test_dot_dot_below_a_missing_name_still_has_a_directory() {
         let (_temp, dir) = tempdir();
@@ -1042,8 +1020,6 @@ mod tests {
         assert!(trace.last_step_expanded_lexical_parent().is_none());
     }
 
-    /// `..` cannot be folded across a hole: doing so would assume `b` gets created as a
-    /// directory rather than as a symlink pointing somewhere else.
     #[test]
     fn test_dot_dot_below_a_missing_name_stops_naming() {
         let (_temp, dir) = tempdir();
@@ -1059,7 +1035,6 @@ mod tests {
         assert!(trace.last_step_expanded_lexical_parent().is_none());
     }
 
-    /// Components below a symlink are named inside its target, not below the link.
     #[cfg(unix)]
     #[test]
     fn test_symlink_in_the_middle_resolves_to_its_target() {
@@ -1118,17 +1093,13 @@ mod tests {
             other => panic!("expected Symlink got {:?}", other),
         }
 
-        // Wherever the link points, the link itself sits in a directory that exists
         let listing = trace.listing().unwrap();
         assert_eq!(listing.dir_before.as_ref(), dir);
         assert_eq!(listing.component, norm("dangling"));
 
-        // A child of the link would live under the target, which does not resolve
         assert!(trace.last_step_expanded_lexical_parent().is_none());
     }
 
-    /// A relative target resolves against the directory holding the link. Joining it onto
-    /// the link itself would name `<dir>/dangling/missing`.
     #[cfg(unix)]
     #[test]
     fn test_broken_symlink_with_a_relative_target() {
@@ -1198,12 +1169,6 @@ mod tests {
         }
     }
 
-    /// A directory that stops being one partway through a walk cannot be arranged on
-    /// demand, so these ask the second look directly what it makes of each way that can
-    /// happen. What they cover is the judgement, not the timing.
-    ///
-    /// Builds the [`CanonicalPath`] first and disturbs the path afterwards, which is the
-    /// same order the walk sees: a directory it stood in, and a later look that disagrees.
     fn entered(path: &Path) -> CanonicalPath {
         CanonicalPath::new(&AbsPath::new(path).unwrap()).unwrap()
     }
@@ -1242,9 +1207,6 @@ mod tests {
         assert!(check_directory_race(&entered).is_some());
     }
 
-    /// Pointing at a directory does not make it the directory the walk entered. A
-    /// [`CanonicalPath`] holds no symlinks, so a link standing in its place contradicts
-    /// that however it resolves, which is why the second look is an `lstat`.
     #[cfg(unix)]
     #[test]
     fn test_the_second_look_catches_a_directory_replaced_by_a_symlink_to_a_directory() {
@@ -1261,9 +1223,6 @@ mod tests {
         assert!(check_directory_race(&entered).is_some());
     }
 
-    /// The guarantee that matters most: a second look that cannot see has proven nothing,
-    /// and says so. Reporting a contradiction here would blame the filesystem for a walk
-    /// that was never shown to be wrong.
     #[cfg(unix)]
     #[test]
     fn test_the_second_look_reports_nothing_when_it_cannot_see() {
@@ -1276,15 +1235,12 @@ mod tests {
         std::fs::create_dir(&path).unwrap();
         let entered = entered(&path);
 
-        // Without execute on the parent, `lstat` on the directory itself is refused
         std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o600)).unwrap();
 
         assert!(std::fs::symlink_metadata(&path).is_err());
         assert_eq!(check_directory_race(&entered), None);
     }
 
-    /// Without execute the directory cannot be searched, so a name inside it could be
-    /// missing, a directory, or a symlink. Absence is unprovable, so naming stops.
     #[cfg(unix)]
     #[test]
     fn test_directory_without_execute_stops_the_walk() {
@@ -1325,8 +1281,6 @@ mod tests {
         assert_eq!(listing.component, norm("f"));
     }
 
-    /// An ancestor that blocks descent stops the walk early, and that step carries the physical
-    /// location and the node the walk found there.
     #[test]
     fn test_early_stop_names_the_file_ancestor_that_blocked_descent() {
         let (_temp, dir) = tempdir();
@@ -1340,7 +1294,6 @@ mod tests {
         assert!(matches!(step.contents, PhysicalNode::File(_)));
     }
 
-    /// A missing name below the final component blocks descent the same way a file does.
     #[test]
     fn test_early_stop_names_a_missing_ancestor() {
         let (_temp, dir) = tempdir();
@@ -1374,8 +1327,6 @@ mod tests {
         }
     }
 
-    /// A path that resolves all the way to its final component never stopped early, so the
-    /// stop is `Final`.
     #[test]
     fn test_stop_is_final_when_the_path_resolves() {
         let (_temp, dir) = tempdir();
@@ -1386,8 +1337,6 @@ mod tests {
         assert!(matches!(walk(&path).stop_status(), StopStatus::Final(_)));
     }
 
-    /// The final component being the problem is the path's own facts, not a prior ancestor's,
-    /// so the stop is `Final`, not `Early`.
     #[test]
     fn test_stop_is_final_when_only_the_final_component_is_missing() {
         let (_temp, dir) = tempdir();
@@ -1399,9 +1348,6 @@ mod tests {
         ));
     }
 
-    /// Normalize to linux behavior. Apple's `realpath` answers `<dir>` here, but
-    /// `symlink_metadata` errors. Walking left to right follows the kernel on every
-    /// platform instead, so the trace never claims a location.
     #[test]
     fn test_dot_dot_on_a_file_stops_the_walk() {
         let (_temp, dir) = tempdir();
@@ -1439,9 +1385,6 @@ mod tests {
         assert_eq!(listing.component, norm("flink"));
     }
 
-    /// The entry name comes from the resolved location, so a trailing `..` points at `a`
-    /// rather than at the `b` that trimming the last component would produce. This is what
-    /// `read_dir` needs: no directory holds an entry called `..`.
     #[test]
     fn test_dot_dot_is_listed_as_the_entry_it_resolves_to() {
         let (_temp, dir) = tempdir();
@@ -1482,12 +1425,6 @@ mod tests {
         assert!(trace.listing().is_none());
     }
 
-    /// The location is root even though the directory walked to is not.
-    ///
-    /// Borrows a real top level directory from the canonicalized tempdir rather than
-    /// reading one out of the root. Root entries can be symlinks (`/tmp` on macOS points at
-    /// `/private/tmp`), and `..` through one of those lands somewhere else entirely.
-    /// Components of a canonical path are symlink free by definition.
     #[test]
     fn test_dot_dot_resolving_to_root_sits_in_nothing() {
         let (_temp, dir) = tempdir();
@@ -1502,10 +1439,6 @@ mod tests {
         assert!(trace.listing().is_none());
     }
 
-    /// On Unix `components()` strips every `.`, so a path that is lexically nothing but root
-    /// and dots reduces to `[RootDir]` and is caught by `IsRoot` before the walk. This is why
-    /// the zero-step case never arises here, and it documents the boundary the Windows
-    /// verbatim case crosses.
     #[cfg(unix)]
     #[test]
     fn test_root_with_only_dot_components_is_caught_as_is_root() {
@@ -1549,7 +1482,6 @@ mod tests {
         }
     }
 
-    /// Nothing was prepended, so every step points back at the component it came from.
     #[test]
     fn test_absolute_input_attributes_every_step() {
         let (_temp, dir) = tempdir();
@@ -1565,8 +1497,6 @@ mod tests {
         }
     }
 
-    /// The `./hello/lol/foo.txt` case. Only what the caller typed is attributed, and the
-    /// directory it was resolved against is still walked, just anonymously.
     #[test]
     fn test_relative_input_attributes_only_what_the_caller_wrote() {
         let (_temp, dir) = tempdir();
@@ -1576,7 +1506,6 @@ mod tests {
         let trace = walk(&input);
         assert_eq!(trace.input(), input);
 
-        // `.` is component 0 and never becomes a step, so attribution starts at 1
         let attributed = trace
             .steps
             .iter()
@@ -1587,8 +1516,6 @@ mod tests {
             vec![(1, one("hello")), (2, one("lol")), (3, one("foo.txt"))]
         );
 
-        // A problem in the anchor is still reportable, just against an absolute path
-        // rather than against anything the caller would recognize
         for step in trace.steps.iter().filter(|step| step.input_index.is_none()) {
             assert!(
                 step.at.is_some(),
@@ -1598,9 +1525,6 @@ mod tests {
         }
     }
 
-    /// An absolute path is kept verbatim, so a `.` in the middle survives into the walk as
-    /// a component with no step. Attribution steps over it rather than giving up on
-    /// everything before it.
     #[test]
     fn test_current_dir_part_does_not_break_attribution() {
         let (_temp, dir) = tempdir();
@@ -1616,13 +1540,6 @@ mod tests {
         }
     }
 
-    /// Attribution is a guess about two lists lining up, so it is built to lose rather than
-    /// to lie.
-    ///
-    /// [`Trace::new`] derives one list from the other, so this cannot be reached by walking
-    /// a path. It is still worth holding: anchoring is [`std::path::absolute`], whose
-    /// normalization differs across platforms, and a caret pointed at the wrong component
-    /// is worse than no caret at all.
     #[test]
     fn test_attribution_gives_up_rather_than_pointing_at_the_wrong_component() {
         let mut steps = named(&["home", "you", "hello"]);
@@ -1632,8 +1549,6 @@ mod tests {
         assert!(steps.iter().all(|step| step.input_index.is_none()));
     }
 
-    /// Alignment runs from the end, so a shared tail is attributed and the first name that
-    /// disagrees stops it rather than sending it hunting further up.
     #[test]
     fn test_attribution_keeps_the_tail_it_can_line_up() {
         let mut steps = named(&["home", "you", "hello"]);
@@ -1649,7 +1564,6 @@ mod tests {
         );
     }
 
-    /// A walk that resolved cleanly caught no contradiction, so there is no race to report.
     #[test]
     fn test_raced_is_none_when_the_walk_did_not_race() {
         let (_temp, dir) = tempdir();
@@ -1659,9 +1573,6 @@ mod tests {
         assert!(walk(&path).raced().is_none());
     }
 
-    /// A real race cannot be timed on demand, so `inject_race` writes a known one into an
-    /// otherwise real trace. `raced` reports it, and it reads as `Unknown` on disk exactly as a
-    /// real race does.
     #[test]
     fn test_inject_race_is_detected_and_reads_as_unknown() {
         let (_temp, dir) = tempdir();
@@ -1684,15 +1595,11 @@ mod tests {
         assert!(matches!(trace.status_on_disk(), StatusOnDisk::Unknown));
     }
 
-    /// A race before the final component leaves the steps after it `NotReached`, so it is not
-    /// `last_step`. `raced` scans rather than trusting the last step, which is what lets a
-    /// mid-path race still be reported.
     #[test]
     fn test_raced_finds_a_mid_path_race_that_last_step_would_miss() {
         let (_temp, dir) = tempdir();
         std::fs::write(dir.join("f"), "").unwrap();
 
-        // `<dir>/f/c` stops at the file `f`, leaving `c` unreached
         let mut trace = walk(dir.join("f").join("c"));
         assert!(matches!(
             trace.last_step().contents,
@@ -1701,8 +1608,6 @@ mod tests {
 
         trace.append_race("two calls disagreed", std::io::Error::other("boom"));
 
-        // The race lands on the stopped step, and the last step is still `NotReached`: a
-        // check against `last_step` alone would report no race.
         assert!(matches!(
             trace.last_step().contents,
             PhysicalNode::NotReached

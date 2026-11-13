@@ -400,7 +400,8 @@ impl Trace {
         &self.absolute
     }
 
-    /// Physical status of input path [`StatusOnDisk::Exists`], [`StatusOnDisk::DoesNotExist`] or [`StatusOnDisk::Unknown`]
+    /// Physical status of input path [`StatusOnDisk::Exists`], [`StatusOnDisk::DoesNotExist`] or
+    /// [`StatusOnDisk::Unknown`]
     pub(crate) fn status_on_disk(&self) -> StatusOnDisk {
         match self.stop_status() {
             StopStatus::Early(step) => match &step.contents {

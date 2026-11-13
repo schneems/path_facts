@@ -355,7 +355,7 @@ fn stopped_step_detail_facts(step: &Step) -> Vec<Fact> {
 /// Helps avoid repetition of facts already visible on the screen
 fn resolved_elsewhere(step: &Step) -> Option<CanonicalPath> {
     match &step.contents {
-        // In the `/path/to/directory/a/b/..` is always shown as `/path/to/directory/a`
+        // The `..` in `/path/to/directory/a/b/..` is always shown as `/path/to/directory/a`
         PhysicalNode::ParentDir {
             folded: _,
             resolved,
